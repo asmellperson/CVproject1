@@ -47,6 +47,53 @@ def matches_name(text, resource):
                if resource.get(field))
 
 
+def camera_name_variants(text):
+    """类别词可在名称前后，仍只生成完整名称候选，不做前缀或模糊身份匹配。"""
+    _department, value = reference_scope(text)
+    values = [value]
+    for pattern in (r"(?:摄像头|摄像机|相机)\s*(.+)", r"(.+?)\s*(?:摄像头|摄像机|相机)"):
+        match = re.fullmatch(pattern, value)
+        if match:
+            values.append(match[1].strip())
+    for item in list(values):
+        if len(item) > 2 and (item[0], item[-1]) in {('“', '”'), ('‘', '’'), ('"', '"'), ("'", "'")}:
+            values.append(item[1:-1].strip())
+    return set(values) - {""}
+
+
+def matching_named_resources(text, resources):
+    resources = list(resources)
+    exact = [item for item in resources if matches_name(text, item)]
+    if exact:
+        return exact
+    department, _value = reference_scope(text)
+    variants = camera_name_variants(text)
+    return [item for item in resources if item.get("kind") in {"camera", "feature"}
+            and (department is None or item.get("department") == department)
+            and any(normalized(item[field]) in variants for field in ("target_name", "name", "identifier", "key")
+                    if item.get(field))]
+
+
+def feature_labels(item):
+    label = normalized(item["label"])
+    return {normalized(item["name"]), label, re.sub(r"(?:检测|功能)$", "", label)} - {""}
+
+
+def mentioned_features(question, features):
+    """业务目录的“检测”后缀可省略；重叠名称优先保留更完整的功能名。"""
+    text = normalized(question)
+    matches = []
+    for item in features:
+        for value in feature_labels(item):
+            pattern = re.escape(value)
+            if re.fullmatch(r"[a-z0-9_]+", value):
+                pattern = r"(?<![a-z0-9_])" + pattern + r"(?![a-z0-9_])"
+            matches.extend((match.start(), match.end(), item["name"]) for match in re.finditer(pattern, text))
+    return {feature for start, end, feature in matches if not any(
+        other_start <= start and other_end >= end and other_end - other_start > end - start
+        for other_start, other_end, _feature in matches)}
+
+
 def valid_proposal(proposal, question):
     if not all(value.strip() for value in (proposal.alias, proposal.target, proposal.evidence)):
         return False
@@ -91,7 +138,7 @@ def verified_bindings(proposals, question, resources):
 
 
 class TargetPolicy:
-    def __init__(self, question, plan, memory=None, *, source_question=None):
+    def __init__(self, question, plan, memory=None, *, source_question=None, capabilities=None):
         self.question, self.plan, self.memory = question, plan, memory or {}
         self.references = plan.target_context.references if plan.target_context else []
         self.proposals = plan.target_context.bindings if plan.target_context else []
@@ -101,6 +148,28 @@ class TargetPolicy:
         self.reference_departments = set()
         self.context_sizes = set()
         self.needs_clarification = False
+        self.inventory = plan.mode == "query" and plan.query_tool == "list_resources" and bool(re.search(r"摄像头|摄像机|相机", question))
+        self.query_feature = None
+        self.query_department = None
+        self.query_feature_labels = set()
+        self.feature_enabled = None
+        if self.inventory and capabilities:
+            departments = [spec.name for spec in DEPARTMENT_SPECS.values()
+                           if any(normalized(label) in normalized(question) for label in
+                                  (spec.name, spec.display_name, spec.display_name.removesuffix("事业部")))]
+            features = mentioned_features(question, capabilities.get("features", []))
+            if len(departments) == 1:
+                self.query_department = departments[0]
+                self.reference_departments.add(self.query_department)
+            if len(features) == 1:
+                self.query_feature = next(iter(features))
+                self.query_feature_labels = next(feature_labels(item) for item in capabilities["features"] if item["name"] == self.query_feature)
+            elif len(features) > 1:
+                self.needs_clarification = True
+            if re.search(r"包括.*(?:未启用|停用|关闭)|包含.*(?:未启用|停用|关闭)|无论是否启用|启用和停用", question):
+                self.feature_enabled = None
+            else:
+                self.feature_enabled = not bool(re.search(r"未启用|未开启|停用|关闭|没启用", question))
         bindings = {normalized(item["alias"]): item["resource"] for item in self.memory.get("target_bindings", [])}
         self.candidates.update((item["resource"]["key"], item["resource"]) for item in self.memory.get("target_bindings", []))
         declarations = {normalized(item.alias): item for item in self.proposals
@@ -165,6 +234,8 @@ class TargetPolicy:
         if "error" in result:
             return
         if tool == "list_resources":
+            if self.inventory and self.query_feature and any(item.get("feature") != self.query_feature for item in result.get("items", [])):
+                raise ValueError("查询结果没有保留用户指定的功能范围，不能作为摄像头统计结果")
             for item in result.get("items", []):
                 self.candidates[item["key"]] = item
                 self.searched.add(item["key"])
@@ -202,9 +273,28 @@ class TargetPolicy:
             self._check_keys([resource["key"]])
 
     def matching_resources(self, kind, value):
-        return [resource for resource in self.candidates.values()
-                if (not self.reference_departments or resource.get("department") in self.reference_departments)
-                and (matches_name(value, resource) if kind == "name" else resource_identity(resource) == value)]
+        resources = [resource for resource in self.candidates.values()
+                     if not self.reference_departments or resource.get("department") in self.reference_departments]
+        return matching_named_resources(value, resources) if kind == "name" else [
+            resource for resource in resources if resource_identity(resource) == value]
+
+    def search_arguments(self, args):
+        if not self.inventory:
+            return args
+        updates = {}
+        if self.query_feature:
+            updates["kind"] = "camera"
+        if self.query_department:
+            updates["department"] = self.query_department
+        if self.query_feature:
+            updates["feature"] = self.query_feature
+            scope_names = self.query_feature_labels | {normalized(DEPARTMENT_SPECS[self.query_department].display_name)
+                           if self.query_department else "", "摄像头", "摄像机", "相机"}
+            if not self.selectors and (normalized(args.query) in scope_names or normalized(args.query) not in normalized(self.question)):
+                updates["query"] = ""
+        if updates.get("feature") or args.feature:
+            updates["feature_enabled"] = self.feature_enabled
+        return args.model_copy(update=updates)
 
     def _check_keys(self, keys):
         permitted, identities = set(), set()

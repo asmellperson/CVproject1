@@ -23,7 +23,8 @@ class EmptyArguments(StrictModel):
 class ListArguments(StrictModel):
     kind: str = Field(description="能力目录中的资源类别；普通检测参数使用 feature，摄像头基础信息使用 camera")
     department: str | None = Field(default=None, description="能力目录中的部门编码或完整名称，部门条件单独填写，不放入 query")
-    feature: str | None = Field(default=None, description="kind=feature 时填写能力目录中的功能标识，例如 tailgating；不是参数名")
+    feature: str | None = Field(default=None, description="功能标识，例如 tailgating；kind=camera 也可按该功能筛选，不能只按部门列出全部摄像头")
+    feature_enabled: bool | None = Field(default=None, strict=True, description="功能摄像头统计默认 true；查询未启用功能的摄像头用 false，配置查询或明确包含未启用时用 null")
     query: str = Field(default="", description="仅筛选资源名称或标识；参数名、配置值和功能名称不放在这里。用户未指定摄像头名称或标识时留空")
     parent_key: str | None = None
     offset: int = Field(default=0, ge=0)
@@ -128,6 +129,8 @@ class AssistantTools:
             raise ValueError("未知工具，请按工具目录选择")
         args = TOOL_MODELS[name][0].model_validate_json(json.dumps(arguments))
         catalog = self.catalog()
+        if name == "list_resources" and self.target_policy is not None:
+            args = self.target_policy.search_arguments(args)
         if self.target_policy is not None:
             self.target_policy.check(name, args)
         if name == "capabilities":
@@ -135,7 +138,7 @@ class AssistantTools:
         if name == "ask_user":
             return {"question": args.question}
         if name == "list_resources":
-            result = catalog.find(**args.model_dump())
+            result = catalog.find(**args.model_dump(exclude_unset=True))
             if self.target_policy is not None:
                 self.target_policy.observe(name, result)
             if self.change_policy is not None:

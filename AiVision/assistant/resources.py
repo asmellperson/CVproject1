@@ -15,6 +15,7 @@ from AiVision.departments.department_registry import DEPARTMENT_SPECS
 from AiVision.features._shared.config_manager import feature_config_manager
 from AiVision.features.registry import all_specs, get_spec
 from .schema import ConfigurationResponse, ResourceReference
+from .targets import matching_named_resources
 
 
 RESOURCE_KINDS = {
@@ -43,6 +44,7 @@ FACTORY_DEPARTMENTS = {
 }
 PRIVATE_FIELDS = frozenset({"password", "password_hash", "username", "api_key", "secret", "token",
                             "url", "rtsp_url", "callback_url", "auth_version"})
+DEFAULT_FEATURE_FILTER = object()
 
 
 def private_field(name: str) -> bool:
@@ -181,22 +183,31 @@ class ConfigurationCatalog:
                                   for key, values in FACTORY_DEPARTMENTS.items() if set(values) & set(self.departments)}}
 
     def find(self, *, kind: str, department: str | None = None, feature: str | None = None,
-             query: str = "", parent_key: str | None = None, offset: int = 0, limit: int = 25) -> dict:
+             query: str = "", parent_key: str | None = None, offset: int = 0, limit: int = 25,
+             feature_enabled: bool | None | object = DEFAULT_FEATURE_FILTER) -> dict:
         departments = self.matching_departments(department)
-        spec = get_spec(feature or "") if kind == "feature" else None
+        if feature_enabled is DEFAULT_FEATURE_FILTER:
+            feature_enabled = True if kind == "camera" and feature else None
+        spec = get_spec(feature or "") if kind in {"feature", "camera"} and feature else None
+        if feature and (kind not in {"feature", "camera"} or spec is None):
+            raise ValueError("feature 筛选仅用于摄像头或普通功能资源，且必须使用能力目录中的有效功能标识")
+        if feature_enabled is not None and not feature:
+            raise ValueError("按功能启用状态筛选时必须指定 feature")
         if kind in {"feature", "camera"}:
             if kind == "feature" and spec is None:
                 raise ValueError("查询功能配置需要提供能力目录中的 feature 标识")
             refs = []
             for scope in departments:
-                if kind == "feature" and scope not in feature_departments(self.user, feature):
+                if feature and scope not in feature_departments(self.user, feature):
                     continue
                 for camera in camera_config_manager.list_cameras(scope):
                     if kind == "feature" and feature in {"guard_behavior", "detect_logistics_single_person"}:
                         continue
+                    if feature_enabled is not None and bool(camera.get("functions", {}).get(feature, False)) != feature_enabled:
+                        continue
                     refs.append(ResourceReference(
                         key=f"feature:{feature}:{camera['camera_id']}" if kind == "feature" else f"camera:{camera['camera_id']}",
-                        kind=kind, name=camera["name"], department=scope, feature=feature if kind == "feature" else None,
+                        kind=kind, name=camera["name"], department=scope, feature=feature,
                         identifier=camera["shm_name"], target_name=camera["name"],
                     ))
         else:
@@ -210,9 +221,15 @@ class ConfigurationCatalog:
             searchable = " ".join((ref.name, ref.key, ref.identifier or "", department_name + ref.name))
             if not needle or needle in searchable.casefold():
                 matches.append(ref)
-        refs = matches
+        # 明确全名优先；“名称＋摄像头”和“摄像头＋名称”只回退到真实完整名称。
+        exact = matching_named_resources(query, [ref.model_dump() for ref in refs]) if needle else []
+        exact_keys = {item["key"] for item in exact}
+        refs = [ref for ref in refs if ref.key in exact_keys] if exact_keys else matches
         result = {"items": [ref.model_dump() for ref in refs[offset:offset + limit]], "total": len(refs),
                   "next_offset": offset + limit if offset + limit < len(refs) else None}
+        result["applied_filters"] = {"kind": kind, "departments": departments, "feature": feature,
+                                     "feature_label": getattr(spec, "display_name", feature),
+                                     "feature_enabled": feature_enabled, "query": query, "parent_key": parent_key}
         if (spec is not None and feature not in {"guard_behavior", "detect_logistics_single_person"}
                 and set(departments) & set(feature_departments(self.user, feature))):
             # 字段属于功能 Schema，摄像头名称搜索为空不能说明参数不存在。

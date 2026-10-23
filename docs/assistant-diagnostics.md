@@ -151,7 +151,7 @@ conda run --no-capture-output -n aivision python -m AiVision.tests.assistant_dia
   --output /tmp/fuda-ai-target-bindings
 ```
 
-默认统计 48 条模型用例和 33 轮对话。结果为 `/tmp/fuda-ai-target-bindings/report.md` 与 `results.json`；确认已保存结果后，可执行 `rm -rf -- /tmp/fuda-ai-target-bindings` 清理输出。命令直接导入当前代码，不启动后端或摄像头；网页使用更新后的助手逻辑需要重启 AiVision 后端，无需重启模型服务或前端。
+默认统计 63 条模型用例和 33 轮对话。结果为 `/tmp/fuda-ai-target-bindings/report.md` 与 `results.json`；确认已保存结果后，可执行 `rm -rf -- /tmp/fuda-ai-target-bindings` 清理输出。命令直接导入当前代码，不启动后端或摄像头；网页使用更新后的助手逻辑需要重启 AiVision 后端，无需重启模型服务或前端。
 
 仅排查目标核验拦截时可使用 `--layers conversation-live --conversations window`，默认执行 33 轮，无需重复模型独立测试。诊断代码通过新进程导入，无需重启服务。
 
@@ -162,7 +162,7 @@ conda run --no-capture-output -n aivision python -m AiVision.tests.assistant_dia
 | 层 | 模型 | 业务执行 | 用途 |
 |---|---|---|---|
 | `service` | 真实服务，固定短请求 | 无 | 只读识别监听进程、版本和接口声明，15 次格式与长度合同探针 |
-| `model` | 真实 Qwen | 无 | 直接测试格式约束、问候、分类、资源提取、参数提取和工具 JSON，共 16 个固定样例 |
+| `model` | 真实 Qwen | 无 | 直接测试格式约束、问候、分类、资源提取、参数提取和工具 JSON，共 21 个固定样例，包含删除语序和功能摄像头名单查询 |
 | `agent` | 固定模型替身 | 模拟工具 | 验证工具顺序、结果传递、连续调用、上下文和错误处理 |
 | `tools` | 无 | 真实服务＋临时 SQLite | 10 项资源、校验、权限、版本、局部保存及回读验证 |
 | `e2e-scripted` | 固定模型替身 | 真实服务＋临时 SQLite | 18 个场景的完整程序链路 |
@@ -235,6 +235,10 @@ python -m pytest -q \
   AiVision/tests/test_assistant_planning.py \
   AiVision/tests/test_qwen_client.py
 ```
+
+语序与功能名单回归覆盖“删除名称摄像头”“删除摄像头名称”“把名称摄像头删掉”、类别词与完整名称核验、否定和讨论句、错误目标、权限、版本变化及取消。删除测试由固定模型替身选择工具，真实执行临时 SQLite 中的删除、配置清理和审计，并确认其他摄像头保留；功能名单测试混合启用、未启用及其他部门的摄像头，核对模型遗漏、选错筛选或把功能名当名称时的实际返回范围。分页回归验证漏页、重复目标和总数变化均不能报告完整数量。
+
+`model` 层直接测试两种删除语序的分类及资源提取，以及功能摄像头名单分类。分类操作按用例分别核对 `delete_camera` 和 `update_configurations`，不能把“修改配置”误判为“删除摄像头”后仍计为通过；这些请求不经过运行时的轻量删除规则。模型独立语义、程序边界和实际执行分别测量，固定模型替身通过不能代表真实 Qwen 对话已经验收。
 
 三个保护性探针均作为必须通过的回归执行：固定模型持续提交额外字段或漏目标时，要求明确拒绝、配置完全不变且没有保存审计，保护通过不计为原修改任务完成，`task_ok` 标为不适用，`goal_verified=false`。检索参数纠正后，要求实际保存、回读及最终答复均成功。独立回归还覆盖越界或漏目标指令纠正后通过真实隔离服务保存，以及纠正过程中的取消、错误范围隔离、未完成分页、部分保存结果和只读参数描述。
 

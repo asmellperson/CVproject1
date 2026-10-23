@@ -365,6 +365,122 @@ def test_specialist_logs_only_contain_routing_metadata(monkeypatch):
         assert platform.step.question not in entries and "rtsp://" not in entries and "diagnostic-user" not in entries
 
 
+def deletion_script(platform, target, *, fault=None):
+    """模型仅提出固定工具指令，删除、版本检查、外键和审计全部执行真实隔离业务。"""
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    def complete(**kwargs):
+        last = kwargs["messages"][-1]["content"]
+        if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
+            raise AssertionError("明确单目标删除不应依赖规划模型的语序偏好")
+        if last.startswith("后台已查询"):
+            return ScriptedClient.tool("list_resources", {"kind": "camera", "query": target})
+        data = json.loads(last.split("：", 1)[1]) if last.startswith("工具执行结果") else {}
+        if data.get("items") and "key" in data["items"][0]:
+            return ScriptedClient.tool("read_configurations", {"resource_keys": ["camera:102" if fault == "wrong_target" else data["items"][0]["key"]]})
+        if data.get("items") and "resource" in data["items"][0]:
+            item = data["items"][0]
+            if fault == "cancel":
+                platform.service.cancel(platform.session_id, platform.turn_id, platform.user)
+            if fault == "conflict":
+                from AiVision.cameras.orm import AiCameraConfig
+                with platform.db.session_scope() as session:
+                    session.get(AiCameraConfig, 101).fps += 1
+            return ScriptedClient.tool("delete_camera", {"camera_key": item["resource"]["key"], "expected_revision": item["revision"]})
+        return ScriptedClient.answer()
+
+    return Mock(complete=Mock(side_effect=complete))
+
+
+@pytest.mark.parametrize("question, target", [
+    ("删除诊断闸机一号摄像头", "诊断闸机一号摄像头"),
+    ("删除摄像头诊断闸机一号", "摄像头诊断闸机一号"),
+    ("请帮我把诊断闸机一号摄像头删掉", "诊断闸机一号摄像头"),
+    ("删除“诊断闸机一号”摄像头", "“诊断闸机一号”摄像头"),
+])
+def test_delete_word_orders_really_delete_only_the_verified_camera_in_sqlite(question, target):
+    from AiVision.cameras.config_manager import camera_config_manager
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.features.tailgating.orm import TailgatingConfigORM
+
+    with isolated_platform(SCENARIOS[3]) as platform:
+        platform.runtime.client = deletion_script(platform, target)
+        turn, _ = execute_turn(platform, question)
+        assert turn.status == "completed" and "已删除摄像头" in turn.answer
+        assert len(turn.actions) == 1 and turn.actions[0].status == "saved" and turn.actions[0].resource.key == "delete:camera:101"
+        assert camera_config_manager.get_camera(101) is None
+        assert camera_config_manager.get_camera(102) is not None and camera_config_manager.get_camera(103) is not None
+        with platform.db.session_scope() as session:
+            assert session.get(AiCameraConfig, 101) is None and session.query(AiCameraConfig).count() == 2
+            assert session.query(TailgatingConfigORM).filter_by(camera_id=101).count() == 0
+        assert [entry["tool"] for entry in platform.trace] == ["capabilities", "list_resources", "read_configurations", "delete_camera"]
+
+
+@pytest.mark.parametrize("fault", ["wrong_target", "conflict", "cancel", "permission"])
+def test_delete_word_order_support_keeps_target_permissions_versions_and_cancellation(fault):
+    from AiVision.cameras.config_manager import camera_config_manager
+
+    with isolated_platform(SCENARIOS[8] if fault == "permission" else SCENARIOS[3]) as platform:
+        platform.runtime.client = deletion_script(platform, "诊断闸机一号摄像头", fault=fault)
+        turn, _ = execute_turn(platform, "删除诊断闸机一号摄像头")
+        assert all(camera_config_manager.get_camera(number) is not None for number in (101, 102, 103))
+        assert not turn.actions and "已删除摄像头" not in turn.answer
+        if fault == "cancel":
+            assert turn.status == "cancelled"
+        elif fault == "wrong_target":
+            assert any(entry["tool"] == "ask_user" for entry in platform.trace)
+        else:
+            assert turn.status == "failed"
+
+
+@pytest.mark.parametrize("kind", ["camera", "feature"])
+@pytest.mark.parametrize("arguments", ["omitted_scope", "wrong_scope", "correct_scope", "feature_as_name"])
+def test_inventory_binds_user_scope_and_returns_only_actual_feature_members(kind, arguments):
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, SECOND_CAMERA_NAME
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+    from AiVision.features.tailgating.orm import TailgatingConfigORM
+
+    with isolated_platform(SCENARIOS[3]) as platform:
+        with platform.db.session_scope() as session:
+            session.query(TailgatingConfigORM).filter_by(camera_id=101).one().enable = True
+        before = platform.snapshot()
+        calls = []
+
+        def complete(**kwargs):
+            calls.append(kwargs)
+            if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
+                return completion({"mode": "query", "query_tool": "list_resources", "target_context": {}}), 0.0
+            args = {"kind": kind}
+            if arguments == "wrong_scope":
+                args.update(department="research_institute", feature="blocks")
+            elif arguments == "correct_scope":
+                args.update(department="general_electric", feature="tailgating")
+            elif arguments == "feature_as_name":
+                args["query"] = "非法闯闸"
+            return ScriptedClient.tool("list_resources", args)
+
+        platform.runtime.client = Mock(complete=Mock(side_effect=complete))
+        turn, _ = execute_turn(platform, "通用电气事业部的非法闯闸功能有几个摄像头，分别列出来")
+        assert turn.status == "completed" and "共 1 台摄像头" in turn.answer and "非法闯闸" in turn.answer
+        assert CAMERA_NAME in turn.answer and SECOND_CAMERA_NAME not in turn.answer and "诊断外部门闸机" not in turn.answer
+        assert platform.snapshot() == before and not turn.actions
+        result = platform.trace[-1]["result"]
+        assert result["total"] == 1 and result["applied_filters"]["departments"] == ["general_electric"]
+        assert result["applied_filters"]["feature"] == "tailgating" and result["applied_filters"]["feature_enabled"] is True
+        assert len(calls) == 2
+
+
+@pytest.mark.parametrize("name", ["classification_delete_suffix", "classification_delete_prefix"])
+@pytest.mark.parametrize("operation, expected", [("delete_camera", True), ("update_configurations", False)])
+def test_model_word_order_cases_score_the_actual_delete_operation(name, operation, expected):
+    case = next(case for case in model_cases() if case["name"] == name)
+    client = Mock()
+    client.complete.return_value = completion({"mode": "change", "operations": [operation], "target_context": {}}), 0.0
+    row = run_model_case(case, client, {"base_url": "http://model.invalid/v1", "model": "fixture", "max_tokens": 2048,
+                                     "temperature": 0.0, "timeout": 10.0}, 1)
+    assert row["planning_operations_ok"] is expected and row["behavior_ok"] is expected
+
+
 @pytest.mark.parametrize("text", ["这台摄像头", "通用电气事业部这台摄像头", "通用电气事业部", "记忆代号甲"])
 def test_named_scope_or_context_does_not_block_a_verified_binding_and_its_later_use(monkeypatch, text):
     from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient

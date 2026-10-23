@@ -1659,3 +1659,161 @@ def test_unverified_step_results_cannot_be_handed_to_another_expert(status):
     with pytest.raises(ValueError, match="尚未核验完成"):
         coordinator.complete()
     assert coordinator.index == 0 and not any(task.completed for task in coordinator.tasks)
+
+
+@pytest.mark.parametrize("question", [
+    "删除诊断闸机一号摄像头", "删除摄像头诊断闸机一号", "请删除诊断闸机一号摄像头。",
+    "请帮我把诊断闸机一号摄像头删掉", "把摄像头诊断闸机一号删除", "麻烦帮我删除相机诊断闸机一号",
+    "删除“诊断闸机一号”摄像头", "删除通用电气事业部的诊断闸机一号摄像头", "删除摄像头camera_101！",
+])
+def test_unambiguous_delete_word_orders_produce_the_same_strict_operation(runtime_case, question):
+    case = runtime_case
+    case.current.question = question
+    plan = case.plan()
+    assert plan.mode == "change" and plan.operations == ["delete_camera"]
+    assert plan.target_context.references[0].text in question
+    case.client.complete.assert_not_called()
+    case.tools.run.assert_not_called()
+
+
+@pytest.mark.parametrize("question", [
+    "比如删除诊断闸机一号摄像头", "我说删除诊断闸机一号摄像头它听不懂", "怎么删除诊断闸机一号摄像头",
+    "不要删除诊断闸机一号摄像头", "删除摄像头诊断闸机一号吗", "删除摄像头诊断闸机一号会怎样",
+    "能不能删除摄像头诊断闸机一号", "删除摄像头诊断闸机一号有什么后果", "删除所有摄像头",
+    "删除摄像头一号和二号", "删除一号摄像头，然后删除二号摄像头", "删除摄像头",
+    "如果离线则删除诊断闸机一号摄像头", "从非法闯闸功能删除诊断闸机一号摄像头", "删除这台摄像头",
+    "保留一号摄像头", "删除摄像头一号还是二号", "删除一号摄像头的条件是什么",
+])
+def test_lightweight_delete_rule_does_not_authorize_discussion_negation_or_batch_requests(question):
+    from AiVision.assistant.responses import simple_delete_plan
+
+    assert simple_delete_plan(question) is None
+
+
+@pytest.mark.parametrize("text", ["一号闸机摄像头", "摄像头一号闸机", "“一号闸机”摄像头", "通用电气事业部的一号闸机摄像头"])
+def test_camera_category_words_are_resolved_against_actual_complete_names(feature_catalog_case, text):
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    case = feature_catalog_case
+    result = case.catalog.find(kind="camera", query=text)
+    assert [item["key"] for item in result["items"]] == ["camera:101"]
+    plan = RequestPlan(mode="change", operations=["delete_camera"], target_context={"references": [{"kind": "named", "text": text}]})
+    policy = TargetPolicy("删除" + text, plan)
+    policy.observe("list_resources", result)
+    policy.check("read_configurations", ReadArguments(resource_keys=["camera:101"]))
+
+
+def test_category_word_fallback_preserves_exact_names_and_rejects_prefix_guesses(feature_catalog_case):
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import DeleteCameraArguments
+
+    case = feature_catalog_case
+    case.cameras.append({**case.cameras[0], "camera_id": 104, "shm_name": "camera_104", "name": "一号闸机摄像头"})
+    exact = case.catalog.find(kind="camera", query="一号闸机摄像头")
+    assert [item["key"] for item in exact["items"]] == ["camera:104"]
+    text = "一号闸摄像头"
+    plan = RequestPlan(mode="change", operations=["delete_camera"], target_context={"references": [{"kind": "named", "text": text}]})
+    policy = TargetPolicy("删除" + text, plan)
+    policy.observe("list_resources", case.catalog.find(kind="camera"))
+    with pytest.raises(TargetClarification):
+        policy.check("delete_camera", DeleteCameraArguments(camera_key="camera:101", expected_revision="a" * 64))
+
+
+@pytest.mark.parametrize("kind", ["camera", "feature"])
+@pytest.mark.parametrize("state, expected", [(True, [101]), (False, [102, 104]), (None, [101, 102, 104])])
+def test_feature_inventory_uses_real_function_membership_before_counting_and_paging(feature_catalog_case, kind, state, expected):
+    case = feature_catalog_case
+    case.cameras[0]["functions"] = {"tailgating": True}
+    case.cameras[1]["functions"] = {"tailgating": False}
+    case.cameras.append({**case.cameras[1], "camera_id": 104, "shm_name": "camera_104", "name": "未加入闯闸的摄像头", "functions": {"blocks": True}})
+    result = case.catalog.find(kind=kind, feature="tailgating", feature_enabled=state, limit=1)
+    prefix = "camera:" if kind == "camera" else "feature:tailgating:"
+    assert result["total"] == len(expected)
+    assert result["items"][0]["key"] == prefix + str(expected[0])
+    assert result["next_offset"] == (1 if len(expected) > 1 else None)
+    assert result["applied_filters"]["feature_enabled"] is state
+    assert result["items"][0]["feature"] == "tailgating"
+    if state is True:
+        assert case.catalog.find(kind="camera", feature="tailgating")["total"] == 1
+    case.config_manager.save_config.assert_not_called()
+
+
+@pytest.mark.parametrize("question, state", [
+    ("通用电气事业部非法闯闸功能有几个摄像头，分别列出来", True),
+    ("列出通用电气事业部未启用非法闯闸功能的摄像头", False),
+    ("列出通用电气事业部非法闯闸摄像头，包括未启用的", None),
+])
+def test_inventory_scope_is_bound_to_user_department_feature_and_requested_state(question, state):
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+    from AiVision.assistant.tools import ListArguments
+
+    plan = RequestPlan(mode="query", query_tool="list_resources", target_context={})
+    policy = TargetPolicy(question, plan, capabilities={"features": [{"name": "tailgating", "label": "非法闯闸检测"}]})
+    for args in (ListArguments(kind="camera"), ListArguments(kind="feature", feature="blocks", department="research_institute")):
+        actual = policy.search_arguments(args)
+        assert actual.department == "general_electric" and actual.feature == "tailgating"
+        assert actual.feature_enabled is state
+
+
+def test_inventory_filter_keeps_feature_permissions_for_camera_and_feature_kinds(feature_catalog_case):
+    case = feature_catalog_case
+    case.cameras[0]["functions"] = {"tailgating": True}
+    case.user["feature_access"]["general_electric"] = []
+    for kind in ("camera", "feature"):
+        result = case.catalog.find(kind=kind, feature="tailgating", feature_enabled=True)
+        assert result["items"] == [] and result["total"] == 0
+
+
+def test_inventory_pagination_cannot_skip_pages_or_report_a_partial_count():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="list_resources", target_context={}))
+    for offset, following in ((0, 1), (2, None)):
+        outcome.record("list_resources", {"items": [target_resource(offset + 1)], "total": 3, "next_offset": following},
+                       {"kind": "camera", "offset": offset})
+    assert not outcome.query_ready and "offset=1" in outcome.query_requirement()
+    outcome.record("list_resources", {"items": [target_resource(2)], "total": 3, "next_offset": 2}, {"kind": "camera", "offset": 1})
+    outcome.record("list_resources", {"items": [target_resource(3)], "total": 3, "next_offset": None}, {"kind": "camera", "offset": 2})
+    assert outcome.query_ready and len(outcome.query_resources) == 3
+
+
+def test_inventory_rejects_duplicate_results_and_changed_totals_until_a_fresh_search():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="list_resources", target_context={}))
+    for offset in (0, 1):
+        outcome.record("list_resources", {"items": [target_resource()], "total": 2, "next_offset": 1 if offset == 0 else None},
+                       {"kind": "camera", "offset": offset})
+    assert not outcome.query_ready and "offset=0" in outcome.query_requirement()
+    outcome.record("list_resources", {"items": [target_resource(2)], "total": 3, "next_offset": None}, {"kind": "camera", "offset": 2})
+    assert not outcome.query_ready and outcome.query_pages_invalid
+    outcome.record("list_resources", {"items": [target_resource()], "total": 1, "next_offset": None}, {"kind": "camera", "offset": 0})
+    assert outcome.query_ready
+
+
+def test_a_cached_configuration_cannot_replace_a_feature_camera_inventory():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="list_resources", target_context={}))
+    outcome.record("read_configurations", {"items": [{"resource": target_resource(), "config": {"threshold": 0.8}}]})
+    assert not outcome.query_ready
+    outcome.record("list_resources", {"items": [target_resource(), target_resource(2)], "total": 2, "next_offset": None})
+    status, answer = outcome.query_answer()
+    assert status == "completed" and "2 个资源" in answer and "threshold" not in answer
+
+
+def test_official_feature_labels_allow_detection_suffix_omission_without_partial_id_matching():
+    from AiVision.assistant.targets import mentioned_features
+
+    features = [{"name": "human", "label": "人体检测"}, {"name": "crowd", "label": "人体聚集检测"},
+                {"name": "tailgating", "label": "非法闯闸检测"}]
+    assert mentioned_features("人体聚集功能有几台摄像头", features) == {"crowd"}
+    assert mentioned_features("非法闯闸功能下的摄像头", features) == {"tailgating"}
+    assert mentioned_features("查询 tailgating_extra 摄像头", features) == set()

@@ -28,6 +28,10 @@ class ExecutionOutcome:
     query_resources: dict[str, dict] = field(default_factory=dict)
     query_configurations: dict[str, dict] = field(default_factory=dict)
     query_next_offset: int | None = None
+    query_total: int | None = None
+    query_pages: dict[int, int] = field(default_factory=dict)
+    query_scope: str | None = None
+    query_pages_invalid: bool = False
 
     def permits(self, tool: str) -> bool:
         return tool == "ask_user" or (self.plan.mode != "chat" and tool in READ_TOOLS) or tool in self.plan.operations
@@ -69,6 +73,23 @@ class ExecutionOutcome:
             self.recoverable_errors.pop(scope, None)
             self.query_tool, self.query_result = tool, result
             if tool == "list_resources":
+                if self.plan.mode == "query" and self.plan.query_tool == "list_resources":
+                    filters = result.get("applied_filters") or {key: arguments.get(key) for key in
+                        ("kind", "department", "feature", "query", "parent_key", "feature_enabled")}
+                    query_scope = json.dumps(filters, sort_keys=True, ensure_ascii=False)
+                    offset = arguments.get("offset", 0)
+                    if query_scope != self.query_scope or offset == 0:
+                        self.query_resources.clear()
+                        self.query_pages.clear()
+                        self.query_total = None
+                        self.query_pages_invalid = False
+                    self.query_scope = query_scope
+                    total = result.get("total")
+                    if type(total) is int and total >= 0:
+                        if self.query_total is not None and total != self.query_total:
+                            self.query_pages_invalid = True
+                        self.query_total = total
+                        self.query_pages[offset] = len(result["items"])
                 self.query_resources.update((item["key"], item) for item in result["items"])
                 self.query_next_offset = result.get("next_offset")
             elif tool == "read_configurations":
@@ -117,10 +138,19 @@ class ExecutionOutcome:
         if self.query_next_offset is not None:
             return False
         if self.plan.query_tool == "list_resources":
-            return self.query_tool in {"list_resources", "read_configurations"}
+            if self.query_total is not None and (self.query_pages_invalid or self.missing_query_offset is not None
+                                                  or len(self.query_resources) != self.query_total):
+                return False
+            return self.query_tool == "list_resources" or self.query_tool == "read_configurations" and bool(self.query_resources)
         return bool(self.query_configurations) and self.query_resources.keys() <= self.query_configurations.keys()
 
     def query_requirement(self) -> str:
+        if self.plan.query_tool == "list_resources" and self.query_total is not None:
+            offset = self.missing_query_offset
+            if self.query_pages_invalid or offset is None and len(self.query_resources) != self.query_total:
+                return "分页总数或去重目标不一致，请保留原筛选条件从 offset=0 重新查询，不能报告完整数量。"
+            if offset is not None:
+                return f"分页尚未完整，请保留原筛选条件从 offset={offset} 继续查询，不能跳页或只列出当前页。"
         if self.query_next_offset is not None:
             return "资源列表还有下一页，请按 next_offset 继续查询，不能把当前页当成全部目标。"
         if self.plan.query_tool == "read_configurations":
@@ -128,6 +158,16 @@ class ExecutionOutcome:
             return ("本轮要求实际配置，资源名称或搜索 Schema 不能替代读取结果。请调用 read_configurations"
                     "；目标有歧义时调用 ask_user。尚未读取的候选：" + json.dumps(missing, ensure_ascii=False))
         return "本轮尚未取得要求的查询结果，请调用 " + str(self.plan.query_tool) + "；缺少信息时使用 ask_user。"
+
+    @property
+    def missing_query_offset(self):
+        offset = 0
+        while self.query_total is not None and offset < self.query_total:
+            count = self.query_pages.get(offset, 0)
+            if count <= 0:
+                return offset
+            offset += count
+        return None
 
     def query_answer(self) -> tuple[str, str]:
         if self.errors:
@@ -139,20 +179,30 @@ class ExecutionOutcome:
             departments = "、".join(item["name"] for item in self.query_result["departments"])
             features = "、".join(item["label"] for item in self.query_result["features"])
             return "completed", f"当前可访问部门：{departments}。\n可访问检测功能：{features}。"
-        items = list(self.query_configurations.values()) or list(self.query_resources.values())
+        show_configurations = self.plan.query_tool == "read_configurations"
+        items = list(self.query_configurations.values()) if show_configurations else list(self.query_resources.values())
         if not items:
-            return "completed", "当前部门和查询条件下没有找到匹配资源。本轮没有修改配置。"
+            return "completed", "当前部门和查询条件下匹配的摄像头为 0 台。本轮没有修改配置。" if (
+                self.query_result.get("applied_filters", {}).get("kind") in {"camera", "feature"}) else (
+                "当前部门和查询条件下没有找到匹配资源。本轮没有修改配置。")
         lines = []
         for item in items:
-            reference = item["resource"] if self.query_configurations else item
+            reference = item["resource"] if show_configurations else item
             label = reference["name"]
             if reference.get("identifier"):
                 label += "（" + reference["identifier"] + "）"
-            if self.query_configurations:
+            if show_configurations:
                 label += "当前配置：\n" + json.dumps(item["config"], ensure_ascii=False, indent=2)
             lines.append(label)
-        if not self.query_configurations:
-            lines.insert(0, f"本轮查询实际取得 {len(items)} 个资源：")
+        if not show_configurations:
+            filters = self.query_result.get("applied_filters", {})
+            if filters.get("kind") in {"camera", "feature"}:
+                departments = "、".join(DEPARTMENT_SPECS[key].display_name for key in filters.get("departments", []) if key in DEPARTMENT_SPECS)
+                scope = " / ".join(value for value in (departments, filters.get("feature_label")) if value)
+                state = {True: "（该功能已启用）", False: "（该功能未启用）"}.get(filters.get("feature_enabled"), "") if filters.get("feature") else ""
+                lines.insert(0, f"{scope or '当前查询范围'}：共 {len(items)} 台摄像头{state}：")
+            else:
+                lines.insert(0, f"本轮查询实际取得 {len(items)} 个资源：")
         return "completed", "\n".join(lines)
 
     def answer(self, actions: list[ActionResponse], *, question: str | None = None) -> tuple[str, str]:

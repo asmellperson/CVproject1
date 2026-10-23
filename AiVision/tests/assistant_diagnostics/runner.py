@@ -103,15 +103,27 @@ def model_cases():
                       {"role": "user", "content": SCENARIOS[15].question},
                       {"role": "assistant", "content": "请选择诊断闸机一号或诊断闸机二号，本轮没有执行配置操作。"},
                       {"role": "user", "content": CAMERA_NAME}]})
-    for name, question, cameras in [
-        ("named_camera", SCENARIOS[3].question, [CAMERA_NAME]),
-        ("parameter_is_not_camera", SCENARIOS[15].question, []),
+    for name, question, mode, operations, goal in (
+        ("delete_suffix", f"删除通用电气事业部的{CAMERA_NAME}摄像头", "change", ["delete_camera"], None),
+        ("delete_prefix", f"删除通用电气事业部的摄像头{CAMERA_NAME}", "change", ["delete_camera"], None),
+        ("feature_inventory", "通用电气事业部的非法闯闸功能有几个摄像头，分别列出来", "query", [], "list_resources"),
+    ):
+        cases.append({"name": "classification_" + name, "kind": "classification", "json_mode": True,
+                      "expected": mode, "operations": operations, "query_tool": goal, "validate": parse_plan,
+                      "response_schema": RequestPlan.model_json_schema(), "messages": [
+                          {"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
+                          {"role": "user", "content": question}]})
+    for name, question, cameras, feature in [
+        ("named_camera", SCENARIOS[3].question, [CAMERA_NAME], FEATURE),
+        ("parameter_is_not_camera", SCENARIOS[15].question, [], FEATURE),
+        ("delete_suffix", f"删除通用电气事业部的{CAMERA_NAME}摄像头", [CAMERA_NAME], None),
+        ("delete_prefix", f"删除通用电气事业部的摄像头{CAMERA_NAME}", [CAMERA_NAME], None),
     ]:
         instruction = ("从用户请求提取部门编码、功能标识和明确提到的摄像头名称。参数名不是摄像头名称。"
                        "未提摄像头时 camera_names=[]；只输出严格 JSON。目录：" + json.dumps(catalog, ensure_ascii=False)
                        + "\n输出 Schema：" + json.dumps(Target.model_json_schema(), ensure_ascii=False))
         cases.append({"name": "resource_" + name, "kind": "resource", "json_mode": True, "schema": Target,
-                      "expected": {"department": DEPARTMENT, "feature": FEATURE, "camera_names": cameras},
+                      "expected": {"department": DEPARTMENT, "feature": feature, "camera_names": cameras},
                       "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": question}]})
     for name, question, assignments in [
         ("single", SCENARIOS[3].question, [{"path": "value.threshold", "operation": "set", "value": 0.8}]),
@@ -168,7 +180,8 @@ def run_model_case(case, client, settings, repeat):
             row["schema_output_ok"] = True
             row["first_plan_valid"] = True
             row["classification_ok"] = plan.mode == case["expected"]
-            row["planning_operations_ok"] = set(plan.operations) == ({"update_configurations"} if case["expected"] == "change" else set())
+            expected_operations = set(case.get("operations", ["update_configurations"] if case["expected"] == "change" else []))
+            row["planning_operations_ok"] = set(plan.operations) == expected_operations
             row["query_goal_ok"] = plan.query_tool == case["query_tool"]
             row["behavior_ok"] = row["classification_ok"] and row["planning_operations_ok"] and row["query_goal_ok"]
         elif case["kind"] in {"resource", "parameter", "format"}:

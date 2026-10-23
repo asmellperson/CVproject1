@@ -224,8 +224,10 @@ class ScriptedClient:
                 query = "诊断闸机"
             if case.name == "recovered_tool_error" and not self.corrected_search:
                 return self.tool("list_resources", {"kind": "feature", "department": DEPARTMENT})
-            return self.tool("list_resources", {"kind": "camera" if case.name == "camera" else "feature",
-                                                "department": DEPARTMENT, "feature": FEATURE, "query": query})
+            arguments = {"kind": "camera" if case.name == "camera" else "feature", "department": DEPARTMENT, "query": query}
+            if case.name != "camera":
+                arguments["feature"] = FEATURE
+            return self.tool("list_resources", arguments)
         if not last.startswith("工具执行结果"):
             return self.answer()
         data = json.loads(last.split("：", 1)[1])
@@ -514,6 +516,7 @@ def isolated_platform(scenario, *, base_url="http://127.0.0.1:18100/v1", model="
         from AiVision.features.registry import get_spec
         from AiVision.features.tailgating.orm import TailgatingConfigORM
         from AiVision.features.tailgating.schema import TailgatingConfig
+        from AiVision.features.guard_behavior.orm import GuardBehaviorSite, GuardBehaviorSiteCamera
 
         database = Path(directory) / "diagnostic.sqlite3"
         engine = create_engine(f"sqlite+pysqlite:///{database}", echo=False)
@@ -538,11 +541,11 @@ def isolated_platform(scenario, *, base_url="http://127.0.0.1:18100/v1", model="
         stack.enter_context(patch.object(camera_module, "all_specs", lambda: {FEATURE: get_spec(FEATURE)}))
         stack.enter_context(patch.object(feature_module, "config_cache", SimpleNamespace(reload=Mock())))
         stack.enter_context(patch.object(feature_module, "config_event_bus", SimpleNamespace(publish=Mock())))
-        stack.enter_context(patch.object(camera_module, "config_cache", SimpleNamespace(reload=Mock())))
+        stack.enter_context(patch.object(camera_module, "config_cache", SimpleNamespace(reload=Mock(), refresh_camera=Mock())))
         stack.enter_context(patch.object(camera_module, "config_event_bus", SimpleNamespace(publish=Mock())))
         tables = [AiCameraConfig.__table__, TailgatingConfigORM.__table__, AiSystemConfig.__table__,
                   AssistantSession.__table__, AssistantTurn.__table__, AssistantAction.__table__,
-                  db.Base.metadata.tables["ai_horn_config"]]
+                  db.Base.metadata.tables["ai_horn_config"], GuardBehaviorSite.__table__, GuardBehaviorSiteCamera.__table__]
         db.Base.metadata.create_all(engine, tables=tables)
         user = {"employee_id": "diagnostic-user", "role": "viewer" if scenario.name == "permission" else "admin",
                 "departments": [DEPARTMENT], "feature_access": {DEPARTMENT: [FEATURE]}}
