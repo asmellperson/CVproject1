@@ -5,7 +5,6 @@ import time
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
 from AiVision.features._shared.consumer import BaseFunctionConsumer
-from AiVision.features._shared.preview import DetectionPreviewFrame
 from .preview import PreviewState, annotate_frame, render_preview
 from .runtime import TailgatingRuntime
 from .schema import ALARM_TYPE, TailgatingValue
@@ -108,9 +107,7 @@ class TailgatingConsumer(BaseFunctionConsumer):
         detail = deepcopy(result[1])
         with self._preview_lock:
             entry = self._previews[camera_id]
-            state = PreviewState(entry.camera_key, entry.value, detail, DetectionPreviewFrame(
-                self.frame_cache[camera_id], self._last_process_at[camera_id],
-            ))
+            state = PreviewState(entry.camera_key, entry.value, detail, self._preview_source(camera_id))
             self._previews[camera_id] = state
         # 报警证据保留当次检测原图，即使推理较慢也应绘制该次真实检测结果。
         return annotate_frame(self.frame_cache[camera_id], state.value, detail)

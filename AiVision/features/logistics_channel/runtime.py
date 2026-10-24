@@ -85,6 +85,7 @@ class LogisticsChannelRuntime:
         camera_provider: Callable[[int], dict | None] | None = None,
         is_camera_active: Callable[[str], bool] | None = None,
         frame_provider: Callable[[str], np.ndarray | None] | None = None,
+        preview_frame_provider: Callable[[str, str], np.ndarray | None] | None = None,
         stale_seconds: float | None = None,
         wall_time_provider: Callable[[], datetime] | None = None,
         violation_type_provider: Callable[[str], int] | None = None,
@@ -106,6 +107,7 @@ class LogisticsChannelRuntime:
         )
         self._is_camera_active = is_camera_active or (lambda _shm_name: True)
         self._frame_provider = frame_provider or (lambda _shm_name: None)
+        self._preview_frame_provider = preview_frame_provider
         self._stale_seconds = (
             settings.runtime.logistics_status_stale_seconds
             if stale_seconds is None
@@ -340,7 +342,7 @@ class LogisticsChannelRuntime:
     def get_channel_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
         """显式请求时才按最新不可变 tile 快照生成拼接画面。"""
         feature_name = require_logistics_feature(feature_name)
-        view = self._snapshot_channel(feature_name, channel_id)
+        view = self._snapshot_channel(feature_name, channel_id, live_preview=True)
         if view is None:
             return None
         prepared = self._prepare_view(view, self._clock_provider())
@@ -353,7 +355,7 @@ class LogisticsChannelRuntime:
             self._channel_frames[(feature_name, channel_id)] = frame
         return frame.copy()
 
-    def _snapshot_channel(self, feature_name: str, channel_id: int) -> _ChannelView | None:
+    def _snapshot_channel(self, feature_name: str, channel_id: int, *, live_preview: bool = False) -> _ChannelView | None:
         """锁内固定配置和检测结果，锁外补充原始预览并复制图像。"""
         self._ensure_feature_loaded(feature_name)
         with self._lock:
@@ -374,6 +376,9 @@ class LogisticsChannelRuntime:
         frames = []
         for camera, detected_frame in zip(channel.cameras, detected_frames, strict=True):
             frame = detected_frame
+            # 监控使用公共实时预览；告警评估仍保留与检测事实对应的证据帧。
+            if live_preview and channel_active and self._preview_frame_provider is not None:
+                frame = self._preview_frame_provider(feature_name, camera.shm_name)
             if not channel_active or frame is None:
                 try:
                     raw_frame = self._frame_provider(camera.shm_name)

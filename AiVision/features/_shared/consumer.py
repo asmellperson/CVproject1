@@ -35,6 +35,8 @@ from AiVision.alarms.dispatcher import alarm_dispatcher, AlarmRequest
 from AiVision.core.settings import settings
 from AiVision.features._shared.spec import FeatureSpec
 from AiVision.features._shared.roi import annotate_roi, roi_to_pixels
+from AiVision.features._shared.preview import AnnotatedPreviewFrame, DetectionPreviewFrame
+from AiVision.features._shared.defaults import PREVIEW_FRAME_MAX_AGE_SECONDS
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
@@ -100,6 +102,7 @@ class BaseFunctionConsumer(ABC):
         latest_frames: dict[str, np.ndarray],      # 由 FrameReaderRegistry 维护的最新帧字典
         is_camera_active,                           # callable(shm_name) -> bool，查询摄像头是否在线
         runtime_alert_handler: Callable[[str, str, str, str], None] | None = None,
+        latest_frame_times: dict[str, float] | None = None,
     ):
         """绑定功能、推理队列和帧来源，初始化路由器及各摄像头状态。
 
@@ -111,6 +114,7 @@ class BaseFunctionConsumer(ABC):
         self.infer_dict = infer_dict                    # Consumer通往Worker的入口
         self.result_queue = result_queue
         self.latest_frames = latest_frames
+        self.latest_frame_times = latest_frame_times if latest_frame_times is not None else {}
         self.is_camera_active = is_camera_active
         self.runtime_alert_handler = runtime_alert_handler                # Runtime监控监控（两种告警处理：业务告警核系统运行异常）
         self.result_router = InferenceResultRouter(
@@ -154,6 +158,8 @@ class BaseFunctionConsumer(ABC):
         # ---- 输出帧（Orchestrator 通过此字典向 API/前端提供预览帧）----
         self.result_dict: dict[str, np.ndarray] = {}       # {shm_name: 带标注帧}
         self.result_updated_at: dict[str, float] = {}      # {shm_name: 更新时间戳}
+        self._preview_frames: dict[str, AnnotatedPreviewFrame] = {}
+        self._frame_sampled_at: dict[int, float] = {}
 
         self._last_process_at: dict[int, float] = {}        # 上次处理时间戳，配合 cap_interval 限频
 
@@ -199,6 +205,7 @@ class BaseFunctionConsumer(ABC):
                 if self._thread.is_alive():
                     raise RuntimeError("Consumer 处理线程停止超时")
                 self._thread = None
+            self._preview_frames.clear()
         logger.info(f"[{self.feature_name}] Consumer 已停止")
 
     def _load_initial_configs(self):
@@ -222,6 +229,9 @@ class BaseFunctionConsumer(ABC):
         避免旧 ROI 与新配置不匹配导致错误检测。
         """
         with self._camera_state_lock:
+            previous = self.config_cache.get(camera_id)
+            if previous:
+                self._preview_frames.pop(previous["shm_name"], None)
             # 从全局缓存中取最新版
             cfg = config_cache.get_function_config(camera_id, self.feature_name)
             if cfg and cfg.get("enable"):
@@ -246,6 +256,9 @@ class BaseFunctionConsumer(ABC):
         禁用时：从监控列表移除，并清理输出帧字典，避免 API 继续返回过期画面。
         """
         with self._camera_state_lock:
+            previous = self.config_cache.get(camera_id)
+            if previous:
+                self._preview_frames.pop(previous["shm_name"], None)
             cfg = (
                 config_cache.get_function_config(camera_id, self.feature_name)
                 if enabled
@@ -290,11 +303,13 @@ class BaseFunctionConsumer(ABC):
             self.frame_cache, self._roi_polygon_cache, self._masks,
             self._masks_roi_input, self._masks_frame_shape, self.pre_roi,
             self.blur_roi, self.frame_change_samples, self._last_process_at,
+            self._frame_sampled_at,
         ):
             cache.pop(camera_id, None)
         if shm_name:
             self.result_dict.pop(shm_name, None)
             self.result_updated_at.pop(shm_name, None)
+            self._preview_frames.pop(shm_name, None)
         with self._inference_status_lock:
             self._last_frame_timings.pop(camera_id, None)
             self._last_frame_started_at.pop(camera_id, None)
@@ -342,6 +357,7 @@ class BaseFunctionConsumer(ABC):
                             continue
 
                         self.frame_cache[cam_id] = frame  # 缓存供告警截图使用
+                        self._frame_sampled_at[cam_id] = self.latest_frame_times.get(cam_name, time.time())
 
                         roi = self._get_roi(cam_id, frame)
                         frame_changed = self._frame_changed(cam_id, roi)
@@ -370,6 +386,12 @@ class BaseFunctionConsumer(ABC):
                         self.result_dict[cam_name] = annotated
                         # 保存更新时间
                         self.result_updated_at[cam_name] = time.time()
+                        if annotated is not None:
+                            self._preview_frames[cam_name] = AnnotatedPreviewFrame(
+                                annotated, self._frame_sampled_at[cam_id], cfg,
+                            )
+                        else:
+                            self._preview_frames.pop(cam_name, None)
                         # _process：得到业务结果，post_process:得到标注画面，_handle_alarm:决定是否发AlarmRequest
                         self._handle_alarm(cam_id, result, annotated)
                         published_at = time.monotonic()
@@ -712,6 +734,37 @@ class BaseFunctionConsumer(ABC):
             return None
         points = self.config_cache[camera_id].get("roi_pos", [])
         return annotate_roi(frame, points, self.ROI_COLOR)
+
+    def _preview_source(self, camera_id: int) -> DetectionPreviewFrame:
+        """预览沿用实际输入帧的时间，推理完成不会让旧画面重新变新。"""
+        return DetectionPreviewFrame(
+            self.frame_cache[camera_id],
+            self._frame_sampled_at.get(camera_id, self._last_process_at.get(camera_id, 0.0)),
+        )
+
+    def _preview_background(self, frame: np.ndarray, cfg: dict) -> np.ndarray:
+        """普通检测使用已保存的单 ROI；多工位等功能覆盖此绘图方法。"""
+        return annotate_roi(frame, cfg.get("roi_pos", []), self.ROI_COLOR)
+
+    def get_live_preview(self, camera_key: str, frame: np.ndarray, *, now: float):
+        """取图不等待推理锁，旧检测超出显示延迟后只在最新视频绘制静态 ROI。"""
+        if not self.running:
+            return None
+        # 配置以整份字典替换；浅复制映射并复核引用，无需等待正在推理的摄像头状态锁。
+        match = next(((camera_id, cfg) for camera_id, cfg in self.config_cache.copy().items()
+                      if cfg.get("shm_name") == camera_key), None)
+        if match is None:
+            return None
+        camera_id, cfg = match
+        if not cfg.get("enable") or not cfg.get("camera_enable", True):
+            return None
+        snapshot = self._preview_frames.get(camera_key)
+        if (snapshot is not None and snapshot.config is cfg
+                and snapshot.usable(frame, now=now, max_age=PREVIEW_FRAME_MAX_AGE_SECONDS)):
+            rendered = snapshot.frame
+        else:
+            rendered = self._preview_background(frame, cfg)
+        return rendered if self.running and self.config_cache.get(camera_id) is cfg else None
 
     def _frame_changed(self, camera_id: int, roi: np.ndarray, threshold: float = 0.005) -> bool:
         """单 ROI 下采样帧差；显著变化时更新供门检测使用的完整模糊帧。"""

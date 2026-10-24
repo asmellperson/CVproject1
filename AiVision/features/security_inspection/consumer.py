@@ -122,6 +122,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         pending = self._pending_inferences.get(camera_id)
         if pending is not None:
             self.frame_cache[camera_id] = pending.frame
+            self._frame_sampled_at[camera_id] = pending.captured_at
             return pending.frame
         return frame
 
@@ -263,11 +264,16 @@ class InspectionConsumer(BaseFunctionConsumer):
         with self._camera_state_lock:
             self._fill_pending_inferences()
 
+    def _preview_background(self, frame, cfg):
+        """安检实时底图沿用已保存的多个工位，不读取或改变会话状态。"""
+        frame = frame.copy()
+        for points in cfg["staff_rois"].values():
+            cv2.polylines(frame, [roi_to_pixels(points, frame.shape)], True, self.ROI_COLOR, 2)
+        return frame
+
     def post_process(self, camera_id, result):
         """在原帧副本上绘制安检 ROI 和稳定人体轨迹。"""
-        frame = self.frame_cache[camera_id].copy()
-        for points in self.config_cache[camera_id]["staff_rois"].values():
-            cv2.polylines(frame, [roi_to_pixels(points, frame.shape)], True, self.ROI_COLOR, 2)
+        frame = self._preview_background(self.frame_cache[camera_id], self.config_cache[camera_id])
         for track in result[1]["tracks"]:
             start = (int(track["x1"]), int(track["y1"]))
             cv2.rectangle(frame, start, (int(track["x2"]), int(track["y2"])), (80, 220, 80), 2)

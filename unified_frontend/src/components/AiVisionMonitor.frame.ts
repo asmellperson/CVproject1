@@ -3,6 +3,13 @@ import { aiVisionFrameUrl } from '../lib/aivision'
 export const PREVIEW_MAX_WIDTH = 960
 export const PREVIEW_QUALITY = 72
 export const FRAME_REQUEST_TIMEOUT_MS = 5000
+const DEFAULT_PREVIEW_FPS = 5
+const MAX_PREVIEW_FPS = 10
+
+export function previewRefreshMs(cameraFps?: number): number {
+  const fps = cameraFps && Number.isFinite(cameraFps) && cameraFps > 0 ? cameraFps : DEFAULT_PREVIEW_FPS
+  return Math.ceil(1000 / Math.min(MAX_PREVIEW_FPS, fps))
+}
 
 type ScheduleTimeout = (callback: () => void, delay: number) => ReturnType<typeof setTimeout>
 

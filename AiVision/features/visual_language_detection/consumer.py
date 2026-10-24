@@ -101,3 +101,7 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
     def post_process(self, camera_id, result):
         """保留原始监控画面，文本理解结果通过独立状态接口展示。"""
         return self.frame_cache[camera_id]
+
+    def _preview_background(self, frame, cfg):
+        """视频理解预览直接使用最新原图，文本结果不限制视频更新。"""
+        return frame

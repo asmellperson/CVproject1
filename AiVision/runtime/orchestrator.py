@@ -89,6 +89,7 @@ class Orchestrator:
             dispatcher=alarm_dispatcher,                          # 统一告警模块
             is_camera_active=frame_reader_registry.is_active,     # 摄像头存活函数，传函数名，需要调用的时候自己调用
             frame_provider=lambda shm_name: frame_reader_registry.latest_frames.get(shm_name),   # 获取摄像头最新画面函数
+            preview_frame_provider=lambda feature, shm_name: self.get_camera_frame(shm_name, feature=feature),
             evidence_recorder=alarm_evidence_recorder,
         )
 
@@ -99,6 +100,7 @@ class Orchestrator:
             evidence_recorder=alarm_evidence_recorder,
             is_camera_active=lambda shm_name: (
                 self.camera_runtime_manager.is_running(shm_name) and frame_reader_registry.is_active(shm_name)),
+            preview_frame_provider=lambda shm_name: self.get_camera_frame(shm_name, feature="guard_behavior"),
         )
 
         # 监听配置变更
@@ -338,6 +340,7 @@ class Orchestrator:
             infer_dict=inference_runtime_manager.infer_queues,        # 推理任务队列
             result_queue=inference_runtime_manager.result_queues[name],# name检测功能结果返回队列
             latest_frames=frame_reader_registry.latest_frames, # 当前所有摄像头的最新帧
+            latest_frame_times=frame_reader_registry.latest_frame_times,
             is_camera_active=frame_reader_registry.is_active,  # 摄像头是否在线函数
             runtime_alert_handler=self._send_system_exception_alert,  # Orchestrator的系统异常通知函数
         )
@@ -739,7 +742,7 @@ class Orchestrator:
     def get_camera_frame_info(self, shm_name: str, feature: str | None = None):
         """
         从原始帧和算法标注帧中，选择当前最适合展示的一帧
-            1、功能预览选择匹配的检测原图或实时 ROI 底图；普通标注帧有效期为 2 秒
+            1、功能预览短时选择匹配的检测原图，检测延迟超过显示上限时使用实时 ROI 底图
             2、未指定检测功能时，返回最近 10 秒内的原始画面供配置编辑
             3、需要的画面过期或不存在时返回 None
         """

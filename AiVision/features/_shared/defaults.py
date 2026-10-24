@@ -21,5 +21,6 @@ AREA_RATIO_THR = 0.55
 MATCH_SCORE_THR = 0.35
 TRACK_SMOOTH_ALPHA = 0.7
 
-# 预览框和检测原图必须成对使用，等待推理的时间也计入画面有效期。
+# 检测状态的有效期与视频显示延迟分别控制，慢推理不能冻结整个监控画面。
 ANNOTATED_FRAME_FRESH_SECONDS = 2.0
+PREVIEW_FRAME_MAX_AGE_SECONDS = 0.3

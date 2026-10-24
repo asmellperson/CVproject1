@@ -42,12 +42,14 @@ class SiteRuntimeState:
 class GuardBehaviorSiteRuntime:
     """聚合多摄像头证据，统一管理保安室判断、预览及告警取证。"""
     def __init__(self, *, service, dispatcher, evidence_recorder, is_camera_active: Callable[[str], bool],
-                 clock=time.time, start_background=True):
+                 clock=time.time, start_background=True,
+                 preview_frame_provider: Callable[[str], np.ndarray | None] | None = None):
         """注入配置服务、统一告警和取证实例，构造时仅建立状态容器。"""
         if dispatcher.evidence_recorder is not None and dispatcher.evidence_recorder is not evidence_recorder:
             raise ValueError("SiteRuntime 与 Dispatcher 必须使用同一个公共 Evidence 实例")
         self.service, self.dispatcher, self.evidence = service, dispatcher, evidence_recorder
         self._is_camera_active = is_camera_active
+        self._preview_frame_provider = preview_frame_provider
         self._clock, self._start_background = clock, start_background
         self.sites: dict[int, SiteRuntimeState] = {}
         self.latest_snapshots: dict[int, GuardCameraSnapshot] = {}
@@ -223,7 +225,7 @@ class GuardBehaviorSiteRuntime:
         site_id, config, evaluation = state.config.site_id, state.config, state.evaluation
         source = self._site_source(site_id)
         if self.evidence.should_sample(source, now):
-            self.evidence.record_frame(source, self.get_site_frame(site_id), now)
+            self.evidence.record_frame(source, self.get_site_frame(site_id, live_preview=False), now)
         for kind, rule, decision in ((GUARD_ABSENT_VIOLATION_TYPE, "absence", evaluation.absence),
                                      (GUARD_PHONE_USE_VIOLATION_TYPE, "phone", evaluation.phone),
                                      (GUARD_PRONE_SLEEP_VIOLATION_TYPE, "prone", evaluation.prone)):
@@ -284,7 +286,7 @@ class GuardBehaviorSiteRuntime:
                 self.evidence.cancel_episode(token)
             return
         primary = next(member for member in config.members if member.camera_id == decision.primary_camera_id)
-        frame = self.get_site_frame(config.site_id) if rule == "absence" else self._frames[primary.camera_id].copy()
+        frame = self.get_site_frame(config.site_id, live_preview=False) if rule == "absence" else self._frames[primary.camera_id].copy()
         source = self._site_source(config.site_id) if rule == "absence" else self._camera_source(primary.camera_id)
         metadata = {
             "site_id": config.site_id, "primary_camera_id": primary.camera_id,
@@ -323,7 +325,7 @@ class GuardBehaviorSiteRuntime:
             values.update(asdict(getattr(snapshot, rule)))
         return values
 
-    def get_site_frame(self, site_id: int) -> np.ndarray | None:
+    def get_site_frame(self, site_id: int, *, live_preview: bool = True) -> np.ndarray | None:
         """按成员顺序等比拼接预览，缺失画面保留占位并标明当前可用性。"""
         with self._lock:
             state = self.sites.get(site_id)
@@ -335,6 +337,8 @@ class GuardBehaviorSiteRuntime:
             for index, member in enumerate(members):
                 y, x = (index // columns) * TILE_HEIGHT, (index % columns) * TILE_WIDTH
                 frame = self._frames.get(member.camera_id)
+                if live_preview and self._preview_frame_provider is not None:
+                    frame = self._preview_frame_provider(member.shm_name) if member.physical_enabled else None
                 if frame is not None:
                     scale = min(TILE_WIDTH / frame.shape[1], TILE_HEIGHT / frame.shape[0])
                     width, height = max(1, round(frame.shape[1] * scale)), max(1, round(frame.shape[0] * scale))

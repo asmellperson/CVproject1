@@ -9,7 +9,7 @@ import numpy as np
 
 from AiVision.core.logger import logger
 from AiVision.features._shared.consumer import BaseFunctionConsumer
-from AiVision.features._shared.roi import roi_to_pixels
+from AiVision.features._shared.roi import annotate_roi, roi_to_pixels
 from AiVision.inference.contracts import INFERENCE_ERROR_INVALID_RESULT, build_inference_result
 from .behavior import LocalBehaviorState
 from .pose_features import bbox_iou, match_pose_features
@@ -123,8 +123,11 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             raise ValueError("运行配置的 Camera 身份不一致")
         if config.site_enabled and config.member_enabled and config.feature_enabled:
             self._runtime_configs[camera_id] = config
-            # 主循环只需要帧身份；SitePolicy 不进入公共配置缓存结构。
-            self.config_cache[camera_id] = {"shm_name": config.shm_name}
+            # 公共预览只读取启用标记与车辆区域，SitePolicy 仍由专用配置管理。
+            self.config_cache[camera_id] = {
+                "shm_name": config.shm_name, "enable": True,
+                "roi_pos": [list(point) for point in config.vehicle_roi_pos],
+            }
 
     def _load_initial_configs(self):
         """从专用配置服务取得快照，在摄像头锁内整体替换本地配置。"""
@@ -348,6 +351,10 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         confidence = max(probabilities) if probabilities else (None if identity_unknown else 0.)
         return False, CameraPerception(tuple(persons), tuple(guards), tuple(phones), present, count, confidence,
                                        phone, prone, vehicle, states)
+
+    def _preview_background(self, frame, cfg):
+        """车辆 ROI 沿用保安室配置，检测较慢时不保留上一张人物画面。"""
+        return annotate_roi(frame, cfg["roi_pos"], self.ROI_COLOR) if cfg["roi_pos"] else frame
 
     def post_process(self, camera_id, result):
         """绘制局部结果，分别缓存图像与纯数据快照，再将两者交给保安室运行层。"""

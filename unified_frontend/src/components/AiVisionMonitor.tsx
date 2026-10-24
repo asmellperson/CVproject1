@@ -17,6 +17,7 @@ import {
   buildAiVisionPreviewFrameUrl,
   createPreviewFrameBuffer,
   FRAME_REQUEST_TIMEOUT_MS,
+  previewRefreshMs,
   scheduleFrameRequestAbort,
 } from './AiVisionMonitor.frame'
 import { LogisticsSinglePersonMonitorView } from './logistics_single_person/LogisticsSinglePersonMonitorView'
@@ -43,8 +44,6 @@ type AiVisionMonitorProps = {
   presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence' | 'tailgating'
 }
 
-const FRAME_REFRESH_MS = 200
-
 export function AiVisionMonitor({ title, feature, department, presentation = 'default', rawPreview = false }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
@@ -64,6 +63,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
     [cameras, selectedCamera],
   )
+  const frameRefreshMs = previewRefreshMs(selectedCameraInfo?.fps)
   const featureValue = resolveCameraFeatureValue(featureValueState, selectedCamera)
   const logisticsMonitor = useLogisticsSinglePersonMonitor({
     enabled: presentation === 'logistics-single-person',
@@ -217,7 +217,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         }
         if (!cancelled) {
           const elapsed = performance.now() - startedAt
-          timeoutId = window.setTimeout(loadFrame, Math.max(0, FRAME_REFRESH_MS - elapsed))
+          timeoutId = window.setTimeout(loadFrame, Math.max(0, frameRefreshMs - elapsed))
         }
       }
     }
@@ -233,7 +233,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       buffer.dispose()
       if (frameBufferRef.current === buffer) frameBufferRef.current = null
     }
-  }, [feature, frameKey, isPageVisible, rawPreview, selectedCamera])
+  }, [feature, frameKey, frameRefreshMs, isPageVisible, rawPreview, selectedCamera])
 
   const frameContent = (
     <>

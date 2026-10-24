@@ -128,10 +128,29 @@ def test_result_uses_captured_frame_and_capture_time_instead_of_newest_frame(pip
     consumer._process(frame, 1)
     assert frame is captured
     assert consumer.frame_cache[1] is captured
+    assert consumer._frame_sampled_at[1] == pending.captured_at
     seen_frame, seen_at = consumer._sessions[1].seen[0]
     assert seen_frame is captured
     assert seen_at == pending.captured_at
     assert seen_at < 1000.0 + pipeline.clock.now
+
+
+def test_slow_inspection_keeps_latest_video_and_all_saved_station_rois(pipeline):
+    consumer = pipeline.consumer
+    consumer.config_cache[1] = {**consumer.config_cache[1], "staff_rois": {
+        "left": [[.1, .1], [.4, .1], [.4, .9], [.1, .9]],
+        "right": [[.6, .1], [.9, .1], [.9, .9], [.6, .9]],
+    }}
+    before = dict(consumer._sessions)
+    for background in [60, 80, 100]:
+        raw = np.full((100, 200, 3), background, np.uint8)
+        rendered = consumer.get_live_preview("camera_1", raw, now=1100.)
+        assert rendered[10, 20].tolist() == list(consumer.ROI_COLOR)
+        assert rendered[10, 120].tolist() == list(consumer.ROI_COLOR)
+        assert rendered[50, 100].tolist() == [background] * 3
+        assert np.all(raw == background)
+    assert consumer._sessions == before
+    assert not pipeline.tasks
 
 
 @pytest.mark.parametrize("change", ["invalidate", "offline", "stop"])
