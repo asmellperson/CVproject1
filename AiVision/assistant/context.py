@@ -60,6 +60,7 @@ class ConversationMemory:
         if not resources and clarification is None and verified_resources is None:
             return
         state = {"turn_id": turn_id, "last_read_resources": deepcopy(resources)}
+        state["task_status"] = "awaiting_input" if clarification is not None else "completed"
         state["target_bindings"] = list(bindings.values())[-MAX_TARGET_BINDINGS:]
         if clarification is not None:
             state["pending_task"] = {"request": question, "plan": outcome.plan.model_dump(),
@@ -76,6 +77,21 @@ class ConversationMemory:
     def clear(self):
         with self._lock:
             self._items.clear()
+
+    def cancel_pending(self, session_id, turn_id):
+        """只取消未完成待办，保留已核验身份；取消状态阻止后续简短回复恢复旧授权。"""
+        with self._lock:
+            item = self._items.get(session_id)
+            if item is None:
+                return False
+            created, state = item
+            if time.monotonic() - created >= CONTEXT_TTL_SECONDS:
+                del self._items[session_id]
+                return False
+            cancelled = state.pop("pending_task", None) is not None
+            state.update(turn_id=turn_id, task_status="cancelled")
+            self._items[session_id] = (created, state)
+            return cancelled
 
 
 def context_messages(turns, *, count, max_chars, memory=None, planning=False, question=None):

@@ -1,5 +1,6 @@
 """有限业务工具：模型负责理解意图，服务负责权限、校验、事务和审计。"""
 import json
+from typing import get_args
 
 from fastapi import HTTPException
 from pydantic import Field, ValidationError
@@ -11,7 +12,7 @@ from AiVision.core.settings import settings
 from AiVision.features.registry import get_spec
 from .native_resources import GUARD_SERVICE, LOGISTICS_FEATURE, logistics_channel_service
 from .resources import ConfigurationCatalog, public_configuration
-from .schema import ConfigurationChange, ResourceReference, StrictModel
+from .schema import ConfigurationChange, MutationTool, ResourceReference, StrictModel
 from .secrets import DEFAULT_RTSP_PATH, DEFAULT_RTSP_PORT
 from .service import assistant_service
 
@@ -133,6 +134,8 @@ class AssistantTools:
             args = self.target_policy.search_arguments(args)
         if self.target_policy is not None:
             self.target_policy.check(name, args)
+        if self.change_policy is not None and name in get_args(MutationTool):
+            self.change_policy.check_operation(name, args)
         if name == "capabilities":
             return catalog.capabilities()
         if name == "ask_user":
@@ -167,7 +170,7 @@ class AssistantTools:
                 raise ConfigurationConflict("配置在该操作之后已经变化，不能覆盖，请读取后明确指定新值")
             self.read_versions[resource.reference.key] = resource.revision
             return self.update([ConfigurationChange(resource_key=resource.reference.key, expected_revision=resource.revision,
-                                                    patch=configuration_diff(previous.after, previous.before))])
+                                                    patch=configuration_diff(previous.after, previous.before))], undo=True)
         if name == "add_camera":
             return self.add_camera(args)
         if name == "delete_camera":
@@ -179,7 +182,7 @@ class AssistantTools:
             raise ValueError("本次配置操作数量达到上限，请分次发起")
         self.change_count += count
 
-    def update(self, changes):
+    def update(self, changes, *, undo=False):
         self.count_changes(len(changes))
         if len({change.resource_key for change in changes}) != len(changes):
             raise ValueError("一批修改中同一资源只能出现一次")
@@ -189,10 +192,10 @@ class AssistantTools:
             if self.read_versions.get(change.resource_key) != change.expected_revision or resource.revision != change.expected_revision:
                 raise ConfigurationConflict("必须先读取当前配置，且读取后的版本不能发生变化")
             resource.prepare(change.patch)
-            if self.change_policy is not None:
+            if self.change_policy is not None and not undo:
                 self.change_policy.check_patch(resource, change.patch)
             prepared.append((change, resource))
-        if self.change_policy is not None:
+        if self.change_policy is not None and not undo:
             self.change_policy.check_targets(changes)
         results = []
         for change, previous in prepared:

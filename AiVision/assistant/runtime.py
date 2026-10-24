@@ -13,6 +13,7 @@ from AiVision.core.config_revision import ConfigurationConflict
 from AiVision.core.settings import settings
 from .changes import ChangePolicy
 from .context import ConversationMemory, context_messages
+from .intent import cancellation_request, short_continuation
 from .orchestration import TaskCoordinator, validate_task_sources
 from .outcomes import READ_TOOLS
 from .responses import PlanFormatError, ToolCallFormatError, completion_metadata, is_simple_greeting, parse_decision, parse_plan, simple_delete_plan
@@ -151,6 +152,7 @@ class AssistantRuntime:
         try:
             self._execute(session_id, turn_id, load_user, orchestrator)
         except TaskCancelled:
+            self.memory.cancel_pending(session_id, turn_id)
             assistant_service.finish(turn_id, "cancelled", "任务已停止，已经保存的配置保留在操作记录中。")
         except Exception as exc:
             # 不记录请求正文和异常原文，数据库驱动可能在其中附带 RTSP 凭据。
@@ -184,6 +186,19 @@ class AssistantRuntime:
         previous = [turn for turn in conversation.turns if turn.id < turn_id and turn.status not in ACTIVE_STATUSES]
         count = 0 if standalone_greeting else settings.runtime.assistant_history_turns
         memory = self.memory.get(session_id, {turn.id for turn in previous}) if count else None
+        cancel_pending, cancel_only = cancellation_request(current.question, has_pending=bool((memory or {}).get("pending_task")))
+        if cancel_pending:
+            check_cancel()
+            cancelled = self.memory.cancel_pending(session_id, turn_id)
+            memory = self.memory.get(session_id, {turn.id for turn in previous} | {turn_id})
+            if cancel_only:
+                assistant_service.finish(turn_id, "completed", "已取消待补充的配置任务，后续回复不会继续执行该任务。已保存的配置仍保留在操作记录中。"
+                                         if cancelled else "当前没有待补充的配置任务，本轮未执行配置变更。")
+                return
+        if (memory or {}).get("task_status") == "cancelled" and short_continuation(current.question):
+            check_cancel()
+            assistant_service.finish(turn_id, "completed", "上一项待办已取消。请重新明确摄像头、功能、参数和目标值，本轮未执行配置变更。")
+            return
         # 独立问候只携带本轮正文，旧删除请求、失败提示或审计不能成为新一轮操作授权。
         context_args = dict(count=count, max_chars=settings.runtime.assistant_history_max_chars,
                             memory=memory, question=current.question)
@@ -246,7 +261,7 @@ class AssistantRuntime:
                                          capabilities=capabilities)
             tools.target_policy = target_policy
             tools.change_policy = (ChangePolicy(task.request, outcome.plan, target_policy, coordinator.memory)
-                                   if "update_configurations" in outcome.plan.operations else None)
+                                   if outcome.plan.mode == "change" else None)
             system = CHAT_SYSTEM_PROMPT
             if task.agent is not None:
                 directory = {name: {"description": description, "parameters": schema.model_json_schema()}

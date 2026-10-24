@@ -3,6 +3,7 @@ import re
 import unicodedata
 
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from .intent import feature_state
 
 
 CLARIFY_TARGET = "目前无法核验这个目标的对应关系。请提供完整摄像头或资源名称、标识，并确认所属部门和功能。"
@@ -166,10 +167,10 @@ class TargetPolicy:
                 self.query_feature_labels = next(feature_labels(item) for item in capabilities["features"] if item["name"] == self.query_feature)
             elif len(features) > 1:
                 self.needs_clarification = True
-            if re.search(r"包括.*(?:未启用|停用|关闭)|包含.*(?:未启用|停用|关闭)|无论是否启用|启用和停用", question):
-                self.feature_enabled = None
-            else:
-                self.feature_enabled = not bool(re.search(r"未启用|未开启|停用|关闭|没启用", question))
+            try:
+                self.feature_enabled = feature_state(question)
+            except ValueError:
+                self.needs_clarification = True
         bindings = {normalized(item["alias"]): item["resource"] for item in self.memory.get("target_bindings", [])}
         self.candidates.update((item["resource"]["key"], item["resource"]) for item in self.memory.get("target_bindings", []))
         declarations = {normalized(item.alias): item for item in self.proposals
@@ -213,6 +214,15 @@ class TargetPolicy:
                 pending = self.memory.get("pending_task", {})
                 if not pending or pending.get("plan", {}).get("mode") != plan.mode:
                     self.needs_clarification = True
+                    continue
+                selected = [item for item in matching_named_resources(literal, pending.get("candidates", []))
+                            if not self.reference_departments or item.get("department") in self.reference_departments]
+                if selected:
+                    # 候选来自真实查询，只接受本轮完整名称选择；配置与版本仍须重新读取。
+                    if len({resource_identity(item) for item in selected}) != 1:
+                        self.needs_clarification = True
+                    self.candidates.update((item["key"], item) for item in selected)
+                    self.selectors.extend(("identity", resource_identity(item)) for item in selected)
                     continue
             else:
                 size = 2 if "两台" in literal else None if re.search(r"们|些|几", literal) else 1

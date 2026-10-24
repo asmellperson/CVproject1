@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from AiVision.connectors.qwen.client import QwenError, QwenResponseError, QwenServiceError, QwenTruncatedError
+from .intent import deletion_target
 from .schema import AgentDecision, RequestPlan
 
 
@@ -63,16 +64,15 @@ def is_simple_greeting(question: str) -> bool:
 def simple_delete_plan(question: str) -> RequestPlan | None:
     """只识别独立、明确的单目标删除命令，名称位置不影响分类，执行仍由原工具核验。"""
     text = question.strip().rstrip("。！!").strip()
+    target = deletion_target(text)
+    if target is None:
+        return None
     # 讨论、否定、示例、条件和多目标不能通过轻量规则变成删除授权。
     if re.search(r"[？?，,；;、\n]|不要|别删|不删|不能|无需|不需要|怎么|如何|是否|能否|可否|可以|能不能|比如|例如|示例|假设|如果|然后|之后|再|顺便|所有|全部|两台|多台|功能|配置|移除|解除|或者|还是|保留|会怎样|有什么|条件|后果|意味着|(?:吗|么|呢)$", text):
         return None
-    polite = r"(?:请|麻烦|帮我|请帮我|麻烦帮我)?\s*"
-    match = re.fullmatch(polite + r"(?:删除|删掉|删去)\s*(.+)", text)
-    if match is None:
-        match = re.fullmatch(polite + r"(?:把|将)\s*(.+?)\s*(?:删除|删掉|删去)", text)
-    if match is None:
+    # 类别词之后出现说明正文时不能走快捷路径；名称在类别词之后的完整性仍由实际资源核对。
+    if not re.match(r"(?:摄像头|摄像机|相机)", target) and not re.search(r"(?:摄像头|摄像机|相机)$", target):
         return None
-    target = match[1].strip()
     if (not 1 <= len(target) <= 200 or re.search(r"和|及|与|这台|那台|它|这些|刚才", target)
             or not re.search(r"摄像头|摄像机|相机", target)
             or len(re.findall(r"摄像头|摄像机|相机", target)) != 1
