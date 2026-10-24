@@ -778,6 +778,8 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 平台通过 `GET/PUT /api/features/security_fence/configs/{key}` 保存 `{enable, value, alarm}`，启停与配置变化走现有事件热更新。白名单独立使用 `GET /api/security-fence/persons` 查询和 `PATCH /api/security-fence/persons/{person_id}` 修改，两个接口均要求 `department` 并校验围栏功能权限；修改仅限管理员，支持与人脸身份识别相同的人员搜索、来源、在用及允许状态筛选。摄像头配置不包含人员授权。状态超过 5 秒、摄像头离线、检测未运行或规则时段已切换时，接口不返回旧人数和旧身份结论。检测异常且没有确定报警时 `alarm=null`。实际部署需要验证相机位置、光照和多人出入，画面识别不替代强制门禁核验。
 
+围栏平台状态接口和外部状态列表、单摄像头状态共用 `FenceStatus`，通过 `valid_for_seconds` 返回服务器计算的剩余有效秒数，范围为 `0～5`；无有效快照时为 `0`。前端扣除整个请求耗时后使用 `performance.now()` 计时，`updated_at` 用于标识快照，不与浏览器当前时间比较。重复快照不延长截止时间，短暂通信失败保留同一摄像头尚未过期的统计值，过期、离线、停用或切换摄像头时撤销旧结论。
+
 ### 7.9 非法闯闸：`tailgating`
 
 `features/tailgating/` 分离配置契约与 ORM、纯轨迹判定、Consumer、预览绘制和状态查询。`TailgatingConsumer` 复用 `yolo_human` 与公共 `IouTracker`，跟踪完整画面，按人体框内可配置的脚底参考点判断 ROI 和过闸判定线位置。

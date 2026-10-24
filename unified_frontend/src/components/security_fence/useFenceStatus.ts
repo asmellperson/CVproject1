@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
-import { getFenceStatus, type FenceStatus } from './api'
+import { getFenceStatus } from './api'
+import { expireFenceStatus, failFenceStatus, receiveFenceStatus } from './statusState'
+import type { FenceStatusResult } from './statusState'
 
 export function useFenceStatus(cameraKey: string) {
-  const [result, setResult] = useState<{ key: string; value: FenceStatus | null; error: string } | null>(null)
+  const [result, setResult] = useState<FenceStatusResult | null>(null)
   useSerialPoll(async (signal) => {
+    const requestStartedAt = performance.now()
     const value = await getFenceStatus(cameraKey, signal)
-    if (!signal.aborted) setResult({ key: cameraKey, value, error: '' })
+    const receivedAt = performance.now()
+    if (!signal.aborted) setResult((current) => receiveFenceStatus(current, value, requestStartedAt, receivedAt))
   }, { enabled: Boolean(cameraKey), restartKey: cameraKey, intervalMs: 500, timeoutMs: 5000,
-    onError: (error) => setResult({ key: cameraKey, value: null, error: String(error) }) })
+    onError: (error) => {
+      const now = performance.now()
+      setResult((current) => failFenceStatus(current, cameraKey, String(error), now))
+    } })
   useEffect(() => {
-    if (!result?.value || !['ready', 'error'].includes(result.value.state)) return
-    const updated = Date.parse(result.value.updated_at || '')
-    const remaining = Number.isFinite(updated) ? Math.max(0, Math.min(5000, updated + 5000 - Date.now())) : 0
+    if (result?.key !== cameraKey || result.expiresAt === null) return
+    const remaining = Math.max(0, Math.ceil(result.expiresAt - performance.now()))
     const timer = setTimeout(() => setResult((current) => current === result
-      ? { key: cameraKey, value: null, error: '检测结果已过期，等待更新。' } : current), remaining)
+      ? expireFenceStatus(current) : current), remaining)
     return () => clearTimeout(timer)
   }, [cameraKey, result])
   return result?.key === cameraKey ? result : null

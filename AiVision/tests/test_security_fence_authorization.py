@@ -244,6 +244,96 @@ def test_authorization_read_failure_removes_old_allowance_and_publishes_an_error
 
 
 @pytest.fixture
+def monitor_status(backend, monkeypatch):
+    value = backend.value(forbidden_start="00:00", forbidden_end="00:00")
+    config = {"enable": True, "value": value.model_dump()}
+    camera = {"camera_id": 1, "shm_name": "camera_1", "name": "围栏入口", "department": A,
+              "enabled": True, "functions": {"security_fence": True}}
+    snapshot = {"updated_at_s": 1000.0, "mode": "forbidden", "error": None,
+                "count": 2, "pending_count": 1, "alarm": False, "persons": [],
+                "frame_width": 320, "frame_height": 240}
+    consumer = SimpleNamespace(running=True, get_monitor_status=lambda key: snapshot)
+    manager = Mock()
+    manager.list_running.return_value = ["camera_1"]
+    orchestrator = SimpleNamespace(consumers={"security_fence": consumer}, camera_runtime_manager=manager)
+    monkeypatch.setattr(backend.service.feature_config_manager, "get_config", lambda *args: {"config": config})
+    monkeypatch.setattr(backend.service.time, "time", lambda: 1000.0)
+    return SimpleNamespace(camera=camera, config=config, snapshot=snapshot, consumer=consumer,
+                           orchestrator=orchestrator, service=backend.service)
+
+
+@pytest.mark.parametrize("age", [0., .5, 4.9, 5.])
+def test_status_reports_server_remaining_lifetime_and_keeps_all_card_values(monitor_status, age):
+    monitor = monitor_status
+    monitor.snapshot["updated_at_s"] = 1000.0 - age
+    result = monitor.service.camera_status(monitor.camera, monitor.orchestrator)
+    assert result.state == "ready"
+    assert result.mode == "forbidden"
+    assert result.count == 2 and result.pending_count == 1
+    assert result.valid_for_seconds == pytest.approx(5.0 - age)
+
+
+@pytest.mark.parametrize("condition", ["expired", "future", "mode", "disabled", "offline", "stopped", "missing"])
+def test_invalid_status_has_no_lifetime_or_old_counts(monitor_status, condition):
+    monitor = monitor_status
+    if condition == "expired":
+        monitor.snapshot["updated_at_s"] = 994.9
+    elif condition == "future":
+        monitor.snapshot["updated_at_s"] = 1001.0
+    elif condition == "mode":
+        monitor.snapshot["mode"] = "whitelist"
+    elif condition == "disabled":
+        monitor.config["enable"] = False
+    elif condition == "offline":
+        monitor.orchestrator.camera_runtime_manager.list_running.return_value = []
+    elif condition == "stopped":
+        monitor.consumer.running = False
+    else:
+        monitor.orchestrator.consumers.clear()
+    result = monitor.service.camera_status(monitor.camera, monitor.orchestrator)
+    assert result.valid_for_seconds == 0
+    assert result.state != "ready"
+    assert result.count is None and result.pending_count is None
+    assert result.alarm is None and result.persons == []
+
+
+def test_model_error_retains_its_error_and_remaining_lifetime(monitor_status):
+    monitor = monitor_status
+    monitor.snapshot.update(error="人体检测不可用", updated_at_s=998.0, count=None, pending_count=None)
+    result = monitor.service.camera_status(monitor.camera, monitor.orchestrator)
+    assert result.state == "error"
+    assert result.error == "人体检测不可用"
+    assert result.alarm is None
+    assert result.valid_for_seconds == 3.0
+
+
+def test_platform_and_external_status_routes_return_the_same_lifetime(api, monitor_status):
+    from AiVision.api import deps
+    from AiVision.api.routes.external import security_fence
+
+    monitor = monitor_status
+    monitor.snapshot["updated_at_s"] = 998.0
+    app = api.client.app
+    app.include_router(security_fence.router, prefix="/api/external")
+    app.dependency_overrides.update({
+        deps.get_camera_config_manager: lambda: SimpleNamespace(
+            get_camera=lambda key: monitor.camera, list_cameras=lambda **kwargs: [monitor.camera],
+        ),
+        deps.get_optional_orchestrator: lambda: monitor.orchestrator,
+        deps.get_department_service: lambda: SimpleNamespace(feature_access=lambda: {A: ["security_fence"]}),
+    })
+    for path in ("/api/security-fence/cameras/camera_1/status",
+                 "/api/external/security-fence/cameras/camera_1/status", "/api/external/security-fence/status"):
+        response = api.client.get(path, params={"department": A})
+        assert response.status_code == 200, response.text
+        data = response.json()[0] if path.endswith("/security-fence/status") else response.json()
+        assert data["state"] == "ready"
+        assert data["mode"] == "forbidden"
+        assert data["count"] == 2 and data["pending_count"] == 1
+        assert data["valid_for_seconds"] == 3.0
+
+
+@pytest.fixture
 def legacy(backend):
     engine = memory_engine()
     backend.parents[0].metadata.create_all(engine, tables=backend.parents)

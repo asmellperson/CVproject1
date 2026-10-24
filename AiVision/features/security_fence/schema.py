@@ -86,6 +86,7 @@ class FenceStatus(BaseModel):
     frame_width: int | None = None
     frame_height: int | None = None
     updated_at: str | None = None
+    valid_for_seconds: float = Field(0.0, ge=0, le=STALE_SECONDS)
     error: str | None = None
 
 

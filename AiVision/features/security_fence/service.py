@@ -38,10 +38,13 @@ def camera_status(camera: dict, orchestrator) -> FenceStatus:
         result.state = "offline"
     elif snapshot is not None:
         result.updated_at = datetime.fromtimestamp(snapshot["updated_at_s"], timezone.utc).isoformat()
-        if time.time() - snapshot["updated_at_s"] > STALE_SECONDS or snapshot["mode"] != mode:
+        age = time.time() - snapshot["updated_at_s"]
+        if not 0 <= age <= STALE_SECONDS or snapshot["mode"] != mode:
             result.state = "stale"
         else:
             result.state = "error" if snapshot["error"] else "ready"
+            # 剩余时长由服务器计算，浏览器时钟偏差不能让有效统计反复清空。
+            result.valid_for_seconds = STALE_SECONDS - age
             for field in ("count", "pending_count", "alarm", "persons", "frame_width", "frame_height", "error"):
                 setattr(result, field, snapshot[field])
             if snapshot["error"] and not result.alarm:

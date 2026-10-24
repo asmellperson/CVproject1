@@ -31,7 +31,7 @@ export type FencePerson = {
 export type FenceStatus = {
   camera_key: string; state: 'disabled' | 'offline' | 'waiting' | 'stale' | 'error' | 'ready'
   mode: 'forbidden' | 'whitelist'; timezone: string; online: boolean; count: number | null; pending_count: number | null
-  persons: FencePerson[]; alarm: boolean | null; updated_at: string | null; error: string | null
+  persons: FencePerson[]; alarm: boolean | null; updated_at: string | null; valid_for_seconds: number; error: string | null
 }
 
 export const getFenceStatus = (key: string, signal: AbortSignal) =>
