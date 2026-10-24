@@ -248,6 +248,9 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             return frame_copy
         ox, oy = self._get_roi_offset(camera_id)
         for tid, trk in tracker.tracks.items():
+            # 丢失轨迹只用于后续重连，当前帧不能绘制其历史或预测位置。
+            if trk.lost:
+                continue
             dwell_time = trk.dwell_time
             x1, y1, x2, y2 = (
                 int(trk.bbox[0]) + ox, int(trk.bbox[1]) + oy,

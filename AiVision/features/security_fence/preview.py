@@ -1,4 +1,4 @@
-"""围栏预览使用实时采集帧，检测快照独立更新并按时失效。"""
+"""围栏检测框使用对应原图；无有效结果时显示实时底图与 ROI。"""
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from AiVision.features._shared.roi import roi_to_pixels
+from AiVision.features._shared.preview import DetectionPreviewFrame
 from .runtime import current_mode
 from .schema import STALE_SECONDS, FenceValue
 
@@ -30,6 +31,7 @@ class _PreviewEntry:
     camera_key: str
     value: FenceValue
     detail: dict | None = None
+    source: DetectionPreviewFrame | None = None
 
 
 class FencePreview:
@@ -51,12 +53,12 @@ class FencePreview:
                 # 配置更新后撤销旧标注，等待与新配置对应的检测结果。
                 self._entries[camera_id] = entry
 
-    def publish(self, camera_id: int, detail: dict):
+    def publish(self, camera_id: int, detail: dict, *, source: DetectionPreviewFrame):
         snapshot = deepcopy(detail)
         with self._lock:
             entry = self._entries.get(camera_id)
             if entry is not None:
-                self._entries[camera_id] = _PreviewEntry(entry.camera_key, entry.value, snapshot)
+                self._entries[camera_id] = _PreviewEntry(entry.camera_key, entry.value, snapshot, source)
 
     def _entry(self, camera_key: str):
         with self._lock:
@@ -70,16 +72,21 @@ class FencePreview:
         entry = self._entry(camera_key)
         if entry is None:
             return None
-        annotated = frame.copy()
-        polygon = roi_to_pixels(entry.value.roi_pos, frame.shape)
-        polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])
-        cv2.polylines(annotated, [polygon], True, self._roi_color, 2)
         detail = entry.detail
         updated_at = float(detail["updated_at_s"]) if detail else 0.0
         mode = current_mode(entry.value, datetime.fromtimestamp(now, timezone.utc))
-        if (detail is not None and 0 <= now - updated_at <= STALE_SECONDS
-                and detail["mode"] == mode
-                and (detail["frame_height"], detail["frame_width"]) == frame.shape[:2]):
+        show_detections = (
+            detail is not None and bool(detail["persons"] or detail["faces"])
+            and 0 <= now - updated_at <= STALE_SECONDS and detail["mode"] == mode
+            and (detail["frame_height"], detail["frame_width"]) == frame.shape[:2]
+            and entry.source is not None and entry.source.usable(frame, now=now, max_age=STALE_SECONDS)
+        )
+        # 框坐标属于检测输入，不能画到人物已经移动的最新采集帧上。
+        annotated = (entry.source.frame if show_detections else frame).copy()
+        polygon = roi_to_pixels(entry.value.roi_pos, frame.shape)
+        polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])
+        cv2.polylines(annotated, [polygon], True, self._roi_color, 2)
+        if show_detections:
             draw_fence_detections(annotated, detail)
         # 渲染期间发生停用或配置替换时，不发布旧配置的画面。
         current = self._entry(camera_key)

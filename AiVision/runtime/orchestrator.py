@@ -33,6 +33,7 @@ from AiVision.core.system_config import system_config_service
 
 from AiVision.features.registry import all_specs                                     # 系统有那些检测功能
 from AiVision.features._shared.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
+from AiVision.features._shared.defaults import ANNOTATED_FRAME_FRESH_SECONDS
 from AiVision.features.face_recognition.records import RecognitionMediaReferences
 
 from AiVision.cameras.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
@@ -52,7 +53,6 @@ from AiVision.alarms.evidence.evidence_recorder import alarm_evidence_recorder  
 
 # 全局常量，这些改了可能需要重启摄像头进程
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
-_ANNOTATED_FRAME_FRESH_SECONDS = 2.0                                       # 带检测框的结果帧新鲜的秒数
 # 摄像头运行异常类型集合
 _CAMERA_RUNTIME_ALERT_TYPES = {
     "启动失败",
@@ -739,7 +739,7 @@ class Orchestrator:
     def get_camera_frame_info(self, shm_name: str, feature: str | None = None):
         """
         从原始帧和算法标注帧中，选择当前最适合展示的一帧
-            1、围栏按实时采集帧合成预览；其他功能返回最近 2 秒内的标注画面
+            1、功能预览选择匹配的检测原图或实时 ROI 底图；普通标注帧有效期为 2 秒
             2、未指定检测功能时，返回最近 10 秒内的原始画面供配置编辑
             3、需要的画面过期或不存在时返回 None
         """
@@ -763,11 +763,11 @@ class Orchestrator:
             # 从Consumer中拿标注画面
             annotated = consumer.result_dict.get(shm_name)
             annotated_updated_at = consumer.result_updated_at.get(shm_name, 0.0)
-            # 判断标注帧是不是最新的，_ANNOTATED_FRAME_FRESH_SECONDS是2，所以这里是大于2秒就不在新鲜
+            # 标注超过公共有效期后，不再把历史检测结果作为当前画面。
             annotated_is_fresh = (
                 annotated is not None
                 and annotated_updated_at > 0
-                and now - annotated_updated_at <= _ANNOTATED_FRAME_FRESH_SECONDS
+                and 0 <= now - annotated_updated_at <= ANNOTATED_FRAME_FRESH_SECONDS
             )
             if annotated_is_fresh:
                 return annotated, annotated_updated_at      # 标注有效就返回标注帧
@@ -801,7 +801,7 @@ class Orchestrator:
         fresh = bool(
             snapshot
             and updated_at_s > 0
-            and time.time() - updated_at_s <= _ANNOTATED_FRAME_FRESH_SECONDS
+            and time.time() - updated_at_s <= ANNOTATED_FRAME_FRESH_SECONDS
         )
         # 如果状态过期，返回自定义字典
         if not fresh:

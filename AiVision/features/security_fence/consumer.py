@@ -7,6 +7,7 @@ from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.departments.department_registry import require_department
 from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features._shared.preview import DetectionPreviewFrame
 from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
 from .runtime import FenceRuntime, current_mode
@@ -153,7 +154,9 @@ class FenceConsumer(BaseFunctionConsumer):
     def post_process(self, camera_id, result):
         frame = self._annotated_frame(camera_id)
         detail = result[1]
-        self.preview.publish(camera_id, detail)
+        self.preview.publish(camera_id, detail, source=DetectionPreviewFrame(
+            self.frame_cache[camera_id], self._last_process_at[camera_id],
+        ))
         if frame is not None:
             draw_fence_detections(frame, detail)
         return frame
@@ -228,5 +231,5 @@ class FenceConsumer(BaseFunctionConsumer):
         return self.preview.status(camera_key)
 
     def get_live_preview(self, camera_key, frame, *, now):
-        """实时画面与模型完成频率分离，过期身份不继续叠加到画面。"""
+        """有效检测使用对应原图，无有效检测时显示实时底图与 ROI。"""
         return self.preview.render(camera_key, frame, now=now)
