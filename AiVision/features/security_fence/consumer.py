@@ -1,5 +1,6 @@
 """复用人体及身份推理队列，围栏独立管理状态和告警事件。"""
 import time
+from concurrent.futures import Future
 from datetime import datetime, timezone
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
@@ -174,13 +175,47 @@ class FenceConsumer(BaseFunctionConsumer):
             if not person["alarm"]:
                 continue
             event = runtime.events[person["track_id"]]
+            first_dispatch = not event.dispatched
             if event.dispatched:
                 self._complete_alarm_identity(camera_id, event, person, config=config)
+            cfg = self.config_cache[camera_id] if config is None else config
+            channels = {"horn"} if event.dispatched else {"sql", "horn", "wechat"}
+            completion = self._horn_attempt(event, cfg)
+            if completion is None:
+                channels.discard("horn")
+            if not channels:
                 continue
-            if super()._handle_alarm(camera_id, (True, person), frame, config=config):
+            if super()._handle_alarm(camera_id, (True, person), frame, config=config,
+                                     channels=channels, on_horn_complete=completion):
                 event.dispatched = True
-                event.person = FencePerson.model_validate(person)
+                if first_dispatch:
+                    event.person = FencePerson.model_validate(person)
                 subjects.add(f"{camera_id}:{event.key}")
+
+    def _horn_attempt(self, event, config):
+        """仅当前可见违规会走到这里；旧任务只完成自己的 Future，不主动重播。"""
+        now = time.monotonic()
+        future = event.horn_future
+        if future is not None:
+            if not future.done():
+                return None
+            success, completed_at = future.result()
+            event.horn_future = None
+            if not success:
+                event.horn_next_at = completed_at + settings.alarm.horn_reconcile_interval_seconds
+        if not config.get("horn_enable") or now < event.horn_next_at:
+            return None
+        interval = config.get("horn_interval")
+        interval = config["alarm_interval"] if interval is None else interval
+        # 音频播放耗时计入间隔；0 秒只等待上一次实际播放完成，不额外等一轮冷却。
+        event.horn_next_at = now + interval
+        future = event.horn_future = Future()
+
+        def completed(success):
+            # 只捕获轻量 Future；事件已消失或配置已替换时不会操作新的运行状态。
+            future.set_result((bool(success), time.monotonic()))
+
+        return completed
 
     def _complete_alarm_identity(self, camera_id, event, person, *, config=None):
         """补全原报警的身份，不重新触发喇叭、截图或新增报警记录。"""

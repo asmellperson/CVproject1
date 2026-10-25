@@ -9,6 +9,7 @@ import queue
 import inspect
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from math import isfinite
 from typing import Literal, Optional
@@ -82,6 +83,7 @@ class AlarmRequest:
     reason: str = ""
     metadata: dict = field(default_factory=dict)
     evidence: AlarmEvidenceRequest | None = field(default=None, kw_only=True)
+    on_horn_complete: Callable[[bool], None] | None = field(default=None, kw_only=True, repr=False)
 
     def __post_init__(self) -> None:
         """在请求创建时校验功能、事业部、告警类型与显式冷却身份。"""
@@ -121,6 +123,7 @@ class AlarmDispatcher:
         self._wechat_started = False  # 防止 configure() 被重复调用时二次启动线程
         # 告警冷却表
         self._last_alarm: dict[tuple[str, str, int, str], float] = {}
+        self._horn_attempts: dict[tuple[str, str, int, str], object] = {}
         self._lock = threading.Lock()
 
     def configure(
@@ -170,6 +173,8 @@ class AlarmDispatcher:
         self,
         request: AlarmRequest,
         alarm_interval: float = 5.0,
+        *,
+        channels: set[str] | None = None,
     ) -> bool:
         """各通道分别冷却，0 秒不额外等待；alarm_interval 控制记录及未单设的通知。
 
@@ -186,20 +191,53 @@ class AlarmDispatcher:
             raise ValueError("报警通道间隔必须是有限的非负秒数")
         now = time.monotonic()
         due = set()
+        horn_token = None
+        selected = {"sql", "horn", "wechat"} if channels is None else channels
         with self._lock:
             for channel, interval in intervals.items():
                 config = alarm.get(channel) or {}
                 enabled = config.get("enable", channel == "sql")
                 channel_key = (*key, channel)
                 last = self._last_alarm.get(channel_key)
-                if enabled and (last is None or now - last >= interval):
-                    self._last_alarm[channel_key] = now
+                if channel in selected and enabled and (last is None or now - last >= interval):
+                    # 围栏语音以实际播放成功为准，失败不能消耗长周期冷却。
+                    if channel != "horn" or request.on_horn_complete is None:
+                        self._last_alarm[channel_key] = now
+                    else:
+                        horn_token = object()
+                        self._horn_attempts[channel_key] = horn_token
                     due.add(channel)
+        completion = self._horn_completion(request.on_horn_complete, (*key, "horn"), horn_token, now)
         if not due:
             self._cancel_episode(request)
+            if completion is not None:
+                completion(False)
             return False
-        self._execute(request, due)
+        self._execute(request, due, on_horn_complete=completion)
         return True
+
+    def _horn_completion(self, callback, cooldown_key, token, started_at):
+        """完成通知只保留轻量回调和冷却键，不把原始告警图片留在播放队列。"""
+        if callback is None:
+            return None
+        completed = False
+        lock = threading.Lock()
+
+        def complete(success):
+            nonlocal completed
+            with lock:
+                if completed:
+                    return
+                completed = True
+            with self._lock:
+                # 清理或更新后的同名主体不能被旧任务的晚到回调重新加上冷却。
+                if token is not None and self._horn_attempts.get(cooldown_key) is token:
+                    self._horn_attempts.pop(cooldown_key, None)
+                    if success:
+                        self._last_alarm[cooldown_key] = started_at
+            callback(bool(success))
+
+        return complete
 
     def reset_cooldown(self, camera_id: int, violation_type: int) -> None:
         """清除指定摄像头与报警类型的冷却状态。"""
@@ -216,6 +254,7 @@ class AlarmDispatcher:
         with self._lock:
             for channel in ("sql", "horn", "wechat"):
                 self._last_alarm.pop((cooldown_subject_type, cooldown_subject_id, violation_type, channel), None)
+                self._horn_attempts.pop((cooldown_subject_type, cooldown_subject_id, violation_type, channel), None)
 
     @staticmethod
     def _cooldown_key(request: AlarmRequest) -> tuple[str, str, int]:
@@ -253,7 +292,7 @@ class AlarmDispatcher:
             return self.evidence_recorder.finish_episode(evidence.episode_token)
         return self.evidence_recorder.start_alarm(evidence.source_key, req.frame)
 
-    def _execute(self, req: AlarmRequest, channels: set[str]):
+    def _execute(self, req: AlarmRequest, channels: set[str], *, on_horn_complete=None):
         """按各通道设置提交喇叭、持久化与微信任务，并隔离通道异常。
 
         喇叭播放只入队；微信卡片需同步取得告警 ID，普通 SQL 记录则异步入队。
@@ -300,12 +339,21 @@ class AlarmDispatcher:
             if self.horn_runtime_manager is not None and horn_id is not None and event_id is not None:
                 try:
                     # 后台通过HTTP请求告诉这个IP喇叭，播放指定event_id对应的预录告警语音
-                    if not self.horn_runtime_manager.enqueue_play(horn_id, event_id):
-                        logger.warning(f"[Alarm] 喇叭 #{horn_id} 未播放：设备已停用、不存在或运行服务暂不可用")
+                    kwargs = {"on_complete": on_horn_complete} if on_horn_complete is not None else {}
+                    if not self.horn_runtime_manager.enqueue_play(horn_id, event_id, **kwargs):
+                        if on_horn_complete is not None:
+                            on_horn_complete(False)
+                        logger.warning(f"[Alarm] 喇叭 #{horn_id} 音频 #{event_id} 未入队：设备不可用、任务繁忙或队列已满")
                 except Exception as e:
-                    logger.warning(f"[Alarm] 喇叭触发失败: {e}")
+                    if on_horn_complete is not None:
+                        on_horn_complete(False)
+                    logger.warning(f"[Alarm] 喇叭 #{horn_id} 音频 #{event_id} 触发失败（{type(e).__name__}）")
             else:
+                if on_horn_complete is not None:
+                    on_horn_complete(False)
                 logger.warning("[Alarm] 喇叭未播放：绑定缺少设备/语音任务 ID 或运行管理器未就绪")
+        elif on_horn_complete is not None:
+            on_horn_complete(False)
 
         # ---- 通道 2: SQL 持久化 ----
         # 没微信：SQL记录入queue，异步写，性能优先。有微信：必须拿alarm_id,save_now,同步写得到record.id,微信卡片

@@ -188,6 +188,67 @@ def observation():
     }]
 
 
+def test_single_frame_confirmation_config_round_trips_through_storage(backend):
+    from AiVision.features.security_fence.schema import FenceConfig
+
+    payload = FenceConfig(value={"confirmation_frames": 1})
+    with backend.session.begin() as session:
+        session.add(backend.camera(id=1, name="入口", url="unused", shm_name="camera_1", department=A))
+        config = backend.config(camera_id=1)
+        config.apply_config_dict(payload.model_dump())
+        session.add(config)
+    with backend.session() as session:
+        saved = session.query(backend.config).filter_by(camera_id=1).one()
+        assert FenceConfig.model_validate(saved.to_config_dict()).value.confirmation_frames == 1
+
+
+@pytest.mark.parametrize("frames", [0, 11, 1.5, True])
+def test_confirmation_frame_count_remains_a_bounded_integer(backend, frames):
+    with pytest.raises(ValidationError):
+        backend.value(confirmation_frames=frames)
+
+
+@pytest.mark.parametrize("allowed", [(), (1,)])
+def test_single_valid_face_immediately_confirms_identity_and_respects_whitelist(backend, allowed):
+    runtime = backend.runtime(backend.value(confirmation_frames=1))
+    people, faces = observation()
+    person = runtime.update(people, faces, (240, 320, 3), now=NOW, monotonic=0,
+                            allowed_person_ids=allowed)[0]
+    assert person.person_id == 1
+    assert person.identity == ("allowed" if allowed else "unauthorized")
+    assert person.alarm is (not bool(allowed))
+    assert person.reason == (None if allowed else "unauthorized")
+
+
+@pytest.mark.parametrize("evidence", ["missing", "low_quality", "uncertain", "valid"])
+def test_single_frame_unknown_identity_still_requires_usable_face_evidence(backend, evidence):
+    runtime = backend.runtime(backend.value(confirmation_frames=1))
+    people, faces = observation()
+    faces[0].update(matched=False, person_id=None, person_name=None, similarity=.2,
+                    quality={"size": 80, "sharpness": 60., "asymmetry": .2})
+    if evidence == "missing":
+        faces = []
+    elif evidence == "low_quality":
+        faces[0]["quality"]["size"] = 79
+    elif evidence == "uncertain":
+        faces[0]["similarity"] = .4
+    person = runtime.update(people, faces, (240, 320, 3), now=NOW, monotonic=0)[0]
+    assert person.identity == ("unauthorized" if evidence == "valid" else "pending")
+    assert person.alarm is (evidence == "valid")
+    assert person.reason == ("unknown_face" if evidence == "valid" else None)
+
+
+def test_default_confirmation_still_waits_for_three_valid_faces(backend):
+    value = backend.value()
+    assert value.confirmation_frames == 3
+    runtime = backend.runtime(value)
+    people, faces = observation()
+    results = [runtime.update(people, faces, (240, 320, 3), now=NOW, monotonic=moment)[0]
+               for moment in (0., .2, .4)]
+    assert [person.identity for person in results] == ["pending", "pending", "unauthorized"]
+    assert [person.alarm for person in results] == [False, False, True]
+
+
 def test_runtime_uses_current_department_permissions_and_revocation_keeps_identity(backend):
     runtime = backend.runtime(backend.value(confirmation_frames=2))
     people, faces = observation()

@@ -595,7 +595,8 @@ class BaseFunctionConsumer(ABC):
             }
 
     #  告警处理
-    def _handle_alarm(self, camera_id: int, result: tuple, frame: np.ndarray, *, config: dict | None = None):
+    def _handle_alarm(self, camera_id: int, result: tuple, frame: np.ndarray, *, config: dict | None = None,
+                      channels: set[str] | None = None, on_horn_complete: Callable[[bool], None] | None = None):
         """
         判定是否触发告警，并通过 alarm_dispatcher 分发到各通道。
 
@@ -654,9 +655,11 @@ class BaseFunctionConsumer(ABC):
                 alarm_config=alarm_config,
                 camera_key=cam_key,
                 department=department,
+                on_horn_complete=on_horn_complete,
                 **alarm_context,
             ),
             alarm_interval=cfg["alarm_interval"],
+            **({"channels": channels} if channels is not None else {}),
         )
 
     def _alarm_violation_type(self, camera_id: int, result: tuple, cfg: dict) -> int:

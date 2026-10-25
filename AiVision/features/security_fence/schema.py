@@ -26,7 +26,7 @@ class FenceValue(BaseModel):
     detection_threshold: float = Field(0.7, gt=0, le=1)
     similarity_threshold: float = Field(0.5, gt=0, le=1)
     unknown_similarity_threshold: float = Field(0.3, ge=0, lt=1)
-    confirmation_frames: int = Field(3, ge=2, le=10)
+    confirmation_frames: int = Field(3, ge=1, le=10)
     min_face_size: int = Field(80, ge=32, le=512)
     min_face_sharpness: float = Field(60.0, ge=0)
     max_face_asymmetry: float = Field(0.35, gt=0, le=1)

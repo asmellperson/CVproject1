@@ -4,6 +4,8 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from AiVision.alarms.devices.horn import Horn
 from AiVision.alarms.devices.sip_service import horn_sip_service
@@ -15,6 +17,18 @@ def _load_configs(horn_id=None):
     """延迟导入服务并读取内部运行配置，避免模块初始化的循环依赖。"""
     from .service import horn_service
     return horn_service.runtime_configs(horn_id)
+
+
+@dataclass
+class _PlaybackJob:
+    """一台设备的一次实际播放，跟踪请求只共享尚未开始的同一音频。"""
+    horn_id: int
+    horn: Horn
+    event_id: str | int
+    queued_at: float
+    completions: list[Callable[[bool], None]] = field(default_factory=list)
+    started: bool = False
+    finished: bool = False
 
 
 class HornRuntimeManager:
@@ -32,7 +46,7 @@ class HornRuntimeManager:
         self._active = False
         self._stop = threading.Event()
         self._queue = queue.Queue(maxsize=settings.alarm.horn_queue_size)
-        self._pending: dict[int, Horn] = {}
+        self._pending: dict[int, _PlaybackJob] = {}
         self._threads: list[threading.Thread] = []
 
     @staticmethod
@@ -65,14 +79,22 @@ class HornRuntimeManager:
     def _retire(self, horn_id):
         """立即关闭旧设备入口并保留引用，供停止状态查询和资源回收。"""
         entry = self._entries.pop(horn_id, None)
-        self._pending.pop(horn_id, None)
+        pending = self._pending.pop(horn_id, None)
         horn_sip_service.server.remove_device(horn_id)
         if entry:
             entry[1].request_stop()
             self._retired.append((horn_id, entry[1]))
+        return pending
 
     def sync(self, horn_id: int | None = None):
         """仅在事务提交后调用；读取最新提交值，串行处理乱序的更新通知。"""
+        cancelled = []
+
+        def retire(device_id):
+            job = self._retire(device_id)
+            if job is not None:
+                cancelled.append(job)
+
         with self._sync_lock:
             with self._lock:
                 if not self._active:
@@ -86,9 +108,9 @@ class HornRuntimeManager:
                         old = self._entries.get(device_id)
                         try:
                             if cfg is None or not cfg["enable"]:
-                                self._retire(device_id)
+                                retire(device_id)
                             elif old is None or self._credentials(old[0]) != self._credentials(cfg):
-                                self._retire(device_id)
+                                retire(device_id)
                                 horn_sip_service.server.set_device(cfg)
                                 horn = self._factory(self._credentials(cfg), connect_on_init=False)
                                 self._entries[device_id] = (cfg, horn)
@@ -99,7 +121,7 @@ class HornRuntimeManager:
                             self._failures.discard(device_id)
                         except Exception:
                             # 一台喇叭的地址或身份错误不能中断其他设备的报警。
-                            self._retire(device_id)
+                            retire(device_id)
                             self._failures.add(device_id)
                             logger.warning(f"[HornRuntime] 喇叭 {device_id} 配置同步失败，等待重试")
                     if horn_id is None:
@@ -113,9 +135,11 @@ class HornRuntimeManager:
                         self._sync_failed = True
                     ids = {horn_id} if horn_id is not None else set(self._entries)
                     for device_id in ids:
-                        self._retire(device_id)
+                        retire(device_id)
                         self._failures.add(device_id)
                 logger.warning("[HornRuntime] 配置同步失败，已关闭旧实例，等待重试")
+        for job in cancelled:
+            self._finish_playback(job, False)
 
     def _reconcile_loop(self, stop):
         """周期重新核对数据库配置，使失败同步能够自动重试。"""
@@ -124,43 +148,72 @@ class HornRuntimeManager:
                 return
             self.sync()
 
-    def enqueue_play(self, horn_id: int, event_id: str | int) -> bool:
+    def enqueue_play(self, horn_id: int, event_id: str | int, *, on_complete=None) -> bool:
         """非阻塞接收播放；同台在播任务合并，队列已满或设备不可用返回 False。"""
         with self._lock:
             entry = self._entries.get(horn_id)
             if not self._active or entry is None:
                 return False
-            if self._pending.get(horn_id) is entry[1]:
+            pending = self._pending.get(horn_id)
+            if pending is not None and pending.horn is entry[1]:
                 # 同台喇叭只保留一项待播或在播任务，避免长音频占满所有工作线程。
+                if on_complete is not None:
+                    if (pending.event_id != event_id or pending.started
+                            or len(pending.completions) >= settings.alarm.horn_queue_size):
+                        return False
+                    pending.completions.append(on_complete)
                 return True
             try:
-                self._queue.put_nowait((horn_id, entry[1], event_id, time.monotonic()))
-                self._pending[horn_id] = entry[1]
+                job = _PlaybackJob(horn_id, entry[1], event_id, time.monotonic(),
+                                   [on_complete] if on_complete is not None else [])
+                self._queue.put_nowait(job)
+                self._pending[horn_id] = job
                 return True
             except queue.Full:
-                logger.warning("[HornRuntime] 播放队列已满，本次喇叭告警跳过")
+                logger.warning(f"[HornRuntime] 喇叭 #{horn_id} 音频 #{event_id} 入队失败：播放队列已满")
                 return False
+
+    def _finish_playback(self, job, success):
+        """所有接受的任务只完成一次；通知前释放管理器锁，避免反向锁顺序。"""
+        with self._lock:
+            if job.finished:
+                return
+            job.finished = True
+            entry = self._entries.get(job.horn_id)
+            success = bool(success and self._active and entry is not None and entry[1] is job.horn)
+            if self._pending.get(job.horn_id) is job:
+                self._pending.pop(job.horn_id, None)
+            callbacks, job.completions = job.completions, []
+        for callback in callbacks:
+            try:
+                callback(bool(success))
+            except Exception as exc:
+                logger.warning(f"[HornRuntime] 喇叭 #{job.horn_id} 音频 #{job.event_id} 完成通知失败（{type(exc).__name__}）")
 
     def _play_loop(self, stop, jobs):
         """只执行未过期且仍对应当前设备实例的任务，防止配置更换后播放旧任务。"""
         while not stop.is_set():
             try:
-                horn_id, horn, event_id, queued_at = jobs.get(timeout=0.1)
+                job = jobs.get(timeout=0.1)
             except queue.Empty:
                 continue
+            success = False
             try:
                 with self._lock:
-                    entry = self._entries.get(horn_id)
+                    job.started = True
+                    entry = self._entries.get(job.horn_id)
                     valid = (not stop.is_set() and self._active and entry is not None
-                             and entry[1] is horn)
-                if valid and time.monotonic() - queued_at <= settings.alarm.horn_queue_ttl_seconds:
-                    horn.play(event_id, expires_at=queued_at + settings.alarm.horn_queue_ttl_seconds)
-            except Exception:
-                logger.warning("[HornRuntime] 播放任务失败")
+                             and entry[1] is job.horn and not job.finished)
+                if valid and time.monotonic() - job.queued_at <= settings.alarm.horn_queue_ttl_seconds:
+                    success = bool(job.horn.play(job.event_id, expires_at=job.queued_at + settings.alarm.horn_queue_ttl_seconds))
+                    if not success:
+                        logger.warning(f"[HornRuntime] 喇叭 #{job.horn_id} 音频 #{job.event_id} 播放未成功，等待后续告警重试")
+                elif valid:
+                    logger.warning(f"[HornRuntime] 喇叭 #{job.horn_id} 音频 #{job.event_id} 任务已过期，跳过播放")
+            except Exception as exc:
+                logger.warning(f"[HornRuntime] 喇叭 #{job.horn_id} 音频 #{job.event_id} 播放失败（{type(exc).__name__}）")
             finally:
-                with self._lock:
-                    if self._pending.get(horn_id) is horn:
-                        self._pending.pop(horn_id, None)
+                self._finish_playback(job, success)
                 jobs.task_done()
 
     def status(self, config: dict) -> dict:
@@ -203,16 +256,19 @@ class HornRuntimeManager:
             with self._lock:
                 self._active = False
                 self._stop.set()
+                cancelled = list(self._pending.values())
                 self._pending.clear()
                 for horn_id in list(self._entries):
                     self._retire(horn_id)
                 retired, threads = list(self._retired), list(self._threads)
                 while True:
                     try:
-                        self._queue.get_nowait()
+                        cancelled.append(self._queue.get_nowait())
                         self._queue.task_done()
                     except queue.Empty:
                         break
+        for job in cancelled:
+            self._finish_playback(job, False)
         deadline = time.monotonic() + 2.0
         for _, horn in retired:
             horn.stop_heartbeat(timeout=max(0.0, deadline - time.monotonic()))

@@ -1,7 +1,10 @@
 """喇叭响度、独立通知间隔及持续逗留播报的回归验证。"""
 import audioop
 import importlib
+import queue
 import struct
+import threading
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -197,6 +200,370 @@ def test_busy_speaker_coalesces_requests_without_queuing_repeats(backend):
     assert manager.enqueue_play(1, 2)
     assert manager._queue.qsize() == 1
     assert not manager.enqueue_play(2, 2)
+
+
+def drain_playback(manager):
+    """同步消费已有内存任务，不启动设备服务或后台线程。"""
+    stop = threading.Event()
+    jobs = manager._queue
+    get = jobs.get
+
+    def next_job(*args, **kwargs):
+        if jobs.empty():
+            stop.set()
+            raise queue.Empty
+        return get(*args, **kwargs)
+
+    jobs.get = next_job
+    try:
+        manager._play_loop(stop, jobs)
+    finally:
+        jobs.get = get
+
+
+def fence_playback(backend, monkeypatch, *, horn_interval=0, alarm_interval=10):
+    from AiVision.features._shared import consumer as base_module
+    from AiVision.features.security_fence import consumer as fence_module
+    from AiVision.features.security_fence.runtime import FenceRuntime
+    from AiVision.features.security_fence.schema import FenceValue
+
+    module, dispatcher, clock = make_dispatcher(monkeypatch)
+    monkeypatch.setattr(base_module, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(fence_module, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(backend.runtime_manager, "horn_sip_service", SimpleNamespace(server=Mock()))
+    horn = Mock()
+    horn.play.return_value = True
+    horn.snapshot.return_value = {"state": "stopped"}
+    manager = backend.runtime_manager.HornRuntimeManager(config_loader=lambda *_: [])
+    manager._active = True
+    manager._entries[1] = ({}, horn)
+    dispatcher.horn_runtime_manager = manager
+    consumer = fence_module.FenceConsumer.__new__(fence_module.FenceConsumer)
+    consumer.feature_name = "security_fence"
+    consumer.spec = SimpleNamespace(alarm_types=(15, 16))
+    config = {"department": backend.department, "shm_name": "camera_1", "name": "围栏入口",
+              "sql_enable": True, "horn_enable": True, "horn_id": 1, "horn_event_id": 2,
+              "horn_interval": horn_interval, "alarm_interval": alarm_interval,
+              "wechat_enable": True, "wechat_user": "test_user"}
+    consumer.config_cache, consumer.frame_cache = {1: config}, {}
+    value = FenceValue(confirmation_frames=1, alarm_interval=float(alarm_interval))
+    runtime = FenceRuntime(value)
+    consumer.runtimes = {1: runtime}
+    consumer.unidentified_slots, consumer.unidentified_subjects, consumer.alarm_subjects = {}, {}, {}
+    people = [{"bbox": [0., 0., 100., 200.]}]
+    faces = [{"bbox": [20., 20., 80., 80.], "matched": True, "person_id": 1,
+              "person_name": "员工", "similarity": .95}]
+
+    def sample(moment, *, visible=True, allowed=()):
+        clock.now = moment
+        current = consumer.runtimes[1]
+        persons = current.update(people if visible else [], faces if visible else [], (240, 320, 3),
+                                 now=datetime(2026, 10, 25, 4, tzinfo=timezone.utc),
+                                 monotonic=moment, allowed_person_ids=allowed)
+        consumer._handle_alarm(1, (any(p.alarm for p in persons), {"persons": [p.model_dump() for p in persons]}), None)
+        return persons
+
+    return SimpleNamespace(module=module, dispatcher=dispatcher, clock=clock, manager=manager,
+                           horn=horn, consumer=consumer, runtime=runtime, config=config, sample=sample)
+
+
+def test_fence_zero_interval_repeats_after_actual_completion_without_duplicate_records(backend, monkeypatch):
+    case = fence_playback(backend, monkeypatch)
+    case.sample(0)
+    case.sample(.1)
+    assert case.manager._queue.qsize() == 1
+    drain_playback(case.manager)
+    case.sample(.2)
+    drain_playback(case.manager)
+    assert case.horn.play.call_count == 2
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+    assert case.dispatcher._wechat_queue.qsize() == 1
+
+
+@pytest.mark.parametrize("interval", [10, None])
+def test_fence_horn_interval_counts_audio_duration_from_trigger(backend, monkeypatch, interval):
+    case = fence_playback(backend, monkeypatch, horn_interval=interval)
+    case.sample(0)
+    case.clock.now = 6
+    drain_playback(case.manager)
+    case.sample(6)
+    case.sample(9.9)
+    assert case.manager._queue.empty()
+    case.sample(10)
+    drain_playback(case.manager)
+    assert case.horn.play.call_count == 2
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+
+
+def test_fence_rejected_horn_retries_without_consuming_long_interval(backend, monkeypatch):
+    case = fence_playback(backend, monkeypatch, horn_interval=3600)
+    case.manager._active = False
+    case.sample(0)
+    case.manager._active = True
+    case.sample(4.9)
+    assert case.manager._queue.empty()
+    case.sample(5)
+    drain_playback(case.manager)
+    assert case.horn.play.call_count == 1
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+    assert case.dispatcher._wechat_queue.qsize() == 1
+
+
+@pytest.mark.parametrize("failure", [False, RuntimeError("offline")])
+def test_fence_play_failure_retries_and_then_respects_success_interval(backend, monkeypatch, failure):
+    case = fence_playback(backend, monkeypatch, horn_interval=30)
+    case.horn.play.side_effect = [failure, True] if isinstance(failure, Exception) else None
+    case.horn.play.return_value = failure
+    case.sample(0)
+    drain_playback(case.manager)
+    case.horn.play.side_effect = None
+    case.horn.play.return_value = True
+    case.sample(4.9)
+    assert case.manager._queue.empty()
+    case.sample(5)
+    drain_playback(case.manager)
+    case.sample(5.1)
+    assert case.horn.play.call_count == 2
+    assert case.manager._queue.empty()
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+
+
+def test_fence_expired_job_retries_from_failure_completion_time(backend, monkeypatch):
+    case = fence_playback(backend, monkeypatch, horn_interval=60, alarm_interval=60)
+    case.sample(0)
+    case.clock.now = backend.settings.alarm.horn_queue_ttl_seconds + .1
+    drain_playback(case.manager)
+    case.horn.play.assert_not_called()
+    case.sample(case.clock.now + 5)
+    drain_playback(case.manager)
+    assert case.horn.play.call_count == 1
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+
+
+def test_fence_no_current_violation_does_not_repeat_after_completion(backend, monkeypatch):
+    case = fence_playback(backend, monkeypatch)
+    case.sample(0)
+    drain_playback(case.manager)
+    case.sample(1, visible=False)
+    case.sample(2, allowed={1})
+    assert case.manager._queue.empty()
+    assert case.horn.play.call_count == 1
+
+
+def test_fence_horn_repeat_does_not_overwrite_failed_identity_patch(backend, monkeypatch):
+    case = fence_playback(backend, monkeypatch)
+    case.sample(0)
+    event = next(iter(case.runtime.events.values()))
+    event.person = event.person.model_copy(update={"identity": "pending", "person_id": None,
+                                                 "bbox": [1., 1., 50., 100.]})
+    case.dispatcher.violation_writer.enqueue_metadata_patch.side_effect = [False, True]
+    drain_playback(case.manager)
+    case.sample(.1)
+    assert event.person.identity == "pending"
+    assert event.person.bbox == [1., 1., 50., 100.]
+    drain_playback(case.manager)
+    case.sample(.2)
+    assert event.person.identity == "unauthorized"
+    assert event.person.bbox == [1., 1., 50., 100.]
+    assert case.dispatcher.violation_writer.enqueue_metadata_patch.call_count == 2
+    assert case.dispatcher.violation_writer.save_now.call_count == 1
+
+
+def test_horn_tracked_coalescing_requires_same_queued_audio_and_is_bounded(backend, monkeypatch):
+    monkeypatch.setattr(backend.settings.alarm, "horn_queue_size", 2)
+    manager = backend.runtime_manager.HornRuntimeManager()
+    horn = Mock()
+    horn.play.return_value = True
+    manager._active = True
+    manager._entries[1] = ({}, horn)
+    first, second, other = Mock(), Mock(), Mock()
+    assert manager.enqueue_play(1, 2, on_complete=first)
+    assert manager.enqueue_play(1, 2, on_complete=second)
+    assert not manager.enqueue_play(1, 3, on_complete=other)
+    assert not manager.enqueue_play(1, 2, on_complete=other)
+    drain_playback(manager)
+    horn.play.assert_called_once()
+    first.assert_called_once_with(True)
+    second.assert_called_once_with(True)
+    other.assert_not_called()
+
+
+def test_horn_started_playback_rejects_late_tracking_until_next_real_play(backend):
+    manager = backend.runtime_manager.HornRuntimeManager()
+    horn = Mock()
+    manager._active = True
+    manager._entries[1] = ({}, horn)
+    first, late = Mock(), Mock()
+    accepted = []
+
+    def play(*args, **kwargs):
+        # 不能把已经播放一半的音频当成新事件的完整播报。
+        accepted.append(manager.enqueue_play(1, 2, on_complete=late))
+        return True
+
+    horn.play.side_effect = play
+    assert manager.enqueue_play(1, 2, on_complete=first)
+    drain_playback(manager)
+    assert accepted == [False]
+    first.assert_called_once_with(True)
+    late.assert_not_called()
+    horn.play.side_effect = None
+    horn.play.return_value = True
+    assert manager.enqueue_play(1, 2, on_complete=late)
+    drain_playback(manager)
+    late.assert_called_once_with(True)
+    assert horn.play.call_count == 2
+
+
+@pytest.mark.parametrize("result", ["success", "false", "exception", "expired"])
+def test_horn_completion_reports_actual_worker_result_and_expiration(backend, monkeypatch, result):
+    _, _, clock = make_dispatcher(monkeypatch)
+    manager = backend.runtime_manager.HornRuntimeManager()
+    horn = Mock()
+    horn.play.return_value = result == "success"
+    if result == "exception":
+        horn.play.side_effect = RuntimeError("offline")
+    manager._active = True
+    manager._entries[1] = ({}, horn)
+    callback = Mock()
+    assert manager.enqueue_play(1, 2, on_complete=callback)
+    if result == "expired":
+        clock.now = backend.settings.alarm.horn_queue_ttl_seconds + .1
+    drain_playback(manager)
+    callback.assert_called_once_with(result == "success")
+    assert horn.play.call_count == (0 if result == "expired" else 1)
+    assert manager._queue.empty()
+    assert not manager._pending
+
+
+@pytest.mark.parametrize("path", ["worker", "retire", "stop"])
+def test_horn_completion_is_once_outside_locks_and_old_jobs_do_not_play(backend, monkeypatch, path):
+    manager = backend.runtime_manager.HornRuntimeManager(config_loader=lambda *_: [])
+    horn = Mock()
+    horn.play.return_value = True
+    horn.snapshot.return_value = {"state": "stopped"}
+    manager._active = True
+    manager._entries[1] = ({}, horn)
+    monkeypatch.setattr(backend.runtime_manager, "horn_sip_service", SimpleNamespace(server=Mock()))
+    completed = []
+
+    def callback(success):
+        free = threading.Event()
+
+        def acquire():
+            with manager._sync_lock, manager._lock:
+                free.set()
+
+        thread = threading.Thread(target=acquire)
+        thread.start()
+        thread.join(timeout=1)
+        completed.append((success, free.is_set()))
+
+    assert manager.enqueue_play(1, 2, on_complete=callback)
+    if path == "retire":
+        manager.sync()
+    elif path == "stop":
+        manager.stop()
+    drain_playback(manager)
+    assert completed == [(path == "worker", True)]
+    assert horn.play.call_count == (1 if path == "worker" else 0)
+    assert not manager._pending
+
+
+def test_horn_retired_job_cannot_clear_or_complete_new_device_job(backend, monkeypatch):
+    config = {"id": 1, "enable": True, "url": "http://127.0.0.2",
+              "username": "test", "password": "new", "sip": None}
+    old, new = Mock(), Mock()
+    for horn in (old, new):
+        horn.play.return_value = True
+        horn.snapshot.return_value = {"state": "stopped"}
+    manager = backend.runtime_manager.HornRuntimeManager(
+        config_loader=lambda *_: [config], horn_factory=lambda *args, **kwargs: new,
+    )
+    monkeypatch.setattr(backend.runtime_manager, "horn_sip_service", SimpleNamespace(server=Mock()))
+    manager._active = True
+    manager._entries[1] = ({**config, "password": "old"}, old)
+    before, after = Mock(), Mock()
+    assert manager.enqueue_play(1, 2, on_complete=before)
+    old_job = manager._pending[1]
+    manager.sync(1)
+    before.assert_called_once_with(False)
+    assert manager.enqueue_play(1, 2, on_complete=after)
+    new_job = manager._pending[1]
+    manager._finish_playback(old_job, True)
+    assert manager._pending[1] is new_job
+    after.assert_not_called()
+    drain_playback(manager)
+    old.play.assert_not_called()
+    new.play.assert_called_once()
+    before.assert_called_once_with(False)
+    after.assert_called_once_with(True)
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_horn_dispatch_cooldown_uses_successful_trigger_time_only(backend, monkeypatch, success):
+    module, dispatcher, clock = make_dispatcher(monkeypatch)
+    callback = Mock()
+    request = alarm_request(backend, module, horn=10)
+    request.on_horn_complete = callback
+    assert dispatcher.maybe_dispatch(request, channels={"horn"})
+    complete = dispatcher.horn_runtime_manager.enqueue_play.call_args.kwargs["on_complete"]
+    clock.now = 6
+    complete(success)
+    callback.assert_called_once_with(success)
+    key = ("camera", "1", 5, "horn")
+    assert not dispatcher._horn_attempts
+    if success:
+        assert dispatcher._last_alarm[key] == 0
+        clock.now = 9.9
+        assert not dispatcher.maybe_dispatch(request, channels={"horn"})
+        clock.now = 10
+    else:
+        assert key not in dispatcher._last_alarm
+    assert dispatcher.maybe_dispatch(request, channels={"horn"})
+    assert dispatcher.horn_runtime_manager.enqueue_play.call_count == 2
+
+
+def test_horn_old_completion_cannot_restore_reset_cooldown(backend, monkeypatch):
+    module, dispatcher, clock = make_dispatcher(monkeypatch)
+    callback = Mock()
+    request = alarm_request(backend, module, horn=10)
+    request.on_horn_complete = callback
+    assert dispatcher.maybe_dispatch(request)
+    complete = dispatcher.horn_runtime_manager.enqueue_play.call_args.kwargs["on_complete"]
+    dispatcher.reset_cooldown(1, 5)
+    clock.now = 5
+    complete(True)
+    complete(True)
+    callback.assert_called_once_with(True)
+    assert not dispatcher._last_alarm
+    assert not dispatcher._horn_attempts
+
+
+def test_horn_old_completion_does_not_override_new_attempt_after_reset(backend, monkeypatch):
+    module, dispatcher, clock = make_dispatcher(monkeypatch)
+    first = alarm_request(backend, module, horn=10)
+    first.on_horn_complete = Mock()
+    assert dispatcher.maybe_dispatch(first, channels={"horn"})
+    old_complete = dispatcher.horn_runtime_manager.enqueue_play.call_args.kwargs["on_complete"]
+    dispatcher.reset_cooldown(1, 5)
+    clock.now = 1
+    current = alarm_request(backend, module, horn=10)
+    current.on_horn_complete = Mock()
+    assert dispatcher.maybe_dispatch(current, channels={"horn"})
+    current_complete = dispatcher.horn_runtime_manager.enqueue_play.call_args.kwargs["on_complete"]
+    key = ("camera", "1", 5, "horn")
+    clock.now = 2
+    old_complete(True)
+    assert key not in dispatcher._last_alarm
+    assert key in dispatcher._horn_attempts
+    clock.now = 3
+    current_complete(True)
+    assert dispatcher._last_alarm[key] == 1
+    assert not dispatcher._horn_attempts
+    old_complete(False)
+    first.on_horn_complete.assert_called_once_with(True)
+    current.on_horn_complete.assert_called_once_with(True)
 
 
 def test_dwell_repeats_after_ten_seconds_and_stops_when_person_leaves(backend, monkeypatch):

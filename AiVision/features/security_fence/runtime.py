@@ -1,6 +1,7 @@
 """单摄像头人员身份状态机，不依赖数据库、HTTP 或模型加载。"""
 from collections import Counter
 from collections.abc import Collection
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import ceil
@@ -68,6 +69,8 @@ class FenceEvent:
     candidate: int | None = None
     key: str = field(default_factory=lambda: uuid4().hex)
     dispatched: bool = False
+    horn_future: Future[tuple[bool, float]] | None = None
+    horn_next_at: float = 0.0
 
 
 class FenceRuntime:

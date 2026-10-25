@@ -9,7 +9,7 @@ export const NUMBER_FIELDS = [
   ['detection_threshold', '人脸检测置信度', 0.01, 1, 0.01],
   ['similarity_threshold', '身份匹配阈值', 0.01, 1, 0.01],
   ['unknown_similarity_threshold', '未匹配判定阈值', 0, 0.99, 0.01],
-  ['confirmation_frames', '身份确认帧数', 2, 10, 1],
+  ['confirmation_frames', '身份确认帧数', 1, 10, 1],
   ['min_face_size', '最小人脸尺寸（像素）', 32, 512, 1],
   ['min_face_sharpness', '最低人脸清晰度', 0, undefined, 1],
   ['max_face_asymmetry', '最大人脸偏转指标', 0.01, 1, 0.01],
