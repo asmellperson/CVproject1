@@ -355,6 +355,7 @@ npm run dev
 | 登录失败 | `auth_users` 中账号状态、MySQL 连接、`AUTH_SECRET` 和 `auth/auth.py` |
 | 页面没有可选事业部 | 用户授权部门、URL 的 `department` 参数及前端权限解析 |
 | 摄像头无画面 | 摄像头/功能开关、RTSP、FFmpeg、最新帧时间与模型状态 |
+| 普通监控画面卡顿 | 浏览器 `window.aivisionPreviewDiagnostics` 的分段耗时、图片加载频率与共享帧发布速率估计，以及取图响应的 `Server-Timing` |
 | 配置保存但模型未工作 | `/api/models` 的 `reload`、`runtime` 和后端日志 |
 | 保安行为部分规则不可用 | 保安室成员状态、必需/可选模型与对应规则开关 |
 | 安检有画面但无判定 | 工位 ROI、session 条件、福达AI健康状态、排队与历史错误 |
@@ -362,6 +363,8 @@ npm run dev
 | 告警视频未生成 | `pending/ready/failed` 状态、前后帧缓存、FFmpeg 和磁盘权限 |
 
 `/api/runtime/health` 的 `ok=true` 表示 Orchestrator 已启动且至少一个模型就绪，不代表所有摄像头、功能或福达AI服务均正常。
+
+普通监控的性能诊断按至少 5 秒的统计窗口汇总，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`，或开启 Debug/Verbose 查看 `[预览性能]`。报告分别记录请求到响应头、图片下载、解码及后端取帧标注和 JPEG 编码耗时；后端取图函数之外的等待还包含鉴权、排队、代理与网络。图片加载频率不等于屏幕绘制频率，共享帧发布速率估计不代表 RTSP 原生帧率。报告只保留当前监控上下文的最近一份，切换摄像头、隐藏页面或离开监控时清理。
 
 前端代码的现有检查入口：
 

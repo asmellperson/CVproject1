@@ -8,6 +8,7 @@ FrameReaderRegistry负责把共享内存中的最新帧读到Aivision主进程
 所有 Consumer 和 API 层都从 latest_frames[shm_name] 读取只读快照,绘图时需先拷贝。
 """
 from __future__ import annotations
+import math
 import threading
 import time
 from multiprocessing import shared_memory
@@ -116,6 +117,17 @@ class FrameReaderRegistry:
         """检查摄像头共享内存是否已登记；这不是帧新鲜度或采集进程存活的独立证明。"""
         with self._lock:
             return shm_name in self._shm_views
+
+    def get_frame_metadata(self, shm_name: str) -> tuple[int, float] | None:
+        """成对读取共享帧发布序号与读取时间，避免诊断拿到不同次更新的数据。"""
+        with self._lock:
+            sequence = self.latest_frame_seq.get(shm_name)
+            updated_at = self.latest_frame_times.get(shm_name)
+            if sequence is None or sequence <= 0 or updated_at is None or updated_at <= 0:
+                return None
+            if not math.isfinite(updated_at):
+                return None
+            return sequence, updated_at
 
     def _start_thread(self, shm_name: str):
         """开启读帧线程使用的是_read_loop函数，这个函数是开启这一台camera的持续读帧循环"""

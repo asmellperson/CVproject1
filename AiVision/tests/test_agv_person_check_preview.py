@@ -175,10 +175,27 @@ def test_shared_frame_entry_rejects_stale_source_frame(orchestrator):
     assert result is None
 
 
-def test_platform_frame_response_contains_roi_in_resized_jpeg(agv, orchestrator):
-    from AiVision.api.routes.cameras import build_camera_frame_response
+@pytest.mark.parametrize("capture_metadata, expected_age_ms", [
+    (None, None), ((None, 999.), None), ((7, None), None),
+    ((0, 999.), None), ((7, 0.), None), ((7, float("nan")), None),
+    ((7, 999.), 1000.), ((7, 1001.), 0.),
+])
+def test_platform_frame_response_contains_roi_in_resized_jpeg(
+    agv, orchestrator, monkeypatch, capture_metadata, expected_age_ms,
+):
+    from AiVision.api.routes import cameras
+    from AiVision.cameras.frame_reader import FrameReaderRegistry
 
-    response = build_camera_frame_response(
+    registry = FrameReaderRegistry()
+    if capture_metadata is not None:
+        sequence, updated_at = capture_metadata
+        if sequence is not None:
+            registry.latest_frame_seq["camera_1"] = sequence
+        if updated_at is not None:
+            registry.latest_frame_times["camera_1"] = updated_at
+    monkeypatch.setattr(cameras, "frame_reader_registry", registry)
+
+    response = cameras.build_camera_frame_response(
         key="camera_1", feature="agv_person_check", quality=95,
         max_width=80, max_height=None, orchestrator=orchestrator.runtime,
     )
@@ -188,3 +205,20 @@ def test_platform_frame_response_contains_roi_in_resized_jpeg(agv, orchestrator)
     assert int(image[10, 20, 0]) - int(image[10, 20, 2]) > 70
     assert np.all(orchestrator.raw == 40)
     agv.consumer.dispatch_inference_sync.assert_not_called()
+    timings = {
+        name: float(duration.removeprefix("dur="))
+        for name, duration in (
+            entry.strip().split(";") for entry in response.headers["server-timing"].split(",")
+        )
+    }
+    assert set(timings) == {"frame_lookup", "jpeg_encode", "frame_total"}
+    assert all(duration >= 0 for duration in timings.values())
+    assert timings["frame_total"] >= max(timings["frame_lookup"], timings["jpeg_encode"])
+    if expected_age_ms is not None:
+        assert response.headers["x-capture-sequence"] == "7"
+        assert float(response.headers["x-capture-updated-at"]) == capture_metadata[1]
+        assert float(response.headers["x-capture-age-ms"]) == expected_age_ms
+    else:
+        assert "x-capture-sequence" not in response.headers
+        assert "x-capture-updated-at" not in response.headers
+        assert "x-capture-age-ms" not in response.headers

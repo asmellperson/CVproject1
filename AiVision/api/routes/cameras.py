@@ -18,6 +18,7 @@ from AiVision.api.deps import get_camera_config_manager, get_current_orchestrato
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.cameras.config_manager import camera_access_departments
+from AiVision.cameras.frame_reader import frame_reader_registry
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 
 # 摄像头API路由基础定义
@@ -324,6 +325,9 @@ def build_camera_frame_response(
     if frame is None and updated_at:
         raise HTTPException(status_code=503, detail="camera frame is stale")
 
+    # 标注预览的时间可能是绘图时间，采集进度必须使用共享帧读取端的独立元数据。
+    capture_metadata = frame_reader_registry.get_frame_metadata(key)
+
     # 开始统计JPEG编码时间
     encode_started_at = time.monotonic()
     content = encode_frame_to_jpeg(
@@ -335,7 +339,7 @@ def build_camera_frame_response(
     )
     # 计算JPEG编码耗时
     encode_seconds = time.monotonic() - encode_started_at
-    # 计算整个请求耗时
+    # 这里只统计取图函数内部耗时，不包含鉴权、线程池排队和网络传输。
     total_seconds = time.monotonic() - started_at
 
     # 请求耗时大于配置的值，就会打印Warning日志
@@ -348,14 +352,26 @@ def build_camera_frame_response(
             f"max_width={max_width or '-'} max_height={max_height or '-'}"      # 要求的最大宽高
         )
 
+    headers = {
+        **frame_size_headers(frame, max_width=max_width, max_height=max_height),
+        **frame_coordinate_size_headers(frame),
+        "Server-Timing": (
+            f"frame_lookup;dur={lookup_seconds * 1000:.3f}, "
+            f"jpeg_encode;dur={encode_seconds * 1000:.3f}, "
+            f"frame_total;dur={total_seconds * 1000:.3f}"
+        ),
+    }
+    if capture_metadata is not None:
+        sequence, captured_at = capture_metadata
+        headers["X-Capture-Sequence"] = str(sequence)
+        headers["X-Capture-Updated-At"] = str(captured_at)
+        headers["X-Capture-Age-Ms"] = f"{max(0.0, time.time() - captured_at) * 1000:.3f}"
+
     # 最后返回HTTP图片
     return Response(
         content=content,
         media_type="image/jpeg",
-        headers={
-            **frame_size_headers(frame, max_width=max_width, max_height=max_height),
-            **frame_coordinate_size_headers(frame),
-        },
+        headers=headers,
     )
 
 @router.get("/{key}/frame.jpg")

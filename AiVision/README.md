@@ -1495,6 +1495,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | `health.ok=false` | `started`、模型就绪数、Worker 加载错误；HTTP 可达和业务就绪是不同状态 |
 | `health.ok=true` 但某功能没结果 | 该功能依赖模型、摄像头/功能开关、事业部、Consumer 及推理统计 |
 | 摄像头原图不刷新 | RTSP、ffprobe/FFmpeg、采集序号、帧时间和采集进程日志 |
+| 普通监控显示帧率低 | 取图响应的 `Server-Timing`、共享帧发布序号和浏览器分段诊断，分别检查采集、后端处理与前端加载 |
 | 原图正常，功能画面缺失 | 对应 Consumer 是否运行、功能及摄像头是否启用、采集源是否仍在 10 秒新鲜度窗口内 |
 | 推理频繁 `timeout` / `dropped` | 模型是否就绪、单次耗时、共享队列压力、同功能摄像头数 |
 | 人脸 Worker 启动失败 | 本地 ONNX 文件、完整模型目录、CUDA Provider 以及实际解释器依赖 |
@@ -1509,6 +1510,10 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 保安行为规则不可用 | 保安室/成员开关、必需/可选模型、摄像头快照与规则状态 |
 | 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
+
+公共摄像头 JPEG 成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）和 `frame_total`（取图函数内部处理）。`frame_total` 不包含鉴权、线程池排队、代理或网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
+
+`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`outsideFrameHandler` 包含取图函数之外的等待，不能直接解释为网络延迟。成功请求与失败请求分别计数，缺失指标保留为空。物流通道与保安室的独立拼图入口不属于该普通监控统计。
 
 ### 14.3 调参顺序
 
