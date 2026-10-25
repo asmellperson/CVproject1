@@ -36,6 +36,9 @@ import { VisualLanguageMonitorView } from './visual_language_detection/VisualLan
 import { FenceMonitorView } from './security_fence/FenceMonitorView'
 import { TailgatingMonitorView } from './tailgating/TailgatingMonitorView'
 import { createPreviewPerformanceRecorder, type PreviewPerformanceReport } from './AiVisionMonitor.performance'
+import { AiVisionVideoPreview } from './AiVisionVideoPreview'
+import { useCameraVideoPreview } from './useCameraVideoPreview'
+import type { VideoPreviewState } from './AiVisionVideoPreview.performance'
 
 type AiVisionMonitorProps = {
   title: string
@@ -50,6 +53,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
   const [frameState, setFrameState] = useState<{ key: string; src: string; connected: boolean } | null>(null)
+  const [videoState, setVideoState] = useState<{ key: string; state: VideoPreviewState } | null>(null)
   const [message, setMessage] = useState('正在读取摄像头列表...')
   const [featureValueState, setFeatureValueState] = useState<CameraFeatureValueState | null>(null)
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
@@ -58,8 +62,13 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const framePerformanceRef = useRef<ReturnType<typeof createPreviewPerformanceRecorder> | null>(null)
   const frameKey = `${department}:${feature}:${selectedCamera}:${rawPreview}`
   const frameSrc = frameState?.key === frameKey ? frameState.src : ''
-  const frameConnected = frameState?.key === frameKey && frameState.connected
   const needsFeatureValue = ['logistics-single-person', 'human-dwell', 'feature-dashboard'].includes(presentation)
+  const videoPreview = useCameraVideoPreview({
+    cameraKey: selectedCamera, feature, department, enabled: !!selectedCamera && isPageVisible,
+  })
+  const frameConnected = videoPreview.mode === 'mse'
+    ? videoState?.key === frameKey && videoState.state === 'playing'
+    : videoPreview.mode === 'jpeg' && frameState?.key === frameKey && frameState.connected
 
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
@@ -168,6 +177,12 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       return
     }
 
+    // 持续视频与逐帧 JPEG 共用同一画面位置，试播期间不再并行拉取图片。
+    if (videoPreview.mode !== 'jpeg') {
+      setFrameState(null)
+      return
+    }
+
     let cancelled = false
     let timeoutId: number | undefined
     let requestTimeoutId: ReturnType<typeof setTimeout> | undefined
@@ -255,11 +270,26 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       if (framePerformanceRef.current === diagnostics) framePerformanceRef.current = null
       if (lastReport && window.aivisionPreviewDiagnostics === lastReport) delete window.aivisionPreviewDiagnostics
     }
-  }, [department, feature, frameKey, frameRefreshMs, isPageVisible, rawPreview, selectedCamera])
+  }, [department, feature, frameKey, frameRefreshMs, isPageVisible, rawPreview, selectedCamera, videoPreview.mode])
 
   const frameContent = (
     <>
-      {selectedCamera ? (
+      {selectedCamera && videoPreview.mode === 'mse' && videoPreview.url ? (
+        <AiVisionVideoPreview key={frameKey} url={videoPreview.url} cameraKey={selectedCamera}
+          department={department} feature={feature} onFallback={videoPreview.onFallback}
+          onAccessDenied={videoPreview.onAccessDenied} onStateChange={(state) => {
+            setVideoState({ key: frameKey, state })
+            setMessage(state === 'playing' ? '原始视频已连接，未叠加检测框。' : '正在连接实时原始视频...')
+          }} />
+      ) : selectedCamera && videoPreview.mode === 'denied' ? (
+        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
+          无权访问当前摄像头或检测功能，请检查登录状态与权限。
+        </div>
+      ) : selectedCamera && videoPreview.mode === 'checking' ? (
+        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
+          正在连接实时画面...
+        </div>
+      ) : selectedCamera ? (
         frameSrc ? (
           <img
             key={`${selectedCamera}-${feature}`}
@@ -283,6 +313,11 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       ) : (
         <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
           {loading ? '正在读取摄像头...' : message}
+        </div>
+      )}
+      {videoPreview.mode === 'jpeg' && videoPreview.fallbackReason && (
+        <div className="absolute bottom-3 left-3 right-3 rounded bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
+          {videoPreview.fallbackReason}
         </div>
       )}
       {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}

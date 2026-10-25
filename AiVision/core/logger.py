@@ -20,7 +20,7 @@ logging.basicConfig(
 for _name in [
     "urllib3", "asyncio", "httpcore", "httpx", "huggingface_hub", "filelock",
     "torch", "tensorflow", "PIL", "matplotlib", "ultralytics",
-    "sqlalchemy.engine", "sqlalchemy.pool",
+    "sqlalchemy.engine", "sqlalchemy.pool", "websockets",
 ]:
     logging.getLogger(_name).setLevel(logging.WARNING)
 

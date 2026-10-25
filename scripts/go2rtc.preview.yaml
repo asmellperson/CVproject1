@@ -1,0 +1,11 @@
+# 只供同机 AiVision 通过授权代理访问，浏览器使用 MSE/WebSocket。
+api:
+  listen: "127.0.0.1:1984"
+rtsp:
+  listen: ""
+webrtc:
+  listen: ""
+  ice_servers: []
+# 源地址由后端根据数据库通过 PATCH 动态注册到内存，不写入配置文件。
+log:
+  level: warn

@@ -30,7 +30,8 @@ export default defineConfig(({ mode }) => {
         },
         '/ws': {
           target: aivisionTarget,
-          changeOrigin: true,
+          // 后端按原始 Host 校验视频连接来源，保留浏览器访问网站的主机名。
+          changeOrigin: false,
           secure: false,
           ws: true,
         },

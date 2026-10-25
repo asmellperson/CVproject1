@@ -161,6 +161,23 @@ class CameraConfigManager:
         finally:
             session.close()
 
+    def get_camera_preview_source(self, key: str | int) -> dict | None:
+        """媒体代理内部读取当前身份和源地址，结果不得直接作为接口响应。"""
+        session = get_session()
+        try:
+            cam = self._get_orm_by_key(session, key)
+            if cam is None:
+                return None
+            return {
+                "camera_id": cam.id,
+                "shm_name": cam.shm_name or f"camera_{cam.id}",
+                "department": cam.department,
+                "url": cam.url,
+                "enabled": bool(cam.enable),
+            }
+        finally:
+            session.close()
+
     # ---------- Write ----------
     def create_camera(self, payload: dict) -> dict:
         """新增摄像头 — 同时为每个已注册 feature 建一行默认空配置(enable=False)"""

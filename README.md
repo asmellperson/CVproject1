@@ -10,6 +10,8 @@
 flowchart LR
     Browser[浏览器] --> Frontend[unified_frontend · Vite :3000]
     Frontend -->|/api| API[AiVision · FastAPI :7862]
+    Frontend -->|/ws · 可选原始视频| API
+    API -->|MSE 媒体代理| Go2rtc[go2rtc · 本机 :1984]
     API --> Auth[auth · 认证 / 用户 / 访问审计]
     API --> Runtime[Orchestrator · 摄像头 / 模型 / 检测]
     API --> Records[总览 / 告警 / 统计 / 处置]
@@ -26,7 +28,7 @@ flowchart LR
     JoyAdapter --> JoyAI[JoyAI 主模型 :7060]
 ```
 
-运维脚本管理以下两个 tmux 服务：
+主启停脚本管理以下两个 tmux 服务：
 
 | 服务 | 默认监听地址 | 启动入口 |
 | --- | --- | --- |
@@ -34,6 +36,8 @@ flowchart LR
 | `aivision` | `0.0.0.0:7862` | `python -m AiVision.main` |
 
 项目站点地址为 `https://aicv.fudar.com/`，网关部署需把请求转发至前端入口。Vite 的 `/api` 代理默认指向 `http://127.0.0.1:7862`，由 `VITE_AIVISION_TARGET` 覆盖；配置中也保留 `/ws` 的 WebSocket 代理。
+
+可选的单路原始视频由 `scripts/go2rtc_preview.sh start|stop|status` 独立管理。go2rtc 只监听 `127.0.0.1:1984`，浏览器通过网站同源的 MSE/WebSocket 播放；摄像头源从数据库按需注册到内存，不向浏览器返回 RTSP 地址。该模式显示原始视频，不叠加检测框。
 
 保安行为与安检流程均在 `AiVision/features/` 中注册，使用同一套摄像头、推理、数据库和告警设施。内部福达AI为安检和福达AI助手提供模型服务，由独立的运维入口管理。
 
@@ -61,7 +65,7 @@ Fuda_CVPreject_V3/
 │   ├── connectors/         # 海康、福达AI与 JoyAI Adapter HTTP 协议
 │   └── migrations/         # 历史数据的显式离线迁移
 ├── auth/                   # 认证、账号与访问审计
-├── scripts/                # 双服务启动、停止和状态检查
+├── scripts/                # 主服务及可选视频侧车的启停和状态检查
 ├── docs/diagrams/           # 项目流程图
 └── run_guide.txt            # 运维说明
 ```
@@ -347,6 +351,8 @@ npm run dev
 
 摄像头启动使用有限并行，`AiVision/.env` 中的 `CAMERA_START_WORKERS` 默认 `4`，范围 `1～16`，控制同时探测和等待首帧的路数。启动日志输出模块、数据库、摄像头、模型和总耗时。设备启动失败后由后台看门狗重试；持续的重连日志不表示整个平台仍在初始化，可通过健康接口确认运行状态。
 
+单路视频试播需先按 [go2rtc 环境准备](AiVision/README.md#112-安装依赖与准备模板) 放置官方程序，再在 `AiVision/.env` 设置 `GO2RTC_PREVIEW_CAMERA_KEY` 为一台规范摄像头标识、`GO2RTC_PREVIEW_FEATURE` 为对应功能；摄像头字段留空时使用 JPEG。例如 `camera_113` 与 `security_fence` 只启用该摄像头的警戒围栏监控。执行 `bash scripts/go2rtc_preview.sh start` 并重启前后端后，从现有摄像头选择框进入。主启停脚本不管理该侧车，侧车二进制、配置和日志保存在忽略的 `runtime/go2rtc/`。
+
 ## 7. 验证与故障定位
 
 | 现象 | 优先检查 |
@@ -367,6 +373,8 @@ npm run dev
 普通监控的性能诊断按至少 5 秒的统计窗口汇总，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`，或开启 Debug/Verbose 查看 `[预览性能]`。报告分别记录请求到响应头、图片下载、解码及后端鉴权、摄像头访问校验、取帧标注和 JPEG 编码耗时。`serverRequest` 为应用中间件入口至响应就绪，`serverDispatch` 为其中未被分段计时覆盖的开销，`outsideServer` 为浏览器响应头等待减去该服务端总耗时，仍包含代理、连接排队及传输等等待。取图授权实时读取摄像头身份与归属，不加载全部功能配置。图片加载频率不等于屏幕绘制频率，共享帧发布速率估计不代表 RTSP 原生帧率。报告只保留当前监控上下文的最近一份，切换摄像头、隐藏页面或离开监控时清理。
 
 保安室监控逐路读取公共摄像头 JPEG，刷新目标为 500 毫秒一轮，取图和预解码耗时计入该周期，慢请求保持串行。诊断使用同一控制台入口，报告的 `cameras` 按摄像头标识保存各路统计，尚未取得统计的成员为 `null`；切换保安室或离开页面时清理。保安室页面的 FPS 为检测处理统计，预览加载频率以诊断报告为准。
+
+单路原始视频使用 `window.aivisionVideoPreviewDiagnostics`，每约 5 秒报告 `videoFps`、丢弃帧数、接收数据量、缓冲时长和尺寸。`videoFps` 根据浏览器累计帧数扣除丢弃帧后计算，不是 AI 检测频率。浏览器不支持源编码或视频连接失败时，页面明确回退到 JPEG；不会自动转码。视频连接按 `GO2RTC_AUTH_CHECK_SECONDS`（默认 5 秒，范围 1～5 秒）复查权限及来源，每次校验最多等待 5 秒；撤权、来源变更或校验超时会关闭视频并清空画面。入口鉴权仍逐次执行，不能将持续视频复查等同于逐帧 JPEG 校验。
 
 前端代码的现有检查入口：
 

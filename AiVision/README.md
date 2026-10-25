@@ -1163,6 +1163,19 @@ ffprobe -version
 
 保安行为和安检使用同一个 Python 环境；福达AI客户端使用 `requests`，无需旧版 `dashscope` 或独立 Worker 解释器。上述基础安装命令不包含完整人脸 GPU 环境配置。ByteTrack 相关依赖当前固定为 `ultralytics==8.4.124` 和 `lap==0.5.13`，以依赖声明为准。
 
+单路 MSE 试播使用独立的 go2rtc 程序和现有 Python 环境中的 `httpx`、`websockets`。Linux amd64 可在项目根目录安装已核验版本；其他架构从 [go2rtc 官方发布](https://github.com/AlexxIT/go2rtc/releases/tag/v1.9.14) 选择对应程序并核对官方 SHA256：
+
+```bash
+mkdir -p runtime/go2rtc
+curl --fail --location https://github.com/AlexxIT/go2rtc/releases/download/v1.9.14/go2rtc_linux_amd64 --output runtime/go2rtc/go2rtc
+printf '%s\n' '32d616af226bd731678ffde328b94cfb94e30339bfefc469cfb76323144615a6  runtime/go2rtc/go2rtc' | sha256sum -c -
+chmod 700 runtime/go2rtc runtime/go2rtc/go2rtc
+bash scripts/go2rtc_preview.sh start
+bash scripts/go2rtc_preview.sh status
+```
+
+脚本也支持 `GO2RTC_BIN` 指向已有程序；依赖 `tmux`、`ss`、`curl` 和 `readlink` 核对进程、监听归属与健康。实际配置由 `scripts/go2rtc.preview.yaml` 生成到忽略的 `runtime/go2rtc/`，目录权限为 700，配置及日志为 600。go2rtc 只监听回环 HTTP，RTSP/WebRTC 固定监听关闭；媒体源由后端使用官方 PATCH 接口注册到内存，不回写摄像头地址。停止侧车使用 `bash scripts/go2rtc_preview.sh stop`，主启停脚本不管理此服务。
+
 ### 11.3 关键环境配置
 
 完整字段见 [.env.example](.env.example) 和 [settings.py](core/settings.py)。
@@ -1173,6 +1186,9 @@ ffprobe -version
 | `AUTO_CREATE_DB` | 默认 `false`；显式开启时可尝试创建缺失数据库 |
 | `DATA_PATH` | 必填，图片/视频等存储根目录 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `7862` |
+| `GO2RTC_BASE_URL` | 单路原始视频侧车，默认 `http://127.0.0.1:1984`，只允许本机回环 HTTP |
+| `GO2RTC_PREVIEW_CAMERA_KEY` / `GO2RTC_PREVIEW_FEATURE` | 仅指定的一台摄像头及功能使用 MSE；摄像头默认空，功能默认 `security_fence` |
+| `GO2RTC_AUTH_CHECK_SECONDS` | 持续视频的权限与来源复查间隔，默认 `5` 秒，范围 `1～5` 秒；整次校验另有 `5` 秒期限 |
 | `MODEL_PATHS_CONFIG` | `config/model_paths.yaml`，相对 AiVision 目录 |
 | `AUTH_SECRET` | 至少 32 字符的认证密钥；运维脚本注入 |
 | `AUTH_TOKEN_EXPIRE_HOURS` | 登录有效期设置，模板为 `never` |
@@ -1241,6 +1257,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET / POST | `/api/cameras` | 列表 / 新建摄像头 |
 | GET / PATCH / DELETE | `/api/cameras/{key}` | 读取 / 修改 / 删除摄像头 |
 | GET | `/api/cameras/{key}/frame.jpg` | 原图；`feature` 参数选择功能标注图 |
+| GET | `/api/cameras/{key}/preview` | 单路原始视频能力；`feature` 必须匹配配置及当前授权，返回同源播放地址或 JPEG 模式 |
+| WebSocket | `/ws/cameras/{key}/preview?feature=...` | 已授权的单路 MSE 转发，只接受一次视频编码协商 |
 | GET | `/api/features` | 功能元数据列表 |
 | GET | `/api/features/{feature}` | 功能详情和配置元数据 |
 | GET / PUT | `/api/features/{feature}/configs/{shm_name}` | 读取 / 保存功能配置 |
@@ -1514,6 +1532,8 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）、`frame_total`（取图函数内部处理）、`camera_access`（身份查询及访问校验）、`auth`（认证及其线程池等待）和 `request_total`（认证中间件入口至响应就绪）。`frame_total` 不包含鉴权和路由调度；`request_total` 不包含进入应用前的等待、代理及网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
 
 `AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`authentication`、`cameraAccess`、`serverRequest` 分别对应鉴权、摄像头访问校验和服务端总耗时。`serverDispatch` 为服务端总耗时扣除鉴权、访问校验和取图处理后的其余开销，`outsideServer` 为响应头等待扣除服务端总耗时后的等待；两者都不能直接解释为纯线程池或纯网络延迟。`outsideFrameHandler` 保留取图函数之外的整体等待。成功请求与失败请求分别计数，缺失指标保留为空。保安室实时页面逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；标注回退原图时，整轮等待还包含前一次失败请求，服务端分段计时仅对应最终成功请求。物流通道及站点级独立拼图接口不纳入该统计。
+
+`api/routes/preview_stream.py` 提供可选单路 MSE 代理。能力查询和连接建立均校验登录、摄像头归属及功能分配；WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。连接中按配置间隔复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒，失败以 1008 关闭并清空画面；网络和媒体错误以固定脱敏信息返回。媒体转发、客户端断连与授权复查分别运行，任一终止都会回收上下游连接。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
 
 ### 14.3 调参顺序
 

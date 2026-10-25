@@ -12,8 +12,9 @@ core/settings.py
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DatabaseSettings(BaseSettings):
@@ -120,6 +121,29 @@ class ApiSettings(BaseSettings):
     host: str              = Field("0.0.0.0", alias="API_HOST")             # 监听本机所有网卡
     port: int              = Field(7862,       alias="API_PORT")
     cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")     # 允许所有来源
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+
+class PreviewSettings(BaseSettings):
+    """单路原始视频试点；媒体服务只允许部署在本机回环地址。"""
+
+    base_url: str = Field("http://127.0.0.1:1984", alias="GO2RTC_BASE_URL")
+    camera_key: str = Field("", pattern=r"^(?:camera_[1-9][0-9]*)?$", alias="GO2RTC_PREVIEW_CAMERA_KEY")
+    feature: str = Field("security_fence", min_length=1, alias="GO2RTC_PREVIEW_FEATURE")
+    auth_check_seconds: float = Field(5.0, ge=1, le=5, alias="GO2RTC_AUTH_CHECK_SECONDS")
+
+    @field_validator("base_url")
+    @classmethod
+    def require_loopback(cls, value: str) -> str:
+        """禁止把数据库里的摄像头凭据发送给外部媒体服务或代理。"""
+        parsed = urlsplit(value)
+        if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username
+                or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+            raise ValueError("GO2RTC_BASE_URL 必须是 http://127.0.0.1 的本机服务地址")
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError("GO2RTC_BASE_URL 端口无效")
+        return value.rstrip("/")
 
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -247,6 +271,7 @@ class Settings:
         self.storage = StorageSettings()
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
+        self.preview = PreviewSettings()
         self.runtime = RuntimeSettings()
         self.model_paths = ModelPathSettings()
         self.joyai = JoyAISettings()
