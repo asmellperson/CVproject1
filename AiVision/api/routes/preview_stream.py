@@ -1,4 +1,4 @@
-"""已授权的单路 go2rtc MSE 代理；浏览器不接触媒体服务或摄像头地址。"""
+"""按摄像头与功能授权的 go2rtc MSE 代理；浏览器不接触媒体服务或摄像头地址。"""
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +10,7 @@ from typing import Literal
 from urllib.parse import urlencode, urlsplit
 
 import httpx
-from anyio import CancelScope, to_thread
+from anyio import CancelScope, fail_after, to_thread
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from starlette.websockets import WebSocketState
@@ -29,6 +29,7 @@ _CONNECT_TIMEOUT_SECONDS = 5.0
 _AUTH_CHECK_TIMEOUT_SECONDS = 5.0
 _IDLE_TIMEOUT_SECONDS = 15.0
 _CLOSE_TIMEOUT_SECONDS = 2.0
+_CLEANUP_TIMEOUT_SECONDS = 5.0
 _MAX_HANDSHAKE_BYTES = 1024
 _MAX_MEDIA_BYTES = 8 * 1024 * 1024
 _CODECS = re.compile(r"[A-Za-z0-9.,_-]{1,512}")
@@ -61,7 +62,7 @@ class PreviewCapability(BaseModel):
 
 
 class PreviewPolicyError(Exception):
-    """客户端协议或持续授权不符合单路试点规则。"""
+    """客户端协议或持续授权不符合视频预览规则。"""
 
 
 def _load_source(manager, key: str, user: dict, feature: str | None) -> dict:
@@ -81,8 +82,8 @@ def _pilot_enabled(source: dict, feature: str | None) -> bool:
     except ValueError:
         return False
     return bool(
-        preview.camera_key and source["shm_name"] == preview.camera_key
-        and feature == preview.feature and source["enabled"]
+        source["shm_name"] in preview.camera_keys
+        and feature in preview.features and source["enabled"]
         and valid_source
     )
 
@@ -124,13 +125,15 @@ async def _authorized_source(websocket: WebSocket, manager, key: str, feature: s
 
     try:
         # 用户认证、功能授权和摄像头来源共用一次期限，不能分别重新计时。
-        return await asyncio.wait_for(read_authorization(), _AUTH_CHECK_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError as exc:
+        with fail_after(_AUTH_CHECK_TIMEOUT_SECONDS):
+            return await read_authorization()
+    except TimeoutError as exc:
         raise PreviewPolicyError() from exc
 
 
 async def _read_handshake(websocket: WebSocket) -> dict:
-    message = await asyncio.wait_for(websocket.receive(), _CONNECT_TIMEOUT_SECONDS)
+    with fail_after(_CONNECT_TIMEOUT_SECONDS):
+        message = await websocket.receive()
     if message["type"] == "websocket.disconnect":
         raise WebSocketDisconnect(message.get("code", 1000))
     text = message.get("text")
@@ -163,14 +166,22 @@ async def _register_source(source: dict) -> tuple[str, str]:
     return f"{base_url.replace('http://', 'ws://', 1)}/api/ws?{urlencode({'src': stream_name})}", stream_name
 
 
-async def _relay_media(websocket: WebSocket, upstream) -> None:
+async def _relay_media(websocket: WebSocket, upstream, stop_event: asyncio.Event) -> None:
     announced = False
-    while True:
-        message = await asyncio.wait_for(upstream.recv(), _IDLE_TIMEOUT_SECONDS)
+    while not stop_event.is_set():
+        # 缓冲区持续有帧时也交还调度权，让其他连接的撤权检查和取消及时执行。
+        await asyncio.sleep(0)
+        if stop_event.is_set():
+            return
+        with fail_after(_IDLE_TIMEOUT_SECONDS):
+            message = await upstream.recv()
+        if stop_event.is_set():
+            return
         if isinstance(message, bytes):
             if not announced:
                 raise ValueError("媒体协议顺序无效")
-            await asyncio.wait_for(websocket.send_bytes(message), _CONNECT_TIMEOUT_SECONDS)
+            with fail_after(_CONNECT_TIMEOUT_SECONDS):
+                await websocket.send_bytes(message)
             continue
         if len(message.encode("utf-8")) > _MAX_HANDSHAKE_BYTES:
             raise ValueError("媒体协议消息过长")
@@ -188,7 +199,8 @@ async def _relay_media(websocket: WebSocket, upstream) -> None:
         mime = payload.get("value")
         if announced or not isinstance(mime, str) or not _MIME.fullmatch(mime):
             raise ValueError("媒体协议类型无效")
-        await asyncio.wait_for(websocket.send_json({"type": "mse", "value": mime}), _CONNECT_TIMEOUT_SECONDS)
+        with fail_after(_CONNECT_TIMEOUT_SECONDS):
+            await websocket.send_json({"type": "mse", "value": mime})
         announced = True
 
 
@@ -199,47 +211,96 @@ async def _watch_client(websocket: WebSocket) -> None:
         raise PreviewPolicyError()
 
 
-async def _reauthorize(websocket: WebSocket, manager, key: str, feature: str | None, original: dict) -> None:
-    while True:
+async def _reauthorize(
+    websocket: WebSocket, manager, key: str, feature: str | None, original: dict, stop_event: asyncio.Event,
+) -> None:
+    while not stop_event.is_set():
         await asyncio.sleep(settings.preview.auth_check_seconds)
-        current = await _authorized_source(websocket, manager, key, feature)
-        if current != original:
-            raise PreviewPolicyError()
+        if stop_event.is_set():
+            return
+        try:
+            current = await _authorized_source(websocket, manager, key, feature)
+            if current != original:
+                raise PreviewPolicyError()
+        except (AuthError, HTTPException, PreviewPolicyError):
+            # 先关闭发送闸门，不能等清理上游连接后才阻止后续帧。
+            stop_event.set()
+            raise
 
 
-async def _stream_media(websocket: WebSocket, source: dict, handshake: dict) -> None:
+async def _stream_media(websocket: WebSocket, source: dict, handshake: dict, stop_event: asyncio.Event) -> None:
     upstream_url, _ = await _register_source(source)
-    async with connect(
-        upstream_url, open_timeout=_CONNECT_TIMEOUT_SECONDS, close_timeout=_CLOSE_TIMEOUT_SECONDS,
-        max_size=_MAX_MEDIA_BYTES, max_queue=4, compression=None, proxy=None,
-    ) as upstream:
-        await asyncio.wait_for(upstream.send(json.dumps(handshake)), _CONNECT_TIMEOUT_SECONDS)
-        await _relay_media(websocket, upstream)
+    if stop_event.is_set():
+        return
+    upstream = None
+    try:
+        async with connect(
+            upstream_url, open_timeout=_CONNECT_TIMEOUT_SECONDS, close_timeout=_CLOSE_TIMEOUT_SECONDS,
+            max_size=_MAX_MEDIA_BYTES, max_queue=4, compression=None, proxy=None,
+        ) as upstream:
+            if stop_event.is_set():
+                return
+            with fail_after(_CONNECT_TIMEOUT_SECONDS):
+                await upstream.send(json.dumps(handshake))
+            await _relay_media(websocket, upstream, stop_event)
+    finally:
+        if upstream is not None:
+            # 即使握手清理被再次取消，底层连接也必须结束，不能留下仍在拉流的消费者。
+            upstream.transport.abort()
+
+
+def _consume_task_result(task: asyncio.Task) -> None:
+    if not task.cancelled():
+        error = task.exception()
+        if error is not None:
+            logger.debug(f"[PreviewStream] 已收集关闭任务异常 error_type={type(error).__name__}")
 
 
 async def _relay_session(websocket: WebSocket, manager, key: str, feature: str | None, source: dict, handshake: dict) -> None:
+    stop_event = asyncio.Event()
     tasks = {
-        asyncio.create_task(_stream_media(websocket, source, handshake)),
+        asyncio.create_task(_stream_media(websocket, source, handshake, stop_event)),
         asyncio.create_task(_watch_client(websocket)),
-        asyncio.create_task(_reauthorize(websocket, manager, key, feature, source)),
+        asyncio.create_task(_reauthorize(websocket, manager, key, feature, source, stop_event)),
     }
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        # 同时结束时优先处理访问策略失败，避免被媒体断线误判为可回退的网络故障。
+        for task in done:
+            error = None if task.cancelled() else task.exception()
+            if isinstance(error, (AuthError, HTTPException, PreviewPolicyError)):
+                raise error
         for task in done:
             task.result()
+    except (AuthError, HTTPException, PreviewPolicyError):
+        stop_event.set()
+        # 撤权先通知浏览器并清空播放，清理上游的耗时不能延长授权后的可见画面。
+        with CancelScope(shield=True):
+            await _close_client(websocket, 1008)
+        raise
     finally:
-        # ASGI 断连也会取消当前作用域，清理阶段仍需等待上游退出以释放媒体消费者。
+        stop_event.set()
+        # 不用无期限 gather；极端清理阻塞也不能拖住当前 ASGI 会话。
         with CancelScope(shield=True):
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            _, pending = await asyncio.wait(tasks, timeout=_CLEANUP_TIMEOUT_SECONDS)
+            if pending:
+                logger.warning("[PreviewStream] 媒体任务清理超时，已再次取消并等待后台回收")
+            for task in tasks:
+                if task in pending:
+                    task.cancel()
+                    task.add_done_callback(_consume_task_result)
+                else:
+                    _consume_task_result(task)
 
 
 async def _close_client(websocket: WebSocket, code: int) -> None:
     if websocket.application_state == WebSocketState.DISCONNECTED or websocket.client_state == WebSocketState.DISCONNECTED:
         return
     try:
-        await asyncio.wait_for(websocket.close(code=code), _CLOSE_TIMEOUT_SECONDS)
+        with fail_after(_CLOSE_TIMEOUT_SECONDS):
+            await websocket.close(code=code)
     except (OSError, RuntimeError, TimeoutError):
         logger.debug("[PreviewStream] 客户端连接已结束")
 
@@ -271,7 +332,8 @@ async def preview_websocket(
         logger.warning(f"[PreviewStream] 预览连接失败 error_type={type(exc).__name__}")
         if websocket.application_state == WebSocketState.CONNECTED and websocket.client_state == WebSocketState.CONNECTED:
             try:
-                await asyncio.wait_for(websocket.send_json({"type": "error", "value": _UNAVAILABLE}), _CONNECT_TIMEOUT_SECONDS)
+                with fail_after(_CONNECT_TIMEOUT_SECONDS):
+                    await websocket.send_json({"type": "error", "value": _UNAVAILABLE})
             except (OSError, RuntimeError, TimeoutError):
                 logger.debug("[PreviewStream] 错误提示发送时客户端已断开")
     finally:

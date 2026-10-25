@@ -10,6 +10,7 @@ type Props = {
   onFallback?: () => void
   onAccessDenied?: () => void
   onStateChange?: (state: VideoPreviewState) => void
+  onPerformanceReport?: (report: VideoPreviewPerformanceReport) => void
 }
 
 const MESSAGES: Record<VideoPreviewState, string> = {
@@ -21,13 +22,16 @@ const MESSAGES: Record<VideoPreviewState, string> = {
   'access-denied': '当前账号无权查看此摄像头，画面已清空',
 }
 
-export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFallback, onAccessDenied, onStateChange }: Props) {
+export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFallback, onAccessDenied, onStateChange, onPerformanceReport }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const callbacks = useRef({ onFallback, onAccessDenied, onStateChange })
+  const callbacks = useRef({ onFallback, onAccessDenied, onStateChange, onPerformanceReport })
   const [status, setStatus] = useState<{ key: string; state: VideoPreviewState } | null>(null)
   const key = `${department}:${feature}:${cameraKey}:${url}`
   const state = status?.key === key ? status.state : 'connecting'
-  useEffect(() => { callbacks.current = { onFallback, onAccessDenied, onStateChange } }, [onFallback, onAccessDenied, onStateChange])
+  const groupedPerformance = !!onPerformanceReport
+  useEffect(() => {
+    callbacks.current = { onFallback, onAccessDenied, onStateChange, onPerformanceReport }
+  }, [onFallback, onAccessDenied, onStateChange, onPerformanceReport])
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -48,6 +52,11 @@ export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFa
       onAccessDenied() { if (active) callbacks.current.onAccessDenied?.() },
       onReport(report) {
         if (!active) return
+        // 多路页面由父级统一发布，单个播放器不能覆盖或清除其他摄像头的统计。
+        if (groupedPerformance) {
+          callbacks.current.onPerformanceReport?.(report)
+          return
+        }
         lastReport = report
         window.aivisionVideoPreviewDiagnostics = report
         console.debug('[视频预览性能]', report)
@@ -64,7 +73,7 @@ export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFa
       session.dispose()
       clearReport()
     }
-  }, [cameraKey, department, feature, key, url])
+  }, [cameraKey, department, feature, groupedPerformance, key, url])
   return <div className="relative h-full w-full overflow-hidden bg-slate-950">
     <video key={key} ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
     <div role="status" className={state === 'playing'

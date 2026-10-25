@@ -14,7 +14,7 @@ const performanceUrl = `data:text/javascript;base64,${Buffer.from(await compile(
 const mseCode = (await compile('AiVisionVideoPreview.mse')).replace(
   "'./AiVisionVideoPreview.performance'", JSON.stringify(performanceUrl),
 )
-const { createVideoPreviewPerformanceRecorder } = await import(performanceUrl)
+const { createVideoPreviewPerformanceRecorder, createVideoPreviewPerformanceGroup } = await import(performanceUrl)
 const {
   createMsePreviewSession, createMseAppendQueue, parseMseControlMessage,
   supportedPreviewCodecs, previewWebSocketUrl, MSE_MAX_PENDING_BYTES,
@@ -65,7 +65,7 @@ class FakeVideo extends EventTarget {
   getVideoPlaybackQuality() { return { totalVideoFrames: this.frames, droppedVideoFrames: this.dropped } }
 }
 
-function setup(visible = true, isTypeSupported = (type) => type.includes('avc1')) {
+function setup(visible = true, isTypeSupported = (type) => type.includes('avc1'), context = {}) {
   let clock = 0
   let sequence = 0
   const timers = new Map()
@@ -102,7 +102,7 @@ function setup(visible = true, isTypeSupported = (type) => type.includes('avc1')
   }
   const session = createMsePreviewSession({
     video, visible, url: '/api/cameras/camera_1/preview/ws?feature=tailgating',
-    cameraKey: 'camera_1', feature: 'tailgating', department: 'general_electric',
+    cameraKey: 'camera_1', feature: 'tailgating', department: 'general_electric', ...context,
     onState: (state) => states.push(state), onReport: (report) => reports.push(report),
     onFallback: () => fallbacks++, onAccessDenied: () => denied++,
     environment: {
@@ -378,4 +378,283 @@ test('浏览器没有帧计数或媒体源重置计数时帧率为空，不能�
   recorder.sample('connecting')
   assert.equal(reports[1].videoFps, null)
   assert.equal(reports[1].droppedVideoFrames, null)
+})
+
+test('三路视频同时统计时逐路保留报告，不互相覆盖且尚未采样的成员为空', () => {
+  const reports = []
+  const group = createVideoPreviewPerformanceGroup({
+    siteId: 1, department: 'general_electric', onReport: (report) => reports.push(report),
+  })
+  const keys = ['camera_63', 'camera_64', 'camera_65']
+  group.publish()
+  group.setCameras(keys)
+  assert.deepEqual(reports.at(-1).cameras, { camera_63: null, camera_64: null, camera_65: null })
+  for (const cameraKey of keys) {
+    const state = setup(true, undefined, { cameraKey, feature: 'guard_behavior' })
+    const { socket } = state.negotiate()
+    event(state.video, 'playing')
+    socket.message(new ArrayBuffer(1024))
+    state.video.frames = 125
+    state.video.currentTime = 4.9
+    state.advance(5000)
+    group.update(state.reports[0])
+    state.session.dispose()
+  }
+  assert.equal(reports.at(-1).scope, 'guard_behavior')
+  assert.equal(reports.at(-1).siteId, 1)
+  assert.deepEqual(Object.keys(reports.at(-1).cameras), keys)
+  for (const cameraKey of keys) {
+    assert.equal(reports.at(-1).cameras[cameraKey].cameraKey, cameraKey)
+    assert.equal(reports.at(-1).cameras[cameraKey].videoFps, 25)
+    assert.equal(reports.at(-1).cameras[cameraKey].receivedKiB, 1)
+  }
+  group.dispose()
+})
+
+test('视频分组拒绝其他事业部、功能、已移除成员和超过三路的报告', () => {
+  const state = setup(true, undefined, { cameraKey: 'camera_63', feature: 'guard_behavior' })
+  state.negotiate()
+  event(state.video, 'playing')
+  state.video.frames = 125
+  state.video.currentTime = 4.9
+  state.advance(5000)
+  const report = state.reports[0]
+  const reports = []
+  const group = createVideoPreviewPerformanceGroup({
+    siteId: 1, department: 'general_electric', onReport: (value) => reports.push(value),
+  })
+  group.setCameras(['camera_63', 'camera_64', 'camera_63', 'camera_65', 'camera_66'])
+  const baseline = reports.length
+  group.update({ ...report, department: 'electrical_components' })
+  group.update({ ...report, feature: 'security_fence' })
+  group.update({ ...report, cameraKey: 'camera_66' })
+  assert.equal(reports.length, baseline)
+  group.update(report)
+  const prior = reports.at(-1)
+  group.setCameras(['camera_64', 'camera_65'])
+  group.update(report)
+  assert.deepEqual(reports.at(-1).cameras, { camera_64: null, camera_65: null })
+  assert.equal(prior.cameras.camera_63, report)
+  group.dispose()
+  state.session.dispose()
+})
+
+test('视频组重置采样后恢复为空，已结束的站点会话不能再发布迟到结果', () => {
+  const reports = []
+  const group = createVideoPreviewPerformanceGroup({
+    siteId: 1, department: 'general_electric', onReport: (report) => reports.push(report),
+  })
+  group.setCameras(['camera_63'])
+  group.update({ cameraKey: 'camera_63', feature: 'guard_behavior', department: 'general_electric' })
+  assert.notEqual(reports.at(-1).cameras.camera_63, null)
+  group.reset()
+  assert.equal(reports.at(-1).cameras.camera_63, null)
+  const count = reports.length
+  group.dispose()
+  group.publish()
+  group.setCameras(['camera_64'])
+  group.update({ cameraKey: 'camera_63', feature: 'guard_behavior', department: 'general_electric' })
+  group.reset()
+  assert.equal(reports.length, count)
+})
+
+test('离线或停用成员保留空键，别路刷新和该路迟到结果不能恢复旧播放帧率', () => {
+  const reports = []
+  const group = createVideoPreviewPerformanceGroup({
+    siteId: 1, department: 'general_electric', onReport: (report) => reports.push(report),
+  })
+  const report = (cameraKey) => ({ cameraKey, feature: 'guard_behavior', department: 'general_electric', state: 'playing', videoFps: 25 })
+  const keys = ['camera_63', 'camera_64', 'camera_65']
+  group.setCameras(keys)
+  for (const key of keys) group.update(report(key))
+  group.setCameras(keys, ['camera_64'])
+  assert.deepEqual(Object.keys(reports.at(-1).cameras), keys)
+  assert.equal(reports.at(-1).cameras.camera_63, null)
+  assert.equal(reports.at(-1).cameras.camera_65, null)
+  group.update(report('camera_64'))
+  group.update(report('camera_63'))
+  group.update(report('camera_65'))
+  assert.equal(reports.at(-1).cameras.camera_63, null)
+  assert.equal(reports.at(-1).cameras.camera_65, null)
+  assert.equal(reports.at(-1).cameras.camera_64.videoFps, 25)
+  group.setCameras(keys)
+  assert.equal(reports.at(-1).cameras.camera_63, null)
+  group.update(report('camera_63'))
+  assert.equal(reports.at(-1).cameras.camera_63.videoFps, 25)
+  group.setCameras(['camera_64'])
+  assert.deepEqual(Object.keys(reports.at(-1).cameras), ['camera_64'])
+  group.dispose()
+})
+
+test('多路播放器只通过父回调上报，不覆盖或清理聚合的全局报告', async (t) => {
+  const previous = { window: globalThis.window, document: globalThis.document }
+  const group = { scope: 'guard_behavior', cameras: { camera_63: null, camera_64: null, camera_65: null } }
+  globalThis.window = { aivisionVideoPreviewDiagnostics: group }
+  const document = Object.assign(new EventTarget(), { hidden: false })
+  globalThis.document = document
+  const symbol = Symbol.for('aivision.video-component-test')
+  const oldRuntime = globalThis[symbol]
+  const effects = []
+  const got = []
+  let call = 0
+  let sessionOptions
+  globalThis[symbol] = {
+    useRef(initial) { return { current: call++ === 0 ? new FakeVideo() : initial } },
+    useState() { return [null, () => undefined] },
+    useEffect(effect) { effects.push(effect) },
+    createMsePreviewSession(options) { sessionOptions = options; return { setVisible() {}, dispose() {} } },
+  }
+  t.after(() => {
+    globalThis.window = previous.window
+    globalThis.document = previous.document
+    if (oldRuntime === undefined) delete globalThis[symbol]
+    else globalThis[symbol] = oldRuntime
+  })
+  const data = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+  const react = data(`const runtime=()=>globalThis[Symbol.for('aivision.video-component-test')];
+    export const useRef=(...args)=>runtime().useRef(...args);
+    export const useState=(...args)=>runtime().useState(...args);
+    export const useEffect=(...args)=>runtime().useEffect(...args);`)
+  const jsx = data('export const jsx=(type,props)=>({type,props});export const jsxs=jsx;')
+  const mse = data(`export const createMsePreviewSession=(options)=>globalThis[Symbol.for('aivision.video-component-test')].createMsePreviewSession(options);`)
+  const source = await readFile(new URL('../src/components/AiVisionVideoPreview.tsx', import.meta.url), 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText.replace('"react/jsx-runtime"', JSON.stringify(jsx))
+    .replace("'react'", JSON.stringify(react)).replace("'./AiVisionVideoPreview.mse'", JSON.stringify(mse))
+  const { AiVisionVideoPreview } = await import(data(compiled))
+  AiVisionVideoPreview({
+    url: '/ws/cameras/camera_63/preview?feature=guard_behavior', cameraKey: 'camera_63',
+    feature: 'guard_behavior', department: 'general_electric', onPerformanceReport: (report) => got.push(report),
+  })
+  const cleanups = effects.map((effect) => effect()).filter(Boolean)
+  const report = { cameraKey: 'camera_63', mode: 'mse', videoFps: 25 }
+  sessionOptions.onReport(report)
+  assert.deepEqual(got, [report])
+  assert.equal(window.aivisionVideoPreviewDiagnostics, group)
+  document.hidden = true
+  event(document, 'visibilitychange')
+  assert.equal(window.aivisionVideoPreviewDiagnostics, group)
+  for (const cleanup of cleanups.reverse()) cleanup()
+  assert.equal(window.aivisionVideoPreviewDiagnostics, group)
+  sessionOptions.onReport({ ...report, videoFps: 20 })
+  assert.equal(got.length, 1)
+})
+
+test('Guard 卡片按能力门控 MSE 与 JPEG，拒绝访问及隐藏时不再取图', async (t) => {
+  const symbol = Symbol.for('aivision.guard-video-test')
+  const previous = { document: globalThis.document, fetch: globalThis.fetch, runtime: globalThis[symbol] }
+  const document = Object.assign(new EventTarget(), { hidden: false, visibilityState: 'visible' })
+  globalThis.document = document
+  let fetches = 0
+  globalThis.fetch = async () => { fetches++; return new Response(new Blob(['jpeg'])) }
+  const slots = []
+  const pending = new Map()
+  let cursor = 0
+  let mode = 'mse'
+  let fallbackReason = ''
+  let poll
+  let bufferDisposals = 0
+  let capabilityEnabled
+  const different = (left, right) => !left || left.length !== right.length || left.some((value, index) => !Object.is(value, right[index]))
+  const runtime = {
+    useState(initial) {
+      const index = cursor++
+      slots[index] ??= { value: typeof initial === 'function' ? initial() : initial }
+      return [slots[index].value, (value) => { slots[index].value = typeof value === 'function' ? value(slots[index].value) : value }]
+    },
+    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial } },
+    useMemo(factory, dependencies) {
+      const index = cursor++
+      if (!slots[index] || different(slots[index].dependencies, dependencies)) slots[index] = { value: factory(), dependencies }
+      return slots[index].value
+    },
+    useEffect(effect, dependencies) {
+      const index = cursor++
+      const slot = slots[index] ??= {}
+      if (different(slot.dependencies, dependencies)) { slot.dependencies = dependencies; pending.set(index, effect) }
+    },
+    useCameraVideoPreview(options) {
+      capabilityEnabled = options.enabled
+      return { mode: options.enabled ? mode : 'jpeg', url: '/ws/cameras/camera_63/preview?feature=guard_behavior', fallbackReason,
+        onFallback() { mode = 'jpeg'; fallbackReason = '视频试播未连接，显示 JPEG 画面' },
+        onAccessDenied() { mode = 'denied' } }
+    },
+    useSerialPoll(task, options) { poll = { task, options } },
+    createPreviewFrameBuffer() {
+      return { prepare: async () => 'blob:guard-frame', displayed() {}, dispose() { bufferDisposals++ }, clear() {} }
+    },
+  }
+  globalThis[symbol] = runtime
+  t.after(() => {
+    for (const slot of slots) slot.cleanup?.()
+    globalThis.document = previous.document
+    globalThis.fetch = previous.fetch
+    if (previous.runtime === undefined) delete globalThis[symbol]
+    else globalThis[symbol] = previous.runtime
+  })
+  const data = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+  const react = data(`const runtime=()=>globalThis[Symbol.for('aivision.guard-video-test')];
+    export const useState=(...args)=>runtime().useState(...args);export const useRef=(...args)=>runtime().useRef(...args);
+    export const useMemo=(...args)=>runtime().useMemo(...args);export const useEffect=(...args)=>runtime().useEffect(...args);`)
+  const jsx = data('export const jsx=(type,props)=>({type,props});export const jsxs=jsx;')
+  const stubs = data(`const runtime=()=>globalThis[Symbol.for('aivision.guard-video-test')];
+    export const useSerialPoll=(...args)=>runtime().useSerialPoll(...args);
+    export const useCameraVideoPreview=(...args)=>runtime().useCameraVideoPreview(...args);
+    export const createPreviewFrameBuffer=()=>runtime().createPreviewFrameBuffer();
+    export const createPreviewPerformanceRecorder=()=>({dispose(){},completed(){},failed(){},displayed(){}});
+    export const aiVisionFrameUrl=(key,feature)=>'/api/cameras/'+key+'/frame.jpg?feature='+feature;
+    export function AiVisionVideoPreview(){};export function GuardVideoStatusPill(){};`)
+  const source = await readFile(new URL('../src/components/guard_behavior/GuardCameraPreview.tsx', import.meta.url), 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText.replace('"react/jsx-runtime"', JSON.stringify(jsx)).replace("'react'", JSON.stringify(react))
+    .replace(/from '(?:@\/hooks\/use-serial-poll|@\/lib\/aivision|\.\.\/AiVisionMonitor\.frame|\.\.\/AiVisionMonitor\.performance|\.\.\/AiVisionVideoPreview|\.\.\/useCameraVideoPreview|\.\/GuardMonitorUi)'/g, `from ${JSON.stringify(stubs)}`)
+  const { GuardCameraPreview } = await import(data(compiled))
+  const props = { member: { id: 1, camera_id: 63, shm_name: 'camera_63', name: '保安入口', department: 'general_electric', physical_enabled: true }, online: true, aiReady: true }
+  const render = () => {
+    cursor = 0
+    const tree = GuardCameraPreview(props)
+    for (const [index, effect] of pending) { slots[index].cleanup?.(); slots[index].cleanup = effect() }
+    pending.clear()
+    return tree
+  }
+  const nodes = (tree) => !tree || typeof tree !== 'object' ? []
+    : [tree, ...[tree.props?.children ?? []].flat().flatMap(nodes)]
+  const video = (tree) => nodes(tree).find((node) => node.type?.name === 'AiVisionVideoPreview')
+  let tree = render()
+  assert.equal(capabilityEnabled, true)
+  assert.ok(video(tree))
+  assert.equal(poll.options.enabled, false)
+  await poll.task(new AbortController().signal)
+  assert.equal(fetches, 0)
+  video(tree).props.onFallback()
+  tree = render()
+  assert.equal(video(tree), undefined)
+  assert.equal(poll.options.enabled, true)
+  assert.equal(poll.options.intervalMs, 500)
+  assert.equal(poll.options.intervalMode, 'from-start')
+  await poll.task(new AbortController().signal)
+  tree = render()
+  assert.equal(fetches, 1)
+  assert.ok(nodes(tree).find((node) => node.type === 'img'))
+  assert.ok(nodes(tree).find((node) => node.type?.name === 'GuardVideoStatusPill').props.label.includes('JPEG 回退'))
+  mode = 'denied'
+  tree = render()
+  assert.equal(poll.options.enabled, false)
+  assert.equal(nodes(tree).some((node) => node.type === 'img'), false)
+  assert.ok(bufferDisposals > 0)
+  mode = 'mse'
+  tree = render()
+  video(tree).props.onAccessDenied()
+  tree = render()
+  assert.equal(video(tree), undefined)
+  assert.equal(poll.options.enabled, false)
+  document.hidden = true
+  document.visibilityState = 'hidden'
+  event(document, 'visibilitychange')
+  render()
+  assert.equal(capabilityEnabled, false)
+  assert.equal(poll.options.enabled, false)
+  assert.equal(fetches, 1)
 })

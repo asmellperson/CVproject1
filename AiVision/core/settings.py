@@ -12,6 +12,7 @@ core/settings.py
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
@@ -126,12 +127,40 @@ class ApiSettings(BaseSettings):
 
 
 class PreviewSettings(BaseSettings):
-    """单路原始视频试点；媒体服务只允许部署在本机回环地址。"""
+    """按摄像头和功能名单启用原始视频；媒体服务只允许部署在本机回环地址。"""
 
     base_url: str = Field("http://127.0.0.1:1984", alias="GO2RTC_BASE_URL")
-    camera_key: str = Field("", pattern=r"^(?:camera_[1-9][0-9]*)?$", alias="GO2RTC_PREVIEW_CAMERA_KEY")
+    camera_key: str = Field("", alias="GO2RTC_PREVIEW_CAMERA_KEY")
     feature: str = Field("security_fence", min_length=1, alias="GO2RTC_PREVIEW_FEATURE")
     auth_check_seconds: float = Field(5.0, ge=1, le=5, alias="GO2RTC_AUTH_CHECK_SECONDS")
+
+    @field_validator("camera_key")
+    @classmethod
+    def normalize_camera_keys(cls, value: str) -> str:
+        """空名单关闭视频，非空名单逐项校验，避免空项意外放宽匹配范围。"""
+        if not value.strip():
+            return ""
+        keys = [item.strip() for item in value.split(",")]
+        if any(not re.fullmatch(r"camera_[1-9][0-9]*", key) for key in keys):
+            raise ValueError("GO2RTC_PREVIEW_CAMERA_KEY 必须是逗号分隔的规范 camera_N，不能包含空项")
+        return ",".join(dict.fromkeys(keys))
+
+    @field_validator("feature")
+    @classmethod
+    def normalize_features(cls, value: str) -> str:
+        """配置层仅验证标识格式，实际功能注册和用户授权仍由请求入口校验。"""
+        features = [item.strip() for item in value.split(",")]
+        if any(not re.fullmatch(r"[a-z][a-z0-9_]*", feature) for feature in features):
+            raise ValueError("GO2RTC_PREVIEW_FEATURE 必须是逗号分隔的功能标识，不能包含空项")
+        return ",".join(dict.fromkeys(features))
+
+    @property
+    def camera_keys(self) -> frozenset[str]:
+        return frozenset(self.camera_key.split(",")) if self.camera_key else frozenset()
+
+    @property
+    def features(self) -> frozenset[str]:
+        return frozenset(self.feature.split(","))
 
     @field_validator("base_url")
     @classmethod

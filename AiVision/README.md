@@ -1163,7 +1163,7 @@ ffprobe -version
 
 保安行为和安检使用同一个 Python 环境；福达AI客户端使用 `requests`，无需旧版 `dashscope` 或独立 Worker 解释器。上述基础安装命令不包含完整人脸 GPU 环境配置。ByteTrack 相关依赖当前固定为 `ultralytics==8.4.124` 和 `lap==0.5.13`，以依赖声明为准。
 
-单路 MSE 试播使用独立的 go2rtc 程序和现有 Python 环境中的 `httpx`、`websockets`。Linux amd64 可在项目根目录安装已核验版本；其他架构从 [go2rtc 官方发布](https://github.com/AlexxIT/go2rtc/releases/tag/v1.9.14) 选择对应程序并核对官方 SHA256：
+MSE 原始视频使用独立的 go2rtc 程序和现有 Python 环境中的 `httpx`、`websockets`、`anyio`。Linux amd64 可在项目根目录安装已核验版本；其他架构从 [go2rtc 官方发布](https://github.com/AlexxIT/go2rtc/releases/tag/v1.9.14) 选择对应程序并核对官方 SHA256：
 
 ```bash
 mkdir -p runtime/go2rtc
@@ -1186,8 +1186,8 @@ bash scripts/go2rtc_preview.sh status
 | `AUTO_CREATE_DB` | 默认 `false`；显式开启时可尝试创建缺失数据库 |
 | `DATA_PATH` | 必填，图片/视频等存储根目录 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `7862` |
-| `GO2RTC_BASE_URL` | 单路原始视频侧车，默认 `http://127.0.0.1:1984`，只允许本机回环 HTTP |
-| `GO2RTC_PREVIEW_CAMERA_KEY` / `GO2RTC_PREVIEW_FEATURE` | 仅指定的一台摄像头及功能使用 MSE；摄像头默认空，功能默认 `security_fence` |
+| `GO2RTC_BASE_URL` | 原始视频侧车，默认 `http://127.0.0.1:1984`，只允许本机回环 HTTP |
+| `GO2RTC_PREVIEW_CAMERA_KEY` / `GO2RTC_PREVIEW_FEATURE` | 逗号分隔的摄像头与功能名单，单值也有效；仅两份名单均命中且已授权时使用 MSE。摄像头默认空，功能默认 `security_fence` |
 | `GO2RTC_AUTH_CHECK_SECONDS` | 持续视频的权限与来源复查间隔，默认 `5` 秒，范围 `1～5` 秒；整次校验另有 `5` 秒期限 |
 | `MODEL_PATHS_CONFIG` | `config/model_paths.yaml`，相对 AiVision 目录 |
 | `AUTH_SECRET` | 至少 32 字符的认证密钥；运维脚本注入 |
@@ -1257,8 +1257,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET / POST | `/api/cameras` | 列表 / 新建摄像头 |
 | GET / PATCH / DELETE | `/api/cameras/{key}` | 读取 / 修改 / 删除摄像头 |
 | GET | `/api/cameras/{key}/frame.jpg` | 原图；`feature` 参数选择功能标注图 |
-| GET | `/api/cameras/{key}/preview` | 单路原始视频能力；`feature` 必须匹配配置及当前授权，返回同源播放地址或 JPEG 模式 |
-| WebSocket | `/ws/cameras/{key}/preview?feature=...` | 已授权的单路 MSE 转发，只接受一次视频编码协商 |
+| GET | `/api/cameras/{key}/preview` | 当前摄像头的原始视频能力；`feature` 必须匹配名单及当前授权，返回同源播放地址或 JPEG 模式 |
+| WebSocket | `/ws/cameras/{key}/preview?feature=...` | 已授权的 MSE 转发，各路独立连接，只接受一次视频编码协商 |
 | GET | `/api/features` | 功能元数据列表 |
 | GET | `/api/features/{feature}` | 功能详情和配置元数据 |
 | GET / PUT | `/api/features/{feature}/configs/{shm_name}` | 读取 / 保存功能配置 |
@@ -1513,7 +1513,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | `health.ok=false` | `started`、模型就绪数、Worker 加载错误；HTTP 可达和业务就绪是不同状态 |
 | `health.ok=true` 但某功能没结果 | 该功能依赖模型、摄像头/功能开关、事业部、Consumer 及推理统计 |
 | 摄像头原图不刷新 | RTSP、ffprobe/FFmpeg、采集序号、帧时间和采集进程日志 |
-| 普通监控显示帧率低 | 取图响应的 `Server-Timing`、共享帧发布序号和浏览器分段诊断，分别检查采集、后端处理与前端加载 |
+| 普通监控显示帧率低 | 按 MSE 或 JPEG 模式读取对应浏览器诊断；JPEG 另可核对 `Server-Timing` 和共享帧发布序号 |
 | 原图正常，功能画面缺失 | 对应 Consumer 是否运行、功能及摄像头是否启用、采集源是否仍在 10 秒新鲜度窗口内 |
 | 推理频繁 `timeout` / `dropped` | 模型是否就绪、单次耗时、共享队列压力、同功能摄像头数 |
 | 人脸 Worker 启动失败 | 本地 ONNX 文件、完整模型目录、CUDA Provider 以及实际解释器依赖 |
@@ -1531,9 +1531,9 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 
 公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）、`frame_total`（取图函数内部处理）、`camera_access`（身份查询及访问校验）、`auth`（认证及其线程池等待）和 `request_total`（认证中间件入口至响应就绪）。`frame_total` 不包含鉴权和路由调度；`request_total` 不包含进入应用前的等待、代理及网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
 
-`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`authentication`、`cameraAccess`、`serverRequest` 分别对应鉴权、摄像头访问校验和服务端总耗时。`serverDispatch` 为服务端总耗时扣除鉴权、访问校验和取图处理后的其余开销，`outsideServer` 为响应头等待扣除服务端总耗时后的等待；两者都不能直接解释为纯线程池或纯网络延迟。`outsideFrameHandler` 保留取图函数之外的整体等待。成功请求与失败请求分别计数，缺失指标保留为空。保安室实时页面逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；标注回退原图时，整轮等待还包含前一次失败请求，服务端分段计时仅对应最终成功请求。物流通道及站点级独立拼图接口不纳入该统计。
+`AiVisionMonitor` 在 JPEG 模式按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`authentication`、`cameraAccess`、`serverRequest` 分别对应鉴权、摄像头访问校验和服务端总耗时。`serverDispatch` 为服务端总耗时扣除鉴权、访问校验和取图处理后的其余开销，`outsideServer` 为响应头等待扣除服务端总耗时后的等待；两者都不能直接解释为纯线程池或纯网络延迟。`outsideFrameHandler` 保留取图函数之外的整体等待。成功请求与失败请求分别计数，缺失指标保留为空。保安室的 JPEG 预览逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；标注回退原图时，整轮等待还包含前一次失败请求，服务端分段计时仅对应最终成功请求。物流通道及站点级独立拼图接口不纳入该统计。
 
-`api/routes/preview_stream.py` 提供可选单路 MSE 代理。能力查询和连接建立均校验登录、摄像头归属及功能分配；WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。连接中按配置间隔复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒，失败以 1008 关闭并清空画面；网络和媒体错误以固定脱敏信息返回。媒体转发、客户端断连与授权复查分别运行，任一终止都会回收上下游连接。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
+`api/routes/preview_stream.py` 按摄像头与功能名单提供 MSE 代理。名单支持逗号分隔，字段逐项校验并去重；能力查询和连接建立均校验登录、摄像头归属及功能分配。WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。各路连接独立复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒；策略失败时先设置停止信号并以 1008 关闭浏览器，再限时取消和回收上游，媒体循环在收发之间检查停止状态并让出调度权。网络和媒体错误以固定脱敏信息返回。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
 
 ### 14.3 调参顺序
 

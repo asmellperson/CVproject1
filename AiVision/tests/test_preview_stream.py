@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 
 MIME = 'video/mp4; codecs="avc1.640029"'
@@ -59,6 +59,8 @@ def preview(monkeypatch, tmp_path):
     app.include_router(module.router)
     app.dependency_overrides[module.get_camera_config_manager] = lambda: manager
     upstream = SimpleNamespace(sent=[], closed=threading.Event(), cancelled=threading.Event(), urls=[])
+    upstream.aborted = threading.Event()
+    upstream.transport = SimpleNamespace(abort=upstream.aborted.set)
     upstream.messages = [json.dumps({"type": "mse", "value": MIME}), b"fmp4-fixture"]
 
     async def receive_upstream():
@@ -116,6 +118,99 @@ def test_capability_is_canonical_and_never_exposes_source(preview):
     assert "rtsp" not in response.text and "127.0.0.1" not in response.text
 
 
+@pytest.fixture
+def multiple_preview(preview):
+    preview.monkeypatch.setattr(preview.module.settings.preview, "camera_key", "camera_1,camera_2")
+    preview.monkeypatch.setattr(preview.module.settings.preview, "feature", "security_fence,guard_behavior")
+    preview.assignments["general_electric"] = ["security_fence", "guard_behavior", "security_inspection"]
+    preview.sources["camera_3"] = {
+        "camera_id": 3, "shm_name": "camera_3", "department": "general_electric",
+        "url": "rtsp://camera.invalid/outside-list", "enabled": True,
+    }
+    return preview
+
+
+@pytest.mark.parametrize("key", ["camera_1", "camera_2"])
+@pytest.mark.parametrize("feature", ["security_fence", "guard_behavior"])
+def test_capability_enables_each_listed_camera_and_feature(multiple_preview, key, feature):
+    response = multiple_preview.client.get(f"/api/cameras/{key}/preview", params={"feature": feature})
+    assert response.status_code == 200
+    assert response.json() == {
+        "enabled": True, "mode": "mse", "url": f"/ws/cameras/{key}/preview?feature={feature}", "raw": True,
+    }
+
+
+@pytest.mark.parametrize("key", ["camera_1", "camera_2"])
+@pytest.mark.parametrize("feature", ["security_fence", "guard_behavior"])
+def test_websocket_registers_each_listed_camera_with_its_own_source(multiple_preview, key, feature):
+    preview = multiple_preview
+    with preview.client.websocket_connect(
+        f"/ws/cameras/{key}/preview?feature={feature}", headers={"origin": "http://testserver"},
+    ) as websocket:
+        websocket.send_json(HANDSHAKE)
+        assert websocket.receive_json() == {"type": "mse", "value": MIME}
+        assert websocket.receive_bytes() == b"fmp4-fixture"
+    assert preview.upstream.closed.wait(1)
+    assert dict(preview.registrations[0].url.params) == {
+        "name": f"fuda_preview_camera_{preview.sources[key]['camera_id']}", "src": preview.sources[key]["url"],
+    }
+
+
+@pytest.mark.parametrize("key, feature", [
+    ("camera_3", "security_fence"), ("camera_1", "security_inspection"),
+])
+def test_nonlisted_camera_or_feature_remains_jpeg_and_cannot_open_stream(multiple_preview, key, feature):
+    preview = multiple_preview
+    response = preview.client.get(f"/api/cameras/{key}/preview", params={"feature": feature})
+    assert response.status_code == 200
+    assert response.json() == {"enabled": False, "mode": "jpeg", "url": None, "raw": True}
+    with preview.client.websocket_connect(
+        f"/ws/cameras/{key}/preview?feature={feature}", headers={"origin": "http://testserver"},
+    ) as websocket:
+        with pytest.raises(WebSocketDisconnect) as error:
+            websocket.receive_json()
+        assert error.value.code == 1008
+    assert not preview.registrations
+
+
+@pytest.mark.parametrize("denied", ["department", "feature"])
+def test_multiple_camera_lists_do_not_replace_individual_access_checks(multiple_preview, denied):
+    preview = multiple_preview
+    key, feature = "camera_2", "guard_behavior"
+    if denied == "department":
+        preview.sources[key]["department"] = "electronics_electrician"
+        preview.assignments["electronics_electrician"] = [feature]
+    else:
+        preview.assignments["general_electric"] = ["security_fence"]
+    response = preview.client.get(f"/api/cameras/{key}/preview", params={"feature": feature})
+    assert response.status_code == 403
+    with preview.client.websocket_connect(
+        f"/ws/cameras/{key}/preview?feature={feature}", headers={"origin": "http://testserver"},
+    ) as websocket:
+        with pytest.raises(WebSocketDisconnect) as error:
+            websocket.receive_json()
+        assert error.value.code == 1008
+    assert not preview.registrations
+
+
+def test_empty_camera_list_disables_all_configured_features(multiple_preview):
+    preview = multiple_preview
+    preview.monkeypatch.setattr(preview.module.settings.preview, "camera_key", "")
+    for key, feature in [("camera_1", "security_fence"), ("camera_2", "guard_behavior")]:
+        response = preview.client.get(f"/api/cameras/{key}/preview", params={"feature": feature})
+        assert response.status_code == 200
+        assert response.json()["enabled"] is False
+
+
+def test_unknown_feature_is_still_rejected_at_request_time(multiple_preview):
+    preview = multiple_preview
+    preview.monkeypatch.setattr(preview.module.settings.preview, "feature", "not_registered")
+    preview.assignments["general_electric"].append("not_registered")
+    response = preview.client.get("/api/cameras/camera_1/preview?feature=not_registered")
+    assert response.status_code == 404
+    assert not preview.registrations
+
+
 @pytest.mark.parametrize("change", ["other_camera", "feature", "disabled", "non_rtsp", "pilot_off"])
 def test_capability_keeps_jpeg_outside_enabled_pilot(preview, change):
     key, feature = "camera_1", "security_fence"
@@ -159,6 +254,7 @@ def test_mse_registers_database_source_and_only_relays_mime_and_media(preview):
         assert preview.upstream.sent == [HANDSHAKE]
     assert preview.upstream.closed.wait(1)
     assert preview.upstream.cancelled.is_set()
+    assert preview.upstream.aborted.is_set()
     request = preview.registrations[0]
     assert request.method == "PATCH"
     assert str(request.url.copy_with(query=None)) == "http://127.0.0.1:1984/api/streams"
@@ -244,6 +340,225 @@ def test_live_connection_rechecks_authentication_and_source(preview, change):
     assert preview.upstream.cancelled.is_set()
 
 
+@pytest.mark.parametrize("phase", ["receive", "send", "announcement"])
+def test_ready_frame_cancellation_cannot_be_swallowed_and_continue_relaying(preview, phase):
+    async def scenario():
+        stop_event = asyncio.Event()
+        task = None
+
+        class Upstream:
+            reads = 0
+
+            async def recv(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return json.dumps({"type": "mse", "value": MIME})
+                if self.reads == 2:
+                    if phase == "receive":
+                        asyncio.get_running_loop().call_soon(task.cancel)
+                    return b"frame"
+                # 旧实现会吞掉同拍取消并进入这里；保留阻塞点便于测试超时后清理。
+                await asyncio.Future()
+
+        class Socket:
+            async def send_json(self, message):
+                if phase == "announcement":
+                    asyncio.get_running_loop().call_soon(task.cancel)
+
+            async def send_bytes(self, message):
+                if phase == "send":
+                    asyncio.get_running_loop().call_soon(task.cancel)
+
+        upstream = Upstream()
+        task = asyncio.create_task(preview.module._relay_media(Socket(), upstream, stop_event))
+        try:
+            done, _ = await asyncio.wait({task}, timeout=0.2)
+            assert task in done, "帧读写恰好完成时也必须响应取消，不能继续无限转发"
+            assert task.cancelled()
+            assert upstream.reads == (1 if phase == "announcement" else 2)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_stop_signal_blocks_frame_that_arrives_after_authorization_ends(preview):
+    async def scenario():
+        stop_event = asyncio.Event()
+        sent = []
+
+        class Upstream:
+            reads = 0
+
+            async def recv(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return json.dumps({"type": "mse", "value": MIME})
+                stop_event.set()
+                return b"frame-after-revocation"
+
+        class Socket:
+            async def send_json(self, message):
+                sent.append(message)
+
+            async def send_bytes(self, message):
+                sent.append(message)
+
+        await preview.module._relay_media(Socket(), Upstream(), stop_event)
+        assert sent == [{"type": "mse", "value": MIME}]
+
+    asyncio.run(scenario())
+
+
+def test_policy_failure_closes_browser_before_bounded_upstream_cleanup(preview):
+    async def scenario():
+        entered, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        exited, browser_closed = asyncio.Event(), asyncio.Event()
+
+        class Socket:
+            application_state = WebSocketState.CONNECTED
+            client_state = WebSocketState.CONNECTED
+            close_codes = []
+
+            async def receive(self):
+                await asyncio.Future()
+
+            async def close(self, code):
+                self.close_codes.append(code)
+                self.application_state = WebSocketState.DISCONNECTED
+                browser_closed.set()
+
+        async def blocked_cleanup(websocket, source, handshake, stop_event):
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                try:
+                    cleaning.set()
+                    await release.wait()
+                finally:
+                    exited.set()
+
+        async def reject_authorization(*args):
+            await entered.wait()
+            raise preview.module.PreviewPolicyError()
+
+        preview.monkeypatch.setattr(preview.module, "_CLEANUP_TIMEOUT_SECONDS", 0.03)
+        preview.monkeypatch.setattr(preview.module, "_stream_media", blocked_cleanup)
+        preview.monkeypatch.setattr(preview.module, "_reauthorize", reject_authorization)
+        websocket = Socket()
+        task = asyncio.create_task(preview.module._relay_session(
+            websocket, preview.manager, "camera_1", "security_fence", preview.sources["camera_1"], HANDSHAKE,
+        ))
+        close_wait = asyncio.create_task(browser_closed.wait())
+        try:
+            done, _ = await asyncio.wait({close_wait}, timeout=0.2)
+            assert close_wait in done and websocket.close_codes == [1008]
+            assert not release.is_set(), "关闭浏览器不能等待上游清理结束"
+            done, _ = await asyncio.wait({task}, timeout=0.3)
+            assert task in done, "清理超时必须结束 ASGI 会话，不能永久等待 gather"
+            with pytest.raises(preview.module.PreviewPolicyError):
+                task.result()
+            await asyncio.sleep(0)
+            assert cleaning.is_set() and exited.is_set()
+        finally:
+            release.set()
+            task.cancel()
+            close_wait.cancel()
+            await asyncio.gather(task, close_wait, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_three_concurrent_streams_each_close_on_revocation_and_release_upstream(preview):
+    async def scenario():
+        revoked = False
+        upstream_closed, upstream_aborted = set(), set()
+        sources = {
+            f"camera_{index}": {**preview.sources["camera_1"], "camera_id": index, "shm_name": f"camera_{index}"}
+            for index in (1, 2, 3)
+        }
+
+        class Socket:
+            application_state = WebSocketState.CONNECTED
+            client_state = WebSocketState.CONNECTED
+
+            def __init__(self):
+                self.ready = asyncio.Event()
+                self.close_codes = []
+
+            async def send_json(self, message):
+                pass
+
+            async def send_bytes(self, message):
+                self.ready.set()
+
+            async def receive(self):
+                await asyncio.Future()
+
+            async def close(self, code):
+                self.close_codes.append(code)
+                self.application_state = WebSocketState.DISCONNECTED
+
+        class Upstream:
+            def __init__(self, key):
+                self.reads = 0
+                self.transport = SimpleNamespace(abort=lambda: upstream_aborted.add(key))
+
+            async def send(self, message):
+                pass
+
+            async def recv(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return json.dumps({"type": "mse", "value": MIME})
+                await asyncio.sleep(0.001)
+                return b"frame"
+
+        @asynccontextmanager
+        async def connect_stream(url, **kwargs):
+            key = url.rsplit("/", 1)[-1]
+            try:
+                yield Upstream(key)
+            finally:
+                upstream_closed.add(key)
+
+        async def register(source):
+            return f"ws://fixture/{source['shm_name']}", source["shm_name"]
+
+        async def authorize(websocket, manager, key, feature):
+            if revoked:
+                raise preview.module.HTTPException(403, "feature permission required")
+            return dict(sources[key])
+
+        preview.monkeypatch.setattr(preview.module, "connect", connect_stream)
+        preview.monkeypatch.setattr(preview.module, "_register_source", register)
+        preview.monkeypatch.setattr(preview.module, "_authorized_source", authorize)
+        sockets = {key: Socket() for key in sources}
+        tasks = [asyncio.create_task(preview.module._relay_session(
+            sockets[key], preview.manager, key, "security_fence", source, HANDSHAKE,
+        )) for key, source in sources.items()]
+        ready_tasks = [asyncio.create_task(socket.ready.wait()) for socket in sockets.values()]
+        try:
+            ready, _ = await asyncio.wait(ready_tasks, timeout=0.5)
+            assert len(ready) == 3
+            revoked = True
+            done, _ = await asyncio.wait(tasks, timeout=0.5)
+            assert len(done) == 3, "一条连接关闭不能取消或遗失其他两路的权限复查"
+            for task in done:
+                assert isinstance(task.exception(), preview.module.HTTPException)
+            assert all(socket.close_codes == [1008] for socket in sockets.values())
+            assert upstream_closed == set(sources)
+            assert upstream_aborted == set(sources)
+        finally:
+            for task in tasks + ready_tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, *ready_tasks, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("blocked_read", ["user", "camera"])
 def test_blocked_authorization_read_closes_live_stream_without_waiting_for_thread(preview, blocked_read):
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
@@ -280,6 +595,27 @@ def test_blocked_authorization_read_closes_live_stream_without_waiting_for_threa
         release.set()
         if entered.is_set():
             assert finished.wait(1)
+
+
+def test_authorization_timeout_uses_builtin_exception_on_python310(preview):
+    class LegacyAsyncioTimeout(Exception):
+        pass
+
+    async def blocked_read(*args, **kwargs):
+        await asyncio.Future()
+
+    # Python 3.10 中 asyncio.TimeoutError 与 AnyIO 抛出的内建 TimeoutError 不同。
+    preview.monkeypatch.setattr(preview.module.asyncio, "TimeoutError", LegacyAsyncioTimeout)
+    preview.monkeypatch.setattr(preview.module.to_thread, "run_sync", blocked_read)
+    preview.monkeypatch.setattr(preview.module, "_AUTH_CHECK_TIMEOUT_SECONDS", 0.02)
+
+    async def scenario():
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(preview.module.PreviewPolicyError):
+            await preview.module._authorized_source(None, preview.manager, "camera_1", "security_fence")
+        assert asyncio.get_running_loop().time() - started < 0.5
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("failure", ["upstream_error", "malformed_mime", "registration"])
@@ -431,6 +767,44 @@ def test_internal_source_lookup_reads_only_current_camera_table(preview):
         assert manager.get_camera_preview_source("missing") is None
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("camera_keys, features, expected_keys, expected_features", [
+    ("camera_1", "security_fence", frozenset({"camera_1"}), frozenset({"security_fence"})),
+    (" camera_1 , camera_2 , camera_1 ", " security_fence , guard_behavior , security_fence ",
+     frozenset({"camera_1", "camera_2"}), frozenset({"security_fence", "guard_behavior"})),
+    ("  ", "security_fence,guard_behavior", frozenset(), frozenset({"security_fence", "guard_behavior"})),
+])
+def test_preview_settings_normalize_single_and_multiple_allowlists(
+    preview, camera_keys, features, expected_keys, expected_features,
+):
+    from AiVision.core.settings import PreviewSettings
+    config = PreviewSettings(GO2RTC_PREVIEW_CAMERA_KEY=camera_keys, GO2RTC_PREVIEW_FEATURE=features)
+    assert config.camera_keys == expected_keys
+    assert config.features == expected_features
+    assert isinstance(config.camera_keys, frozenset) and isinstance(config.features, frozenset)
+    assert " " not in config.camera_key and " " not in config.feature
+    assert len(config.camera_key.split(",")) == len(expected_keys) if expected_keys else config.camera_key == ""
+    assert len(config.feature.split(",")) == len(expected_features)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "camera_0"),
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "camera_01"),
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "1"),
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "camera_1,,camera_2"),
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "camera_1,"),
+    ("GO2RTC_PREVIEW_CAMERA_KEY", "camera_1, ,camera_2"),
+    ("GO2RTC_PREVIEW_FEATURE", " "),
+    ("GO2RTC_PREVIEW_FEATURE", "security_fence,,guard_behavior"),
+    ("GO2RTC_PREVIEW_FEATURE", "security_fence,"),
+    ("GO2RTC_PREVIEW_FEATURE", "security-fence"),
+    ("GO2RTC_PREVIEW_FEATURE", "SecurityFence"),
+])
+def test_preview_settings_reject_invalid_or_empty_allowlist_items(preview, field, value):
+    from AiVision.core.settings import PreviewSettings
+    with pytest.raises(ValidationError):
+        PreviewSettings(**{field: value})
 
 
 @pytest.mark.parametrize("url", ["http://outside.invalid:1984", "https://127.0.0.1:1984", "http://127.0.0.1:1984/api"])
