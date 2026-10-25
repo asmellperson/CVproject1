@@ -32,9 +32,55 @@ export type PreviewPerformanceReport = {
   >
 }
 
+export type PreviewPerformanceGroupReport = {
+  scope: 'guard_behavior'
+  siteId: number | null
+  department: string
+  sampledAt: string
+  cameras: Record<string, PreviewPerformanceReport | null>
+}
+
 declare global {
   interface Window {
-    aivisionPreviewDiagnostics?: PreviewPerformanceReport
+    aivisionPreviewDiagnostics?: PreviewPerformanceReport | PreviewPerformanceGroupReport
+  }
+}
+
+export function createPreviewPerformanceGroup(options: {
+  siteId: number | null
+  department: string
+  onReport: (report: PreviewPerformanceGroupReport) => void
+}) {
+  const cameras = new Map<string, PreviewPerformanceReport | null>()
+  let disposed = false
+  const publish = () => {
+    if (disposed) return
+    options.onReport({
+      scope: 'guard_behavior', siteId: options.siteId, department: options.department,
+      sampledAt: new Date().toISOString(), cameras: Object.fromEntries(cameras),
+    })
+  }
+  return {
+    publish,
+    setCameras(keys: string[]) {
+      if (disposed) return
+      const current = new Set(keys)
+      let changed = false
+      for (const key of cameras.keys()) {
+        if (!current.has(key)) { cameras.delete(key); changed = true }
+      }
+      for (const key of current) {
+        if (!cameras.has(key)) { cameras.set(key, null); changed = true }
+      }
+      if (changed) publish()
+    },
+    update(report: PreviewPerformanceReport) {
+      // 仅接收当前保安室成员，已移除或其他事业部的迟到结果不能进入报告。
+      if (disposed || report.department !== options.department || !cameras.has(report.cameraKey)) return
+      cameras.set(report.cameraKey, report)
+      publish()
+    },
+    dispose() { disposed = true; cameras.clear() },
   }
 }
 

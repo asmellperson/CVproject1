@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 
-import { createSerialPoller, type SerialPoller } from '../lib/serial-poll'
+import { createSerialPoller, type PollIntervalMode, type SerialPoller } from '../lib/serial-poll'
 
 export type UseSerialPollOptions = {
   intervalMs: number
   timeoutMs: number
+  intervalMode?: PollIntervalMode
   enabled?: boolean
   onError?: (error: unknown) => void
   restartKey?: string | number
@@ -12,14 +13,14 @@ export type UseSerialPollOptions = {
 
 export function useSerialPoll(
   task: (signal: AbortSignal) => Promise<void>,
-  { intervalMs, timeoutMs, enabled = true, onError, restartKey }: UseSerialPollOptions,
+  { intervalMs, timeoutMs, intervalMode = 'after-complete', enabled = true, onError, restartKey }: UseSerialPollOptions,
 ): void {
   const taskRef = useRef(task)
   const onErrorRef = useRef(onError)
   const restartKeyRef = useRef(restartKey)
   const restartEnabledRef = useRef(enabled)
   const pollerRef = useRef<SerialPoller | null>(null)
-  const scheduleRef = useRef({ enabled, intervalMs, timeoutMs })
+  const scheduleRef = useRef({ enabled, intervalMs, timeoutMs, intervalMode })
 
   useEffect(() => {
     taskRef.current = task
@@ -30,8 +31,8 @@ export function useSerialPoll(
   }, [onError])
 
   useEffect(() => {
-    scheduleRef.current = { enabled, intervalMs, timeoutMs }
-  }, [enabled, intervalMs, timeoutMs])
+    scheduleRef.current = { enabled, intervalMs, timeoutMs, intervalMode }
+  }, [enabled, intervalMs, timeoutMs, intervalMode])
 
   useEffect(() => {
     let poller = pollerRef.current
@@ -41,6 +42,7 @@ export function useSerialPoll(
         task: (signal) => taskRef.current(signal),
         intervalMs: schedule.intervalMs,
         timeoutMs: schedule.timeoutMs,
+        intervalMode: schedule.intervalMode,
         onError: (error) => onErrorRef.current?.(error),
       })
       pollerRef.current = poller
@@ -60,8 +62,8 @@ export function useSerialPoll(
   }, [])
 
   useEffect(() => {
-    pollerRef.current?.configure(intervalMs, timeoutMs)
-  }, [intervalMs, timeoutMs])
+    pollerRef.current?.configure(intervalMs, timeoutMs, intervalMode)
+  }, [intervalMs, timeoutMs, intervalMode])
 
   useEffect(() => {
     pollerRef.current?.setPaused(!enabled || document.visibilityState === 'hidden')

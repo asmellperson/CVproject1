@@ -5,8 +5,10 @@ import ts from 'typescript'
 
 // 沿用现有前端测试方式，直接在内存编译，避免留下诊断产物。
 const source = await readFile(new URL('../src/components/AiVisionMonitor.performance.ts', import.meta.url), 'utf8')
-const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } })
-const { createPreviewPerformanceRecorder } = await import(
+const { outputText } = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+})
+const { createPreviewPerformanceRecorder, createPreviewPerformanceGroup } = await import(
   `data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`
 )
 
@@ -133,4 +135,39 @@ test('连续失败仍汇总，失败请求不会伪装成成功帧的平均耗�
   time(10000)
   value.failed()
   assert.equal(reports[1].failedRequests, 1)
+})
+
+test('保安室多路诊断按摄像头汇总，启动阶段明确表示尚未取得统计', () => {
+  const reports = []
+  const group = createPreviewPerformanceGroup({ siteId: 1, department: 'general_electric', onReport: (value) => reports.push(value) })
+  group.publish()
+  assert.deepEqual(reports[0].cameras, {})
+  group.setCameras(['camera_1', 'camera_2'])
+  assert.deepEqual(reports.at(-1).cameras, { camera_1: null, camera_2: null })
+  const first = { cameraKey: 'camera_1', department: 'general_electric', readyFps: 1.1 }
+  const second = { cameraKey: 'camera_2', department: 'general_electric', readyFps: 1.7 }
+  group.update(first)
+  group.update(second)
+  assert.equal(reports.at(-1).scope, 'guard_behavior')
+  assert.equal(reports.at(-1).siteId, 1)
+  assert.deepEqual(reports.at(-1).cameras, { camera_1: first, camera_2: second })
+})
+
+test('保安室移除成员和退出页面后，迟到诊断不能恢复旧数据', () => {
+  const reports = []
+  const group = createPreviewPerformanceGroup({ siteId: 1, department: 'general_electric', onReport: (value) => reports.push(value) })
+  group.setCameras(['camera_1', 'camera_2'])
+  group.update({ cameraKey: 'camera_1', department: 'other', readyFps: 9 })
+  assert.equal(reports.length, 1)
+  group.setCameras(['camera_2'])
+  group.update({ cameraKey: 'camera_1', department: 'general_electric', readyFps: 9 })
+  assert.equal(reports.length, 2)
+  assert.deepEqual(reports.at(-1).cameras, { camera_2: null })
+  group.setCameras(['camera_2'])
+  assert.equal(reports.length, 2)
+  group.dispose()
+  group.update({ cameraKey: 'camera_2', department: 'general_electric', readyFps: 9 })
+  group.setCameras(['camera_3'])
+  group.publish()
+  assert.equal(reports.length, 2)
 })

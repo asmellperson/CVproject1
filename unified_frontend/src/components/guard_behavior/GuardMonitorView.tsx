@@ -1,7 +1,12 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Camera, Car, Coffee, Gauge, Radio, RefreshCw, ShieldCheck, Smartphone, UserRound, Users, Video } from 'lucide-react'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
+import {
+  createPreviewPerformanceGroup,
+  type PreviewPerformanceGroupReport,
+  type PreviewPerformanceReport,
+} from '@/components/AiVisionMonitor.performance'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -31,6 +36,33 @@ export function GuardMonitorView({ site, sites = [], loadingSites = false, onSel
   const [members, setMembers] = useState<GuardMember[]>([])
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const performanceGroup = useRef<ReturnType<typeof createPreviewPerformanceGroup> | null>(null)
+  const siteId = site?.id ?? null
+  const department = site?.department ?? ''
+  useEffect(() => {
+    let lastReport: PreviewPerformanceGroupReport | undefined
+    const group = createPreviewPerformanceGroup({
+      siteId, department,
+      onReport(report) {
+        lastReport = report
+        window.aivisionPreviewDiagnostics = report
+        console.debug('[保安室预览性能]', report)
+      },
+    })
+    performanceGroup.current = group
+    group.publish()
+    return () => {
+      group.dispose()
+      if (performanceGroup.current === group) performanceGroup.current = null
+      if (window.aivisionPreviewDiagnostics === lastReport) delete window.aivisionPreviewDiagnostics
+    }
+  }, [siteId, department])
+  useEffect(() => {
+    performanceGroup.current?.setCameras(members.map((member) => member.shm_name))
+  }, [members])
+  const reportPerformance = useCallback((report: PreviewPerformanceReport) => {
+    performanceGroup.current?.update(report)
+  }, [])
   useSerialPoll(async (signal) => {
     if (!site) return
     const [next, cameras] = await Promise.all([getSiteStatus(site.id, signal), getMembers(site.id, signal)])
@@ -119,7 +151,8 @@ export function GuardMonitorView({ site, sites = [], loadingSites = false, onSel
               state={status?.[key].state === 'alarm' ? 'danger' : status?.[key].state === 'normal' ? 'normal' : 'neutral'} />)}
           </div>
           <div className={`grid h-fit gap-1 overflow-hidden bg-slate-950 ${members.length > 1 ? 'sm:grid-cols-2' : ''}`}>
-          {members.map((member) => <GuardCameraPreview key={`${member.camera_id}:${refreshKey}`} member={member} online={status?.camera_online[String(member.camera_id)]}
+          {members.map((member) => <GuardCameraPreview key={`${siteId}:${member.camera_id}:${refreshKey}`} member={member} online={status?.camera_online[String(member.camera_id)]}
+            onPerformanceReport={reportPerformance}
             aiReady={!!site?.enabled && member.member_enabled && !!status?.running && status.camera_states[String(member.camera_id)] === 'READY'} />)}
           {!members.length && <div className="flex min-h-72 items-center justify-center px-6 text-center text-sm text-slate-300">{loadingSites ? '正在读取保安室…' : site ? '当前保安室尚未绑定摄像头。' : '请先在配置管理中新增并选择保安室。'}</div>}
         </div></CardContent>

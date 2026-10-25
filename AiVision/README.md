@@ -1513,7 +1513,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 
 公共摄像头 JPEG 成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）和 `frame_total`（取图函数内部处理）。`frame_total` 不包含鉴权、线程池排队、代理或网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
 
-`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`outsideFrameHandler` 包含取图函数之外的等待，不能直接解释为网络延迟。成功请求与失败请求分别计数，缺失指标保留为空。物流通道与保安室的独立拼图入口不属于该普通监控统计。
+`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`outsideFrameHandler` 包含取图函数之外的等待，不能直接解释为网络延迟。成功请求与失败请求分别计数，缺失指标保留为空。保安室实时页面逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；物流通道及站点级独立拼图接口不纳入该统计。
 
 ### 14.3 调参顺序
 
