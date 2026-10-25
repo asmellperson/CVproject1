@@ -822,7 +822,7 @@ start_one() {
   if tmux has-session -t "$name" 2>/dev/null; then
     if [[ $FORCE -eq 1 ]]; then
       warn "--force 模式：先正常停止已有服务 ${name}"
-      if ! fuda_stop_session "$name"; then
+      if ! fuda_stop_session "$name" "$port"; then
         err "${name} 尚未正常退出，取消启动新进程"
         return 4
       fi
@@ -835,9 +835,6 @@ start_one() {
   if port_listening "$port"; then
     err "端口 ${port} 已被非 ${name} tmux 进程占用，拒绝误判为启动成功"
     hint "查看占用进程: ss -tlnp | grep ':${port}'"
-    if [[ "$name" == "unified_frontend" ]]; then
-      hint "如仍是旧 Nginx 配置占用，请移除 /etc/nginx/conf.d/aicv-unified-backend.conf 后 reload Nginx"
-    fi
     return 4
   fi
 

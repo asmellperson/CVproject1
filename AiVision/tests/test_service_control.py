@@ -1,6 +1,8 @@
 """运维脚本只通知当前会话主进程，并等正常退出后再关闭会话。"""
 import os
 from pathlib import Path
+import shutil
+import socket
 import subprocess
 import time
 
@@ -130,4 +132,131 @@ fuda_stop_session aivision
             if process is not None:
                 if process.poll() is None:
                     process.kill()
+                process.communicate(timeout=3)
+
+
+FRONTEND_STOP_SCRIPT = '''
+source "$CONTROL"
+tmux() {
+  case "$1" in
+    has-session) return 0 ;;
+    kill-session) touch "$CASE_DIR/session_closed" ;;
+  esac
+}
+ss() {
+  printf '%s\\n' "$*" >> "$CASE_DIR/ss_args"
+  touch "$CASE_DIR/port_checked"
+  if [[ "$SS_FAILURE" == "1" ]]; then
+    echo 'ss unavailable' >&2
+    return 23
+  fi
+  if [[ ! -e "$CASE_DIR/port_released" ]]; then
+    echo "LISTEN 0 511 0.0.0.0:${TEST_PORT:-3000} 0.0.0.0:*"
+  fi
+}
+# 停止会话只等待端口释放，不能向身份不明的监听进程发信号。
+kill() { printf '%s\\n' "$*" >> "$CASE_DIR/signals"; return 1; }
+if [[ -n "$TEST_PORT" ]]; then
+  fuda_stop_session unified_frontend "$TEST_PORT"
+else
+  fuda_stop_session unified_frontend
+fi
+'''
+
+
+@pytest.mark.parametrize("port", [None, "4300"])
+def test_frontend_stop_waits_for_listener_release_after_tmux_closes(tmp_path, port):
+    env = {**os.environ, "CONTROL": str(CONTROL), "CASE_DIR": str(tmp_path),
+           "FUDA_STOP_TIMEOUT_SECONDS": "5", "TEST_PORT": port or "", "SS_FAILURE": "0"}
+    process = subprocess.Popen(["bash", "-c", FRONTEND_STOP_SCRIPT], env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 3
+        while not (tmp_path / "port_checked").exists() and time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            time.sleep(.01)
+        assert (tmp_path / "session_closed").exists()
+        assert (tmp_path / "port_checked").exists(), "关闭 tmux 后必须检查监听端口"
+        assert process.poll() is None, "旧前端仍在释放端口时，停止操作不能提前成功"
+        assert not (tmp_path / "signals").exists()
+        (tmp_path / "port_released").touch()
+        stdout, stderr = process.communicate(timeout=3)
+        assert process.returncode == 0, stdout + stderr
+        queries = (tmp_path / "ss_args").read_text().splitlines()
+        assert len(queries) >= 2
+        assert all(f"sport = :{port or '3000'}" in query for query in queries)
+        assert not (tmp_path / "signals").exists()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=3)
+
+
+def test_frontend_stop_reports_timeout_without_killing_listener(tmp_path):
+    env = {**os.environ, "CONTROL": str(CONTROL), "CASE_DIR": str(tmp_path),
+           "FUDA_STOP_TIMEOUT_SECONDS": "1", "TEST_PORT": "", "SS_FAILURE": "0"}
+    result = subprocess.run(["bash", "-c", FRONTEND_STOP_SCRIPT], env=env,
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert (tmp_path / "session_closed").exists()
+    assert (tmp_path / "port_checked").exists()
+    assert "3000" in result.stdout + result.stderr
+    assert not (tmp_path / "signals").exists()
+
+
+def test_frontend_stop_does_not_treat_failed_listener_query_as_released_port(tmp_path):
+    env = {**os.environ, "CONTROL": str(CONTROL), "CASE_DIR": str(tmp_path),
+           "FUDA_STOP_TIMEOUT_SECONDS": "1", "TEST_PORT": "", "SS_FAILURE": "1"}
+    result = subprocess.run(["bash", "-c", FRONTEND_STOP_SCRIPT], env=env,
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert (tmp_path / "session_closed").exists()
+    assert (tmp_path / "port_checked").exists()
+    assert not (tmp_path / "signals").exists()
+
+
+@pytest.mark.skipif(shutil.which("ss") is None, reason="需要 ss 查询实际 TCP 监听端口")
+def test_frontend_stop_waits_for_real_tcp_listener_release(tmp_path):
+    """真实监听验证 ss 的端口过滤语法，避免模拟输出掩盖查询错误。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        env = {**os.environ, "CONTROL": str(CONTROL), "CASE_DIR": str(tmp_path),
+               "FUDA_STOP_TIMEOUT_SECONDS": "5", "TEST_PORT": str(port)}
+        process = subprocess.Popen(["bash", "-c", '''
+source "$CONTROL"
+tmux() {
+  case "$1" in
+    has-session) return 0 ;;
+    kill-session) touch "$CASE_DIR/session_closed" ;;
+  esac
+}
+ss() {
+  command ss "$@"
+  local status="$?"
+  touch "$CASE_DIR/port_checked"
+  return "$status"
+}
+kill() { printf '%s\\n' "$*" >> "$CASE_DIR/signals"; return 1; }
+fuda_stop_session unified_frontend "$TEST_PORT"
+'''], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 3
+            while not (tmp_path / "port_checked").exists() and time.monotonic() < deadline:
+                if process.poll() is not None:
+                    break
+                time.sleep(.01)
+            assert (tmp_path / "session_closed").exists()
+            assert (tmp_path / "port_checked").exists()
+            with pytest.raises(subprocess.TimeoutExpired):
+                process.communicate(timeout=.2)
+            listener.close()
+            stdout, stderr = process.communicate(timeout=3)
+            assert process.returncode == 0, stdout + stderr
+            assert not (tmp_path / "signals").exists()
+        finally:
+            if process.poll() is None:
+                process.kill()
                 process.communicate(timeout=3)

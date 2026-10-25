@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
-# start.sh 和 stop.sh 共用的停止流程，必须等后端正常退出后才能关闭 tmux。
+# start.sh 和 stop.sh 共用的停止流程，等待后端退出及前端监听释放。
+
+fuda_wait_port_released() {
+  local port="$1" timeout="$2" listeners deadline=$((SECONDS + $2))
+  while true; do
+    # tmux 会话消失后 Node 仍可能正在退出；不能仅凭会话状态立即启动新实例。
+    if ! listeners="$(ss -H -ltn "sport = :${port}" 2>/dev/null)"; then
+      echo "[FAIL] 无法检查端口 ${port} 是否释放，请检查 ss（iproute2）"
+      return 1
+    fi
+    [[ -z "$listeners" ]] && return 0
+    if (( SECONDS >= deadline )); then
+      echo "[FAIL] 等待端口 ${port} 释放超时（${timeout}s），未启动新进程，也未终止其他占用进程"
+      return 1
+    fi
+    sleep 0.1
+  done
+}
 
 fuda_find_aivision_pids() {
   local session="$1" pane_pids processes
@@ -37,7 +54,7 @@ fuda_aivision_pid_running() {
 }
 
 fuda_stop_session() {
-  local session="$1" timeout="${FUDA_STOP_TIMEOUT_SECONDS:-180}"
+  local session="$1" port="${2:-3000}" timeout="${FUDA_STOP_TIMEOUT_SECONDS:-180}"
   if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
     echo "[FAIL] FUDA_STOP_TIMEOUT_SECONDS 必须为正整数"
     return 1
@@ -81,6 +98,10 @@ fuda_stop_session() {
     done
   fi
   if tmux has-session -t "$session" 2>/dev/null; then
-    tmux kill-session -t "$session"
+    tmux kill-session -t "$session" || return 1
+  fi
+  if [[ "$session" == "unified_frontend" ]]; then
+    echo "[INFO] 等待前端端口 ${port} 释放（最多 ${timeout}s）"
+    fuda_wait_port_released "$port" "$timeout" || return 1
   fi
 }

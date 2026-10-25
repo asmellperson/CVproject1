@@ -206,7 +206,7 @@ flowchart TD
 
 `SHUTDOWN_GRACE_SECONDS` 设置正常退出的请求等待上限，默认 `75` 秒，覆盖 AGV 最长 `60` 秒检测窗口和最长 `10` 秒回调超时。AGV 按响应或回调释放请求容量，判定完成但回调尚未结束的请求仍需等待；重复停止通知不会延长原有截止时间。消费者直接停止也先等待已接收请求释放，等待超时后以不可用结束未完成检测，不能生成无人判定。服务恢复前的新调用可能收到 HTTP `503` 或连接失败，调用方需重试。
 
-`scripts/stop.sh` 与 `scripts/start.sh --force` 共用 `scripts/service_control.sh`，向当前 tmux 会话的 Python 主入口发送 `SIGTERM` 并等待其退出，再关闭会话。`FUDA_STOP_TIMEOUT_SECONDS` 在 `scripts/cold_start.env` 中配置，默认 `180` 秒，包含请求等待与运行资源清理；超时保留会话并返回失败，不强杀后端或继续启动新后端。
+`scripts/stop.sh` 与 `scripts/start.sh --force` 共用 `scripts/service_control.sh`，向当前 tmux 会话的 Python 主入口发送 `SIGTERM` 并等待其退出，再关闭会话。`FUDA_STOP_TIMEOUT_SECONDS` 在 `scripts/cold_start.env` 中配置，默认 `180` 秒，包含请求等待与运行资源清理；后端超时保留会话并返回失败，不强杀后端或继续启动新后端。前端关闭 tmux 后使用 `ss` 等待监听端口释放，沿用该等待上限，超时或查询失败时停止后续启动，不终止其他端口占用者。
 
 `bootstrap_database()` 的职责是准备数据库结构；业务采集与推理由 Orchestrator 启动。已有业务字段转换和历史数据合并通过离线迁移完成，主启动不会代替迁移脚本修改这些业务语义。
 
