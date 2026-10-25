@@ -1511,9 +1511,9 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
-公共摄像头 JPEG 成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）和 `frame_total`（取图函数内部处理）。`frame_total` 不包含鉴权、线程池排队、代理或网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
+公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）、`frame_total`（取图函数内部处理）、`camera_access`（身份查询及访问校验）、`auth`（认证及其线程池等待）和 `request_total`（认证中间件入口至响应就绪）。`frame_total` 不包含鉴权和路由调度；`request_total` 不包含进入应用前的等待、代理及网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
 
-`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`outsideFrameHandler` 包含取图函数之外的等待，不能直接解释为网络延迟。成功请求与失败请求分别计数，缺失指标保留为空。保安室实时页面逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；物流通道及站点级独立拼图接口不纳入该统计。
+`AiVisionMonitor` 按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`authentication`、`cameraAccess`、`serverRequest` 分别对应鉴权、摄像头访问校验和服务端总耗时。`serverDispatch` 为服务端总耗时扣除鉴权、访问校验和取图处理后的其余开销，`outsideServer` 为响应头等待扣除服务端总耗时后的等待；两者都不能直接解释为纯线程池或纯网络延迟。`outsideFrameHandler` 保留取图函数之外的整体等待。成功请求与失败请求分别计数，缺失指标保留为空。保安室实时页面逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；标注回退原图时，整轮等待还包含前一次失败请求，服务端分段计时仅对应最终成功请求。物流通道及站点级独立拼图接口不纳入该统计。
 
 ### 14.3 调参顺序
 

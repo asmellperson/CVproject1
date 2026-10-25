@@ -4,6 +4,7 @@ CameraConfigManager管理摄像头的配置数据，并在数据发生变化以�
 查询：
     list_cameras()
     get_camera()
+    get_camera_identity()
 创建：
     create_camera()
     create_camera_for_feature()
@@ -142,6 +143,21 @@ class CameraConfigManager:
             specs = all_specs()
             functions, orders = _load_function_metadata(session, [cam.id], specs)
             return self._to_dict(cam, functions[cam.id], orders[cam.id])
+        finally:
+            session.close()
+
+    def get_camera_identity(self, key: str | int) -> dict | None:
+        """取图授权只读取摄像头身份与当前归属，避免逐帧加载所有功能配置。"""
+        session = get_session()
+        try:
+            cam = self._get_orm_by_key(session, key)
+            if cam is None:
+                return None
+            return {
+                "camera_id": cam.id,
+                "shm_name": cam.shm_name or f"camera_{cam.id}",
+                "department": cam.department,
+            }
         finally:
             session.close()
 

@@ -115,12 +115,8 @@ def camera_list_response_for_user(
     return [camera_response_for_user(camera, user) for camera in visible_cameras]     
 
 # 指定访问某一台摄像头时，单独检查一次是否越权
-def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str, Any]:
-    """
-    查询单台摄像头，检查当前用户有没有权限看，并最后做字段脱敏
-    """
-    # 查询key所对应摄像头的完整的配置
-    camera = camera_config_manager.get_camera(key)
+def _require_camera_read_access(camera: dict[str, Any] | None, user: dict) -> dict[str, Any]:
+    """详情与高频取图共用同一份摄像头存在性及事业部归属校验。"""
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     if user.get("role") != "admin":
@@ -130,7 +126,12 @@ def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str
         if not departments or departments.isdisjoint(camera_access_departments(camera)):
             raise HTTPException(status_code=403, detail="camera department permission required")
 
-    # 做字段脱敏
+    return camera
+
+
+def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str, Any]:
+    """读取摄像头完整配置，校验访问范围后返回脱敏详情。"""
+    camera = _require_camera_read_access(camera_config_manager.get_camera(key), user)
     return camera_response_for_user(camera, user)
 
 # ------------------ 摄像头CRUD -------------------------
@@ -398,13 +399,16 @@ def get_camera_frame_jpg(
         orchestrator：提供当前运行画面的对象
     """
     # 这个函数做：1、摄像头不存在：404，2、用户没有权限：403，3、有权限：继续
-    camera = get_camera_for_user(camera_config_manager, key, user)
+    access_started_at = time.monotonic()
+    # 取图只需身份与归属；逐帧查询所有检测配置会把数据库往返叠加到预览周期。
+    camera = _require_camera_read_access(camera_config_manager.get_camera_identity(key), user)
     if feature is not None:
         from AiVision.features.registry import get_spec
         if get_spec(feature) is None:
             raise HTTPException(status_code=404, detail="unknown feature")
         require_feature_access(user, feature, camera["department"])
-    return build_camera_frame_response(
+    access_seconds = time.monotonic() - access_started_at
+    response = build_camera_frame_response(
         key=camera["shm_name"],
         feature=feature,
         quality=quality,
@@ -412,3 +416,5 @@ def get_camera_frame_jpg(
         max_height=max_height,
         orchestrator=orchestrator,
     )
+    response.headers["Server-Timing"] += f", camera_access;dur={access_seconds * 1000:.3f}"
+    return response

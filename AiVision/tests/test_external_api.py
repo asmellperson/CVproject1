@@ -1,6 +1,8 @@
 """外部数据和图片直链无需凭证，业务范围及平台登录仍按各自规则校验。"""
 
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import math
 import time
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -43,6 +45,10 @@ def external_api(monkeypatch, tmp_path):
     }
     camera_manager = Mock()
     camera_manager.get_camera.side_effect = cameras.get
+    camera_manager.get_camera_identity.side_effect = lambda key: (
+        {field: cameras[key][field] for field in ("camera_id", "shm_name", "department")}
+        if key in cameras else None
+    )
     camera_manager.list_cameras.return_value = list(cameras.values())
     pixels = np.zeros((48, 96, 3), dtype=np.uint8)
     orchestrator = Mock()
@@ -197,10 +203,94 @@ def test_external_openapi_does_not_require_api_key(external_api):
     "/api/cameras", "/api/security-inspection/history", "/api/security-fence/status",
     "/api/admin/external-clients",
     "/api/tailgating/cameras/camera_1/status",
+    "/api/cameras/camera_1/frame.jpg",
 ])
 def test_platform_routes_still_require_login(external_api, path):
     response = external_api.client.get(path, params={"department": "general_electric"})
     assert response.status_code == 401
+
+
+@pytest.fixture
+def platform_frame_auth(external_api, monkeypatch):
+    user = {
+        "employee_id": "preview-user", "name": "预览测试账号", "role": "viewer",
+        "departments": ["general_electric"],
+        "feature_access": {"general_electric": ["security_inspection"]},
+    }
+    # 每次认证返回独立快照，才能发现缓存旧账号权限的问题。
+    authenticate = Mock(side_effect=lambda request: deepcopy(user))
+    monkeypatch.setattr("AiVision.api.app.get_current_user_from_request", authenticate)
+    return SimpleNamespace(user=user, authenticate=authenticate)
+
+
+def test_platform_frame_uses_identity_query_and_preserves_jpeg_and_timings(external_api, platform_frame_auth):
+    external_api.camera["url"] = "rtsp://preview-user:preview-password@camera.invalid/live"
+    external_api.camera_manager.get_camera.side_effect = AssertionError("取图不应读取完整摄像头配置")
+    response = external_api.client.get("/api/cameras/camera_1/frame.jpg", params={
+        "feature": "security_inspection", "max_width": 32,
+    })
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/jpeg"
+    image = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert image.shape[:2] == (16, 32)
+    external_api.camera_manager.get_camera_identity.assert_called_once_with("camera_1")
+    external_api.camera_manager.get_camera.assert_not_called()
+    external_api.orchestrator.get_camera_frame_info.assert_called_once_with(
+        "camera_1", feature="security_inspection",
+    )
+    platform_frame_auth.authenticate.assert_called_once()
+    timings = {}
+    for metric in response.headers["server-timing"].split(","):
+        name, *parameters = (part.strip() for part in metric.split(";"))
+        duration = float(next(value[4:] for value in parameters if value.startswith("dur=")))
+        assert math.isfinite(duration) and duration >= 0, metric
+        timings[name] = duration
+    assert {"camera_access", "auth", "request_total", "frame_lookup", "jpeg_encode", "frame_total"} <= timings.keys()
+    assert timings["request_total"] >= timings["auth"]
+    assert timings["request_total"] >= timings["camera_access"]
+    assert timings["request_total"] >= timings["frame_total"]
+    for credential in ("rtsp://", "preview-password", "camera.invalid"):
+        assert credential.encode() not in response.content
+        assert credential not in str(response.headers)
+
+
+@pytest.mark.parametrize("key, role, departments, features, status", [
+    ("camera_2", "viewer", ["general_electric"], ["security_inspection"], 403),
+    ("camera_1", "viewer", ["general_electric"], [], 403),
+    ("camera_1", "admin", [], [], 403),
+    ("missing", "viewer", ["general_electric"], ["security_inspection"], 404),
+])
+def test_platform_frame_keeps_camera_and_feature_access_checks(
+    external_api, platform_frame_auth, key, role, departments, features, status,
+):
+    platform_frame_auth.user.update({
+        "role": role, "departments": departments, "feature_access": {"general_electric": features},
+    })
+    response = external_api.client.get(f"/api/cameras/{key}/frame.jpg", params={
+        "feature": "security_inspection",
+    })
+    assert response.status_code == status, response.text
+    external_api.camera_manager.get_camera_identity.assert_called_once_with(key)
+    external_api.camera_manager.get_camera.assert_not_called()
+    external_api.orchestrator.get_camera_frame_info.assert_not_called()
+
+
+@pytest.mark.parametrize("revoked", ["department", "feature"])
+def test_platform_frame_rechecks_current_permissions_on_every_request(external_api, platform_frame_auth, revoked):
+    url = "/api/cameras/camera_1/frame.jpg?feature=security_inspection"
+    allowed = external_api.client.get(url)
+    assert allowed.status_code == 200, allowed.text
+    external_api.orchestrator.get_camera_frame_info.reset_mock()
+    if revoked == "department":
+        platform_frame_auth.user["departments"] = []
+    else:
+        platform_frame_auth.user["feature_access"] = {"general_electric": []}
+    rejected = external_api.client.get(url)
+    assert rejected.status_code == 403, rejected.text
+    assert platform_frame_auth.authenticate.call_count == 2
+    assert external_api.camera_manager.get_camera_identity.call_count == 2
+    external_api.camera_manager.get_camera.assert_not_called()
+    external_api.orchestrator.get_camera_frame_info.assert_not_called()
 
 
 @pytest.fixture

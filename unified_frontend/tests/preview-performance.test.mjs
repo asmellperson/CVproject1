@@ -53,6 +53,7 @@ test('分开统计等待、下载和解码，保留目标频率与实际加载�
     requestToHeaders: 700, downloadBody: 200, imageDecode: 100, requestToReady: 1000,
     readyToImageLoad: 20, frameLookupAndOverlay: 100, jpegEncode: 200,
     frameHandler: 300, outsideFrameHandler: 400, captureAge: 40,
+    authentication: null, cameraAccess: null, serverRequest: null, serverDispatch: null, outsideServer: null,
   })
   assert.equal(report.failedRequests, 0)
 })
@@ -67,6 +68,22 @@ test('重复共享帧估算为零更新，不能把五次 JPEG 请求当成五�
   assert.equal(reports[0].capturePublishedFpsEstimate, 0)
   assert.equal(reports[0].readyFps, 1)
   assert.equal(reports[0].averageMs.frameHandler, null)
+})
+
+test('完整服务端计时区分鉴权、身份查询、调度与服务端范围之外的等待', () => {
+  const { value, reports } = recorder()
+  const headers = new Headers({
+    'Server-Timing': 'frame_lookup;dur=100, jpeg_encode;dur=200, frame_total;dur=300, camera_access;dur=80, auth;dur=90, request_total;dur=500',
+  })
+  value.completed(sample(0, 1, { headers }))
+  value.completed(sample(4000, 2, { headers }))
+  const timings = reports[0].averageMs
+  assert.equal(timings.authentication, 90)
+  assert.equal(timings.cameraAccess, 80)
+  assert.equal(timings.serverRequest, 500)
+  assert.equal(timings.serverDispatch, 30)
+  assert.equal(timings.outsideServer, 200)
+  assert.equal(timings.outsideFrameHandler, 400)
 })
 
 test('缺少或非法采集头不伪造零帧率，未知服务器阶段保留为空', () => {

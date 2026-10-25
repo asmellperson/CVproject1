@@ -28,6 +28,7 @@ export type PreviewPerformanceReport = {
   averageMs: Record<
     'requestToHeaders' | 'downloadBody' | 'imageDecode' | 'requestToReady' | 'readyToImageLoad'
     | 'frameLookupAndOverlay' | 'jpegEncode' | 'frameHandler' | 'outsideFrameHandler'
+    | 'authentication' | 'cameraAccess' | 'serverRequest' | 'serverDispatch' | 'outsideServer'
     | 'captureAge', number | null
   >
 }
@@ -132,6 +133,8 @@ export function createPreviewPerformanceRecorder(options: {
     requestToHeaders: duration(), downloadBody: duration(), imageDecode: duration(),
     requestToReady: duration(), readyToImageLoad: duration(), frameLookupAndOverlay: duration(),
     jpegEncode: duration(), frameHandler: duration(), outsideFrameHandler: duration(), captureAge: duration(),
+    authentication: duration(), cameraAccess: duration(), serverRequest: duration(),
+    serverDispatch: duration(), outsideServer: duration(),
   }
 
   function reportIfDue(at: number) {
@@ -170,16 +173,25 @@ export function createPreviewPerformanceRecorder(options: {
       const timing = sample.headers.get('Server-Timing') ?? ''
       const names = {
         frame_lookup: 'frameLookupAndOverlay', jpeg_encode: 'jpegEncode', frame_total: 'frameHandler',
+        auth: 'authentication', camera_access: 'cameraAccess', request_total: 'serverRequest',
       } as const
+      const serverDurations: Record<string, number> = {}
       for (const [metric, stage] of Object.entries(names)) {
         const match = timing.match(new RegExp(`(?:^|,)\\s*${metric}\\s*;\\s*dur=([0-9]+(?:\\.[0-9]+)?)(?=\\s*(?:;|,|$))`))
         const milliseconds = readNumber(match?.[1] ?? null)
         if (milliseconds !== null) {
+          serverDurations[metric] = milliseconds
           add(stages[stage], milliseconds)
           // 差值还包含鉴权、排队、代理和往返传输，不能当成纯网络延迟。
           if (metric === 'frame_total') add(stages.outsideFrameHandler,
             Math.max(0, sample.headersReceivedAt - sample.startedAt - milliseconds))
+          if (metric === 'request_total') add(stages.outsideServer,
+            Math.max(0, sample.headersReceivedAt - sample.startedAt - milliseconds))
         }
+      }
+      if (['request_total', 'auth', 'camera_access', 'frame_total'].every((name) => name in serverDurations)) {
+        add(stages.serverDispatch, Math.max(0, serverDurations.request_total - serverDurations.auth
+          - serverDurations.camera_access - serverDurations.frame_total))
       }
       const age = readNumber(sample.headers.get('X-Capture-Age-Ms'))
       if (age !== null) add(stages.captureAge, age)
