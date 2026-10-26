@@ -69,6 +69,8 @@ class FenceEvent:
     candidate: int | None = None
     key: str = field(default_factory=lambda: uuid4().hex)
     dispatched: bool = False
+    record_dispatched: bool = False
+    wechat_dispatched: bool = False
     horn_future: Future[tuple[bool, float]] | None = None
     horn_next_at: float = 0.0
 

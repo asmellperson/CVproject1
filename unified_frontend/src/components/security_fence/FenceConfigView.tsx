@@ -73,7 +73,7 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
       {draft && <AlarmPushConfig key={cameraKey} alarm={draft.config.alarm} alarmInterval={draft.numbers.alarm_interval} disabled={disabled} saving={saving} message={message} onSave={save}
         onAlarmIntervalChange={(alarm_interval) => update((current) => ({ ...current, numbers: { ...current.numbers, alarm_interval } }))}
         onChange={(alarm) => update((current) => ({ ...current, config: { ...current.config, alarm: normalizeFeatureAlarmConfig(alarm) } }))} />}
-      <p className="text-sm text-slate-500 dark:text-slate-400">报警间隔用于抑制同一次异常的重复记录；短暂漏检不会立即新增报警。多人同时出现分别记录，同一人员持续违规只保留一条。禁入时段先记录，身份确认后补全姓名与工号。</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">报警记录与企业微信分别按当前摄像头限频，换人、重新识别和规则切换不会重置间隔；同一次持续异常各记录或推送一次。喇叭独立按自己的间隔播放。禁入时段先记录，身份确认后补全姓名与工号。</p>
     </FeatureConfigGate></TabsContent>
   </DetectionConfigTabs>
 }

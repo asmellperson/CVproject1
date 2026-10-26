@@ -111,8 +111,8 @@ class AsyncViolationWriter:
         event_metadata: dict | None = None,
         video_path: str | None = None,
         video_status: str | None = None,
-    ):
-        """从 Consumer 调来的入口 — 立即返回,后台线程负责落盘和 DB 写，属于普通异步告警写入入口"""
+    ) -> bool:
+        """冻结当前证据并异步入队，返回是否被队列接收。"""
         # 告警类型
         validate_alarm_identity(violation_type, feature_name, department)
         # 构造一个字典然后放入队列
@@ -135,11 +135,13 @@ class AsyncViolationWriter:
         with self._enqueue_lock:
             if self._stop_event.is_set():
                 logger.warning(f"[ViolationWriter] 已停止接收告警 feature={feature_name} camera={camera_no}")
-                return
+                return False
             try:
                 self._queue.put_nowait(item)
+                return True
             except Full:
                 logger.warning(f"[ViolationWriter] 告警队列已满，丢弃本条入库请求 feature={feature_name} camera={camera_no}")
+                return False
 
     def enqueue_metadata_patch(
         self, *, event_key: str, feature_name: str, department: str, camera_no: str, metadata: dict,

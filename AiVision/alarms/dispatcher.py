@@ -1,8 +1,8 @@
 """统一告警冷却、证据选择与喇叭、数据库、企业微信分发。
 
 消费者负责提交已成立的业务异常，分发器按显式冷却主体控制重复通知。
-喇叭和微信使用后台队列；微信卡片需要告警 ID，因此启用微信时会先同步
-保存告警记录，即使独立 SQL 通道关闭也保留卡片所需记录。
+喇叭和微信使用后台队列；仅记录通道到期时保存证据和告警。
+微信与记录同时到期时使用当前记录的卡片，其余微信通知使用当前告警文本。
 """
 from __future__ import annotations
 import queue
@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 from AiVision.alarms.notifications.wechat import WeChatNotifier
 from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
 from AiVision.alarms.validation import validate_alarm_identity, validate_cooldown_identity
+
+
+CooldownKey = tuple[str, str, int | None, str]
 
 
 @dataclass(frozen=True)
@@ -84,11 +87,19 @@ class AlarmRequest:
     metadata: dict = field(default_factory=dict)
     evidence: AlarmEvidenceRequest | None = field(default=None, kw_only=True)
     on_horn_complete: Callable[[bool], None] | None = field(default=None, kw_only=True, repr=False)
+    # 记录与企微可显式使用稳定范围，避免业务事件、身份或报警原因变化绕过间隔。
+    notification_cooldown_subject: tuple[str, str] | None = field(default=None, kw_only=True)
+    on_notification_enqueued: Callable[[str], None] | None = field(default=None, kw_only=True, repr=False)
 
     def __post_init__(self) -> None:
         """在请求创建时校验功能、事业部、告警类型与显式冷却身份。"""
         validate_alarm_identity(self.violation_type, self.feature_name, self.department)
         validate_cooldown_identity(self.cooldown_subject_type, self.cooldown_subject_id, self.violation_type)
+        if self.notification_cooldown_subject is not None:
+            scope = self.notification_cooldown_subject
+            if not isinstance(scope, tuple) or len(scope) != 2:
+                raise ValueError("通知冷却范围必须是明确的主体类型与标识")
+            validate_cooldown_identity(scope[0], scope[1], self.violation_type)
         if self.evidence is not None and not isinstance(self.evidence, AlarmEvidenceRequest):
             raise ValueError("证据选择必须使用 AlarmEvidenceRequest")
 
@@ -122,7 +133,7 @@ class AlarmDispatcher:
         self._wechat_lifecycle_lock = threading.Lock()
         self._wechat_started = False  # 防止 configure() 被重复调用时二次启动线程
         # 告警冷却表
-        self._last_alarm: dict[tuple[str, str, int, str], float] = {}
+        self._last_alarm: dict[CooldownKey, float] = {}
         self._horn_attempts: dict[tuple[str, str, int, str], object] = {}
         self._lock = threading.Lock()
 
@@ -197,7 +208,7 @@ class AlarmDispatcher:
             for channel, interval in intervals.items():
                 config = alarm.get(channel) or {}
                 enabled = config.get("enable", channel == "sql")
-                channel_key = (*key, channel)
+                channel_key = self._channel_cooldown_key(request, channel)
                 last = self._last_alarm.get(channel_key)
                 if channel in selected and enabled and (last is None or now - last >= interval):
                     # 围栏语音以实际播放成功为准，失败不能消耗长周期冷却。
@@ -262,6 +273,14 @@ class AlarmDispatcher:
         validate_cooldown_identity(request.cooldown_subject_type, request.cooldown_subject_id, request.violation_type)
         return request.cooldown_subject_type, request.cooldown_subject_id, request.violation_type
 
+    @staticmethod
+    def _channel_cooldown_key(request: AlarmRequest, channel: str) -> CooldownKey:
+        """通知与喇叭分别选取冷却范围，各通道仍单独计时。"""
+        if channel in {"sql", "wechat"} and request.notification_cooldown_subject is not None:
+            subject_type, subject_id = request.notification_cooldown_subject
+            return subject_type, subject_id, None, channel
+        return (*AlarmDispatcher._cooldown_key(request), channel)
+
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #
@@ -295,7 +314,7 @@ class AlarmDispatcher:
     def _execute(self, req: AlarmRequest, channels: set[str], *, on_horn_complete=None):
         """按各通道设置提交喇叭、持久化与微信任务，并隔离通道异常。
 
-        喇叭播放只入队；微信卡片需同步取得告警 ID，普通 SQL 记录则异步入队。
+        喇叭播放只入队；记录与微信同时到期时同步取记录 ID，其他记录异步入队。
         数据库或证据失败会记录原因，后续通道仍按各自前置条件继续处理。
         """
         # req.alarm_config就是这次检测功能的告警配置
@@ -314,10 +333,8 @@ class AlarmDispatcher:
             or "enable" not in sql_cfg
             or bool(sql_cfg.get("enable"))
         )
-        # SQL关闭微信开启也要数据库告警记录
-        should_persist_violation = should_write_sql or should_send_wechat
         video_path = None
-        if should_persist_violation and self.evidence_recorder is not None:
+        if should_write_sql and self.evidence_recorder is not None:
             try:
                 # 摄像头报警了，创建一段视频前后视频证据任务，生成的是告警视频路径
                 video_path = self._start_evidence(req)
@@ -325,7 +342,7 @@ class AlarmDispatcher:
             except Exception as exc:
                 self._cancel_episode(req)
                 logger.warning(f"[Alarm] 报警视频任务创建失败: {exc}")
-        elif not should_persist_violation:
+        elif not should_write_sql:
             self._cancel_episode(req)
 
         # ---- 通道 1: 喇叭（后台队列）----
@@ -356,10 +373,8 @@ class AlarmDispatcher:
             on_horn_complete(False)
 
         # ---- 通道 2: SQL 持久化 ----
-        # 没微信：SQL记录入queue，异步写，性能优先。有微信：必须拿alarm_id,save_now,同步写得到record.id,微信卡片
-        # 微信图文卡片需要 alarm_id；即使独立 SQL 通道关闭也必须同步保存卡片记录。
-        # 这次需要保存告警记录，并且ViolationWriter有用
-        if should_persist_violation and self.violation_writer is not None:
+        # 只有记录通道可以落库；同时推送微信时取得当前记录 ID，不能用微信绕过记录冷却。
+        if should_write_sql and self.violation_writer is not None:
             try:
                 if should_send_wechat and hasattr(self.violation_writer, "save_now"):
                     alarm_record = self._write_violation(
@@ -367,13 +382,16 @@ class AlarmDispatcher:
                         req,
                         video_path=video_path,
                     )
+                    record_submitted = alarm_record is not None
                 # 如果不需要微信，不马上写数据库，而是把告警记录丢进后台写入队列
                 else:
-                    self._write_violation(
+                    record_submitted = self._write_violation(
                         self.violation_writer.enqueue,
                         req,
                         video_path=video_path,
                     )
+                if record_submitted:
+                    self._notification_enqueued(req, "sql")
             # SQL失败，微信流程也要继续
             except Exception as e:
                 logger.warning(f"[Alarm] SQL 入队失败: {e}")
@@ -384,8 +402,18 @@ class AlarmDispatcher:
                 # 把微信任务放到后台队列
                 # put_nowait: 队列满时抛 queue.Full，记录日志后丢弃，不阻塞主流程
                 self._wechat_queue.put_nowait((req, wechat_user, alarm_record))
+                self._notification_enqueued(req, "wechat")
             except queue.Full:
                 logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
+
+    @staticmethod
+    def _notification_enqueued(req: AlarmRequest, channel: str) -> None:
+        """分别确认记录与推送的提交，喇叭到期不能替其他通道标记完成。"""
+        if req.on_notification_enqueued is not None:
+            try:
+                req.on_notification_enqueued(channel)
+            except Exception as exc:
+                logger.warning(f"[Alarm] {channel} 通道提交通知失败（{type(exc).__name__}）")
 
     @staticmethod
     def _write_violation(
@@ -468,6 +496,14 @@ class AlarmDispatcher:
                 continue  # wechat 客户端未注入，跳过（理论上不应发生）
 
             try:
+                if alarm_record is None:
+                    # 当前没有新记录时独立推送文本，避免借用其他人员的图片或强制新增记录。
+                    self.wechat.send_alarm_text(
+                        violation_type=req.violation_type,
+                        camera_name=req.camera_name,
+                        recipients=user,
+                    )
+                    continue
                 image_url, detail_url = self._alarm_card_urls(
                     getattr(alarm_record, "id", None), feature_name=req.feature_name, department=req.department,
                 )

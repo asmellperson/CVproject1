@@ -2,7 +2,7 @@
 alarms/notifications/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
 负责获取 token、组织图文卡片并调用企业微信 HTTP API。
-AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人员缩略图使用受限签名链接。
+AlarmDispatcher._wechat_loop()传入本次已保存报警的链接，或独立发送当前告警文本；人员缩略图使用受限签名链接。
 对应环境变量(可选,未配置时仅日志告警):
     WECHAT_CORP_ID
     WECHAT_CORP_SECRET
@@ -13,7 +13,8 @@ AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人�
     _get_token():crop_id + secret 获取access_token
     _send_news_card():单条图文卡片
     send(): AI业务报警 news 图文卡片，URL 缺失则记录失败
-    send_text():系统异常等纯文本通知
+    send_alarm_text():未生成新记录时的独立业务告警文本
+    send_text():业务告警及系统异常文本通知
 协议与调用入口：企业微信消息协议
 
     WeChatNotifier：保存企业 ID、应用密钥、应用 ID；构造本身不发送网络请求。
@@ -257,10 +258,19 @@ class WeChatNotifier:
             image_url=image_url,
         )
 
+    def send_alarm_text(self, violation_type: int, camera_name: str, recipients: str):
+        """记录通道未到期或已关闭时，仍可独立推送当前业务告警。"""
+        if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
+            raise ValueError("企业微信业务告警 violation_type 必须是正式报警类型注册表中的整数")
+        label = VIOLATION_TYPE_META[violation_type]["label"]
+        self.send_text(
+            content=f"{label}告警\n报警对象：{camera_name}\n推送时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+            recipients=recipients,
+        )
+
     def send_text(self, content: str, recipients: str):
         """
-        系统级运行异常消息
-        发送纯 Markdown 文本消息,用于系统运行状态类通知。
+        发送业务告警或系统运行异常的 Markdown 文本消息。
 
         Args:
             content   : Markdown 消息正文。

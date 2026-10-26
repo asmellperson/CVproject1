@@ -42,7 +42,7 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
       >
         <span>
           <span className="block font-medium text-slate-900">启用企业微信推送</span>
-          <span className="block text-xs text-slate-500">开启后当前功能报警会推送到指定企业微信用户</span>
+          <span className="block text-xs text-slate-500">按独立推送间隔发送；没有本次报警记录时发送文字通知</span>
         </span>
         <Switch
           id={`${fieldId}-wechat-enable`}

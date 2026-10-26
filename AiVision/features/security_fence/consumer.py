@@ -176,19 +176,24 @@ class FenceConsumer(BaseFunctionConsumer):
                 continue
             event = runtime.events[person["track_id"]]
             first_dispatch = not event.dispatched
-            if event.dispatched:
+            if event.record_dispatched:
                 self._complete_alarm_identity(camera_id, event, person, config=config)
             cfg = self.config_cache[camera_id] if config is None else config
-            channels = {"horn"} if event.dispatched else {"sql", "horn", "wechat"}
+            # 各通道独立等待到期；喇叭已播放不能让仍在冷却的记录或企微永远失去机会。
+            channels = set()
+            if cfg.get("sql_enable") and not event.record_dispatched:
+                channels.add("sql")
+            if cfg.get("wechat_enable") and not event.wechat_dispatched:
+                channels.add("wechat")
             completion = self._horn_attempt(event, cfg)
-            if completion is None:
-                channels.discard("horn")
+            if completion is not None:
+                channels.add("horn")
             if not channels:
                 continue
             if super()._handle_alarm(camera_id, (True, person), frame, config=config,
                                      channels=channels, on_horn_complete=completion):
                 event.dispatched = True
-                if first_dispatch:
+                if first_dispatch and not event.record_dispatched:
                     event.person = FencePerson.model_validate(person)
                 subjects.add(f"{camera_id}:{event.key}")
 
@@ -250,9 +255,22 @@ class FenceConsumer(BaseFunctionConsumer):
             subject_type = "fence_unidentified"
             subject_id = f"{camera_id}:{self.unidentified_slots[camera_id][person['track_id']]}"
             self.unidentified_subjects.setdefault(camera_id, set()).add(subject_id)
+
+        def notification_enqueued(channel):
+            if channel == "sql":
+                event.record_dispatched = True
+                # 身份补全以真正提交的这张记录为准，不使用较早的喇叭触发位置。
+                event.person = FencePerson.model_validate(person)
+            elif channel == "wechat":
+                event.wechat_dispatched = True
+
         return {
             "cooldown_subject_type": subject_type,
             "cooldown_subject_id": subject_id,
+            "notification_cooldown_subject": (
+                "fence_camera", f"{cfg['department']}:{self.feature_name}:{camera_id}",
+            ),
+            "on_notification_enqueued": notification_enqueued,
             "subject_type": "camera", "subject_id": cfg["shm_name"], "subject_name": cfg["name"],
             "reason": person["reason"],
             "metadata": {"camera_name": cfg["name"], "person": person,
