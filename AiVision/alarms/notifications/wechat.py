@@ -2,7 +2,7 @@
 alarms/notifications/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
 负责获取 token、组织图文卡片并调用企业微信 HTTP API。
-AlarmDispatcher._wechat_loop()传入本次已保存报警的链接，或独立发送当前告警文本；人员缩略图使用受限签名链接。
+AlarmDispatcher._wechat_loop()传入本次已保存报警的链接；保存失败时才使用文字通知，人员缩略图使用受限签名链接。
 对应环境变量(可选,未配置时仅日志告警):
     WECHAT_CORP_ID
     WECHAT_CORP_SECRET
@@ -13,7 +13,7 @@ AlarmDispatcher._wechat_loop()传入本次已保存报警的链接，或独立�
     _get_token():crop_id + secret 获取access_token
     _send_news_card():单条图文卡片
     send(): AI业务报警 news 图文卡片，URL 缺失则记录失败
-    send_alarm_text():未生成新记录时的独立业务告警文本
+    send_alarm_text():卡片记录保存失败时的业务告警文本
     send_text():业务告警及系统异常文本通知
 协议与调用入口：企业微信消息协议
 
@@ -259,7 +259,7 @@ class WeChatNotifier:
         )
 
     def send_alarm_text(self, violation_type: int, camera_name: str, recipients: str):
-        """记录通道未到期或已关闭时，仍可独立推送当前业务告警。"""
+        """卡片记录保存失败时推送当前告警，避免存储故障同时中断通知。"""
         if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
             raise ValueError("企业微信业务告警 violation_type 必须是正式报警类型注册表中的整数")
         label = VIOLATION_TYPE_META[violation_type]["label"]

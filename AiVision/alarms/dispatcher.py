@@ -1,8 +1,8 @@
 """统一告警冷却、证据选择与喇叭、数据库、企业微信分发。
 
 消费者负责提交已成立的业务异常，分发器按显式冷却主体控制重复通知。
-喇叭和微信使用后台队列；仅记录通道到期时保存证据和告警。
-微信与记录同时到期时使用当前记录的卡片，其余微信通知使用当前告警文本。
+喇叭和微信使用后台队列；记录通道或微信到期时保存当前告警与证据。
+微信卡片使用本次保存的记录，不受独立记录通道开关和冷却的限制。
 """
 from __future__ import annotations
 import queue
@@ -314,7 +314,7 @@ class AlarmDispatcher:
     def _execute(self, req: AlarmRequest, channels: set[str], *, on_horn_complete=None):
         """按各通道设置提交喇叭、持久化与微信任务，并隔离通道异常。
 
-        喇叭播放只入队；记录与微信同时到期时同步取记录 ID，其他记录异步入队。
+        喇叭播放只入队；微信到期时同步保存卡片记录，其他记录异步入队。
         数据库或证据失败会记录原因，后续通道仍按各自前置条件继续处理。
         """
         # req.alarm_config就是这次检测功能的告警配置
@@ -333,8 +333,10 @@ class AlarmDispatcher:
             or "enable" not in sql_cfg
             or bool(sql_cfg.get("enable"))
         )
+        # 企微详情和截图依赖本次记录 ID，不能因独立记录通道关闭或冷却而降为文字。
+        should_persist_violation = should_write_sql or should_send_wechat
         video_path = None
-        if should_write_sql and self.evidence_recorder is not None:
+        if should_persist_violation and self.evidence_recorder is not None:
             try:
                 # 摄像头报警了，创建一段视频前后视频证据任务，生成的是告警视频路径
                 video_path = self._start_evidence(req)
@@ -342,7 +344,7 @@ class AlarmDispatcher:
             except Exception as exc:
                 self._cancel_episode(req)
                 logger.warning(f"[Alarm] 报警视频任务创建失败: {exc}")
-        elif not should_write_sql:
+        elif not should_persist_violation:
             self._cancel_episode(req)
 
         # ---- 通道 1: 喇叭（后台队列）----
@@ -373,8 +375,8 @@ class AlarmDispatcher:
             on_horn_complete(False)
 
         # ---- 通道 2: SQL 持久化 ----
-        # 只有记录通道可以落库；同时推送微信时取得当前记录 ID，不能用微信绕过记录冷却。
-        if should_write_sql and self.violation_writer is not None:
+        # 两个通道同时到期也只保存一次；企微单独到期时保存其当前卡片所需记录。
+        if should_persist_violation and self.violation_writer is not None:
             try:
                 if should_send_wechat and hasattr(self.violation_writer, "save_now"):
                     alarm_record = self._write_violation(
@@ -497,7 +499,8 @@ class AlarmDispatcher:
 
             try:
                 if alarm_record is None:
-                    # 当前没有新记录时独立推送文本，避免借用其他人员的图片或强制新增记录。
+                    # 仅保存失败或写入器未就绪时退为文字，不能链接其他事件的旧记录。
+                    logger.warning(f"[Alarm] 微信卡片记录未保存，发送文字告警: feature={req.feature_name}")
                     self.wechat.send_alarm_text(
                         violation_type=req.violation_type,
                         camera_name=req.camera_name,
