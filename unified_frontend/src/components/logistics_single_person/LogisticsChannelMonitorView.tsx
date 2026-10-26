@@ -57,13 +57,13 @@ function StatCard({
   }
 
   return (
-    <article className={cn(CARD_CLASS, 'p-4')}>
-      <span className={cn('flex h-9 w-9 items-center justify-center rounded-xl', tones[tone])}>
+    <article className={cn(CARD_CLASS, 'min-w-0 p-3 sm:p-4')}>
+      <span className={cn('hidden h-9 w-9 items-center justify-center rounded-xl sm:flex', tones[tone])}>
         <Icon className="h-[18px] w-[18px]" />
       </span>
-      <p className="mt-4 text-xs font-medium text-slate-400 dark:text-slate-400">{label}</p>
-      <p className="mt-1 truncate text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100" title={value}>{value}</p>
-      <p className="mt-1.5 truncate text-xs text-slate-400 dark:text-slate-400" title={detail}>{detail}</p>
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-4">{label}</p>
+      <p className="mt-1 break-words text-xl font-bold leading-tight text-slate-950 dark:text-slate-100 sm:truncate sm:text-[22px]" title={value}>{value}</p>
+      <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>
     </article>
   )
 }
@@ -162,7 +162,7 @@ export function LogisticsChannelMonitorView({
         : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-3 sm:space-y-5">
       {error ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-300">{error}</div> : null}
 
       {loading && !selectedChannel ? (
@@ -174,55 +174,30 @@ export function LogisticsChannelMonitorView({
       ) : null}
 
       {selectedChannel ? (
-        <>
-          <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <ResizableMonitorLayout id={`logistics-channel-${feature}`} summary={<section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard label="通道状态" value={presentation.label} detail={selectedChannel.enabled ? selectedChannel.name : '通道已停用'} icon={Video} tone={presentation.tone} />
             <StatCard label="摄像头状态" value={status ? `${onlineCount} 在线 / ${offlineCount} 离线` : '--'} detail={`已配置 ${memberCount} 路，最多 9 路`} icon={Camera} tone={status && offlineCount === 0 ? 'emerald' : offlineCount > 0 ? 'amber' : 'slate'} />
             <StatCard label="各路人数" value={routeCounts} detail="按启用成员顺序展示" icon={Users} tone={reason === 'multiple' ? 'rose' : 'indigo'} />
             <StatCard label="今日通道告警" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : '今日暂无通道告警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
-          </section>
-
-          <ResizableMonitorLayout id={`logistics-channel-${feature}`}>
-            <div className="space-y-5">
-              <Card className={CARD_CLASS}>
-                <CardHeader className="p-5 pb-3">
-                  <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
-                    监控对象
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 px-5 pb-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="logistics-channel-monitor-select" className="text-xs text-slate-500 dark:text-slate-400">物流通道</Label>
-                    <Select
-                      value={selectedChannelId === null ? '' : String(selectedChannelId)}
-                      onValueChange={(value) => onSelectChannel(Number(value))}
-                      disabled={loading || channels.length === 0}
-                    >
-                      <SelectTrigger id="logistics-channel-monitor-select" className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200">
-                        <SelectValue placeholder={loading ? '正在读取物流通道' : '请选择物流通道'} />
-                      </SelectTrigger>
-                      <SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{departmentLabels[channel.department] ?? channel.department} · {channel.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefresh} disabled={loading}>
-                    <RefreshCw className="h-4 w-4" />{loading ? '读取中' : '刷新状态'}
-                  </Button>
-                </CardContent>
-              </Card>
-
+          </section>}>
+            <div className="space-y-3 sm:space-y-5">
               <Card className={CARD_CLASS}>
                 <CardHeader className="p-5 pb-3">
                   <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>
-                    判定说明
+                    通道检测详情
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 px-5 pb-5 text-sm">
+                  <details>
+                    <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-slate-600 dark:text-slate-300">查看联合判定规则</summary>
+                    <div className="space-y-3 pt-2">
                   <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">多人告警</span><span className="text-slate-700 dark:text-slate-300">任一路摄像头出现 2 人及以上</span></div>
                   <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">无人告警</span><span className="text-slate-700 dark:text-slate-300">所有启用摄像头都明确为 0 人</span></div>
                   <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">正常状态</span><span className="text-slate-700 dark:text-slate-300">至少一路为 1 人且没有多人</span></div>
                   <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">未知结果</span><span className="text-slate-700 dark:text-slate-300">离线、过期或未知不当作 0 人</span></div>
+                    </div>
+                  </details>
 
                   {cameraStates.length ? (
                     <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-800">
@@ -232,7 +207,7 @@ export function LogisticsChannelMonitorView({
                         return (
                           <div key={camera.camera_id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{camera.camera_name}</span>
+                              <span className="min-w-0 break-words text-sm font-semibold text-slate-700 dark:text-slate-200">{camera.camera_name}</span>
                               <Badge className={cn('shrink-0 border-0', cameraPresentation.className)}>{cameraPresentation.label}</Badge>
                             </div>
                             <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -272,10 +247,22 @@ export function LogisticsChannelMonitorView({
               </Card>
             </div>
 
-            <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
-              <CardHeader className="border-b border-slate-100 p-4 dark:border-slate-800 sm:px-5">
+            <Card className={cn(CARD_CLASS, 'gap-0 overflow-hidden py-0 lg:col-span-2')}>
+              <CardHeader className="min-w-0 grid-cols-[minmax(0,1fr)] space-y-3 border-b border-slate-100 p-3 [.border-b]:pb-3 dark:border-slate-800 sm:p-4 sm:px-5 sm:[.border-b]:pb-4">
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="logistics-channel-monitor-select" className="text-xs text-slate-500 dark:text-slate-400">物流通道</Label>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Select value={selectedChannelId === null ? '' : String(selectedChannelId)} onValueChange={(value) => onSelectChannel(Number(value))} disabled={loading || channels.length === 0}>
+                      <SelectTrigger id="logistics-channel-monitor-select" className="h-11 min-h-11 min-w-0 flex-1 rounded-xl border-slate-200 bg-slate-50/60 text-left [&>span]:min-w-0 [&>span]:flex-1 [&>span]:truncate dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200"><SelectValue placeholder={loading ? '正在读取物流通道' : '请选择物流通道'} /></SelectTrigger>
+                      <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)]">
+                        {channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)} className="min-h-11 whitespace-normal py-2.5"><span className="break-words">{departmentLabels[channel.department] ?? channel.department} · {channel.name}</span></SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="outline" className="h-11 w-11 shrink-0 rounded-xl border-slate-200 p-0 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefresh} disabled={loading} title="刷新状态" aria-label="刷新物流通道和监控状态"><RefreshCw className="h-4 w-4" /></Button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="hidden min-w-0 items-center gap-3 sm:flex">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white dark:bg-blue-700"><Video className="h-5 w-5" /></span>
                     <div className="min-w-0">
                       <CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">物流通道实时监控</CardTitle>
@@ -305,7 +292,6 @@ export function LogisticsChannelMonitorView({
               </CardContent>
             </Card>
           </ResizableMonitorLayout>
-        </>
       ) : null}
     </div>
   )

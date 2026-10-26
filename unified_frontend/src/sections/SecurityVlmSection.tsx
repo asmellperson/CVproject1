@@ -59,34 +59,41 @@ function InspectionPage({ department }: { department: DepartmentId }) {
   }
   const displayed = singleView ? (current && current.functions[INSPECTION_FEATURE] ? [current] : enabled.slice(0, 1)) : enabled
   const presentation = inspectionStatusPresentation(status, error)
-  return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+  return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3 sm:space-y-6">
     <DetectionPageHeader title="安检流程规范检测" subtitle="实时查看安检画面、流程判定与工位配置。"
       departmentLabel={DEPARTMENT_LABELS[department]} monitorValue="dashboard"
       runtimeControl={<Badge variant={presentation.error ? 'destructive' : 'secondary'}>{presentation.label}</Badge>} />
     {presentation.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{presentation.error}</p>}
-    {status?.vlm.last_success && <p className="text-xs text-slate-500 dark:text-slate-400">最近判定成功：{new Date(status.vlm.last_success).toLocaleString('zh-CN')}</p>}
-    <TabsContent value="dashboard" className="mx-auto w-full space-y-6 2xl:w-[92%] 2xl:max-w-[120rem]">
-      <Card className="overflow-hidden dark:border-slate-800 dark:bg-slate-900">
-        <CardHeader className="flex flex-row items-center justify-between border-b bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-          <CardTitle className="text-lg">安检检测概览</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setSingleView(!singleView)} className="gap-2"><Columns2 className="h-4 w-4" />{singleView ? '多画面' : '单画面'}</Button>
+    <TabsContent value="dashboard" className="mx-auto w-full min-w-0 space-y-3 sm:space-y-6 2xl:w-[92%] 2xl:max-w-[120rem]">
+      <Card className="gap-0 overflow-hidden py-0 dark:border-slate-800 dark:bg-slate-900">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+          <CardTitle className="text-base sm:text-lg">安检实时监控</CardTitle>
+          <Button variant="outline" onClick={() => setSingleView(!singleView)} className="h-11 shrink-0 gap-2 rounded-xl"><Columns2 className="h-4 w-4" />{singleView ? '多画面' : '单画面'}</Button>
         </CardHeader>
-        <CardContent className="space-y-6 p-5 lg:p-6 2xl:space-y-8 2xl:p-8">
-          <section className="space-y-3 2xl:space-y-4">
+        <CardContent className="flex min-w-0 flex-col gap-4 p-3 sm:gap-6 sm:p-5 lg:p-6 2xl:gap-8 2xl:p-8">
+          <section className="order-2 space-y-3 border-t pt-4 dark:border-slate-800 lg:order-1 lg:border-t-0 lg:pt-0 2xl:space-y-4">
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">数据汇总 · 最近 {retentionDays} 天</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">安检总数为合规与不合规次数之和；判定失败和取消会话仅保留在历史中，不计入总数与合规率。</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5 2xl:gap-4">
               <StatCard title="安检总数" value={stats?.total ?? 0} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
               <StatCard title="合规" value={stats?.compliant ?? 0} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />
               <StatCard title="不合规" value={stats?.non_compliant ?? 0} icon={<AlertTriangle className="h-5 w-5 text-red-600" />} valueClassName="text-red-600" />
               <StatCard title="合规率" value={`${stats?.rate ?? 0}%`} icon={<FileCheck2 className="h-5 w-5 text-cyan-600" />} valueClassName="text-cyan-600" />
               <StatCard title="VLM 队列" value={status?.queue ?? 0} icon={<Clock3 className="h-5 w-5 text-slate-600" />} />
             </div>
+            {status?.vlm.last_success && <p className="text-xs text-slate-500 dark:text-slate-400">最近判定成功：{new Date(status.vlm.last_success).toLocaleString('zh-CN')}</p>}
+            <details className="text-xs text-slate-500 dark:text-slate-400"><summary className="min-h-11 cursor-pointer py-3">统计口径</summary><p className="pb-2 leading-5">安检总数为合规与不合规次数之和；判定失败和取消会话仅保留在历史中，不计入总数与合规率。</p></details>
           </section>
-          <section className="space-y-3 border-t pt-6 dark:border-slate-800 2xl:space-y-4 2xl:pt-8">
-            <div className="flex items-center justify-between gap-4"><h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">安检画面</h3>
-              {singleView && <Select value={displayed[0]?.shm_name || ''} onValueChange={setSelected}><SelectTrigger className="w-52"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
-                <SelectContent>{enabled.map((camera) => <SelectItem key={camera.shm_name} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent></Select>}
+          <section className="order-1 min-w-0 space-y-3 lg:order-2 lg:border-t lg:pt-6 dark:lg:border-slate-800 2xl:space-y-4 2xl:pt-8">
+            <div className="space-y-1.5">
+              {singleView ? <>
+                <label htmlFor="inspection-monitor-camera" className="text-xs text-slate-500 dark:text-slate-400">摄像头</label>
+                <Select value={displayed[0]?.shm_name || ''} onValueChange={setSelected}>
+                  <SelectTrigger id="inspection-monitor-camera" className="h-11 min-h-11 w-full min-w-0 rounded-xl text-left [&>span]:truncate sm:max-w-sm"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
+                  <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)]">
+                    {enabled.map((camera) => <SelectItem key={camera.shm_name} value={camera.shm_name} className="min-h-11 whitespace-normal py-2.5"><span className="break-words">{camera.name}</span></SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </> : <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">安检画面 · {displayed.length} 路</h3>}
             </div>
             <div className={cn('grid gap-4 2xl:gap-5', !singleView && enabled.length === 2 && 'lg:grid-cols-2', !singleView && enabled.length === 3 && 'md:grid-cols-2 xl:grid-cols-3', !singleView && enabled.length >= 4 && 'md:grid-cols-2')}>
               {displayed.map((camera) => <SecurityVideoPanel key={camera.shm_name} camera={camera} />)}
@@ -117,9 +124,9 @@ function InspectionPage({ department }: { department: DepartmentId }) {
 }
 
 function StatCard({ title, value, icon, valueClassName }: { title: string; value: number | string; icon: ReactNode; valueClassName?: string }) {
-  return <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900 2xl:justify-center 2xl:gap-4 2xl:px-5 2xl:py-4">
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-slate-800 2xl:h-12 2xl:w-12">{icon}</div>
-    <div className="min-w-0"><p className="truncate text-base font-semibold text-slate-700 2xl:text-lg">{title}</p>
-      <p className={cn('mt-0.5 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 2xl:text-3xl', valueClassName)}>{value}</p></div>
+  return <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900 sm:px-4 2xl:justify-center 2xl:gap-4 2xl:px-5 2xl:py-4">
+    <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-slate-800 sm:flex 2xl:h-12 2xl:w-12">{icon}</div>
+    <div className="min-w-0"><p className="truncate text-xs font-medium text-slate-600 dark:text-slate-400 sm:text-sm 2xl:text-lg">{title}</p>
+      <p className={cn('mt-0.5 text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl 2xl:text-3xl', valueClassName)}>{value}</p></div>
   </div>
 }

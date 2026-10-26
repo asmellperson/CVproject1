@@ -106,9 +106,10 @@ export function GuardCameraPreview({ member, online, aiReady }: {
   const frameLabel = playingVideo ? '原始视频（无 Guard 标注）'
     : jpegEnabled && frame ? `${videoPreview.fallbackReason ? 'JPEG 回退 · ' : ''}${frame.annotated ? 'Guard 标注画面' : '原始画面'}`
     : message
-  return <div className="relative overflow-hidden bg-slate-950">
-    <div className="absolute left-3 top-3 z-10"><GuardVideoStatusPill
-      label={`${member.name} · ${frameLabel}`}
+  return <div className="min-w-0 overflow-hidden bg-slate-950">
+    <div className="space-y-1.5 border-b border-slate-800 bg-slate-900 px-3 py-2">
+      <p className="break-words text-sm font-medium text-slate-100">{member.name}</p>
+      <GuardVideoStatusPill label={frameLabel}
       state={playingVideo || (jpegEnabled && frame) ? 'normal' : 'neutral'} showDot /></div>
     {enabled && visible && videoPreview.mode === 'mse' && videoPreview.url ? (
       <div className="aspect-video w-full"><AiVisionVideoPreview

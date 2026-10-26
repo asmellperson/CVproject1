@@ -17,7 +17,7 @@ const ICON_TONES: Record<ConfigTone, string> = {
   amber: 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-200/70 dark:shadow-none',
 }
 
-export const DETECTION_CONFIG_CARD_CLASS = 'overflow-hidden rounded-2xl border border-[#E8ECF5] bg-white shadow-[0_14px_40px_rgba(28,48,88,0.08)] dark:border-slate-800 dark:bg-slate-900'
+export const DETECTION_CONFIG_CARD_CLASS = 'gap-0 overflow-hidden rounded-2xl border border-[#E8ECF5] bg-white py-0 shadow-[0_14px_40px_rgba(28,48,88,0.08)] dark:border-slate-800 dark:bg-slate-900'
 export const DETECTION_CONFIG_CONTENT_CLASS = [
   'bg-white p-4 sm:p-5 dark:bg-slate-900',
   '[&_[data-slot=input]]:h-11 [&_[data-slot=input]]:rounded-xl [&_[data-slot=input]]:border-[#E2E7F2] [&_[data-slot=input]]:bg-[#FAFBFE]',
@@ -30,7 +30,7 @@ export const DETECTION_CONFIG_CONTENT_CLASS = [
 export function DetectionConfigTabsList({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <TabsList className={cn(
-      'grid h-auto w-full grid-cols-2 gap-1 rounded-2xl border border-[#E8ECF5] bg-white p-1.5 shadow-[0_6px_22px_rgba(28,48,88,0.06)] dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-3 lg:grid-cols-5',
+      'flex h-auto w-full min-w-0 max-w-full justify-start gap-1 overflow-x-auto rounded-2xl border border-[#E8ECF5] bg-white p-1.5 shadow-[0_6px_22px_rgba(28,48,88,0.06)] dark:border-slate-800 dark:bg-slate-900 sm:grid sm:grid-cols-3 sm:justify-center sm:overflow-visible lg:grid-cols-5',
       className,
     )}>
       {children}
@@ -43,7 +43,7 @@ export function DetectionConfigTab({ value, icon: Icon, children, disabled }: { 
     <TabsTrigger
       value={value}
       disabled={disabled}
-      className="h-10 gap-2 rounded-xl px-3 text-[#6B7699] shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"
+      className="h-11 flex-none gap-2 rounded-xl px-3 text-[#6B7699] shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md sm:h-10 sm:flex-1"
     >
       <Icon className="h-4 w-4" />
       {children}
@@ -89,9 +89,9 @@ export function DetectionConfigCardContent({ children, className }: { children: 
 export function DetectionFormSection({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
   return (
     <section className={cn('space-y-4', className)}>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h3 className="shrink-0 text-sm font-bold text-[#1E2A4A] dark:text-slate-200">{title}</h3>
-        {hint ? <span className="shrink-0 text-xs text-[#9AA3C0]">{hint}</span> : null}
+        {hint ? <span className="min-w-0 text-xs text-[#9AA3C0]">{hint}</span> : null}
         <span className="h-px flex-1 bg-[#EDF0F6] dark:bg-slate-800" />
       </div>
       {children}
@@ -119,24 +119,24 @@ export function DetectionSaveBar({
   saveLabel?: string
 }) {
   return (
-    <div className="sticky bottom-3 z-20 mt-5 flex flex-col gap-3 rounded-2xl border border-[#E2E7F2]/90 bg-white/90 px-4 py-3 shadow-[0_14px_34px_rgba(28,48,88,0.13)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-center gap-2 text-sm text-[#6B7699] dark:text-slate-300">
+    <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-20 mt-5 flex flex-col gap-2 rounded-2xl border border-[#E2E7F2]/90 bg-white/90 px-3 py-3 shadow-[0_14px_34px_rgba(28,48,88,0.13)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#6B7699] dark:text-slate-300 sm:text-sm">
         <span className="relative flex h-2.5 w-2.5 shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
         </span>
-        <span className="min-w-0">{message}</span>
+        <span className="min-w-0 break-words">{message}</span>
       </div>
-      <div className="flex shrink-0 gap-2">
+      <div className="flex w-full shrink-0 gap-2 sm:w-auto">
         {onReload ? (
-          <Button type="button" variant="outline" className="gap-2 rounded-xl" onClick={onReload} disabled={loading || saving}>
+          <Button type="button" variant="outline" className="h-11 flex-1 gap-2 rounded-xl sm:flex-none" onClick={onReload} disabled={loading || saving}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             {loading ? '读取中' : reloadLabel}
           </Button>
         ) : null}
         <Button
           type="button"
-          className="gap-2 rounded-xl border-0 bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-200/60 hover:from-blue-700 hover:to-indigo-700 dark:shadow-none"
+          className="h-11 flex-1 gap-2 rounded-xl border-0 bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-200/60 hover:from-blue-700 hover:to-indigo-700 dark:shadow-none sm:flex-none"
           onClick={onSave}
           disabled={disabled || loading || saving}
         >

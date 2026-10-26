@@ -38,9 +38,13 @@ function getLayoutStorage(): LayoutStorage | undefined {
 export function ResizableMonitorLayout({
   id,
   children,
+  summary,
+  status,
 }: {
   id: string
   children: ReactNode
+  summary?: ReactNode
+  status?: ReactNode
 }) {
   const desktop = useDesktopMonitorLayout()
   const [storage] = useState(getLayoutStorage)
@@ -55,11 +59,17 @@ export function ResizableMonitorLayout({
   })
 
   if (!desktop) {
-    return <section className="grid min-w-0 gap-5">{details}{monitor}</section>
+    return <section className="grid min-w-0 grid-cols-1 gap-3" data-monitor-resizable-layout={id}>
+      {monitor}
+      {status}
+      {summary}
+      {details}
+    </section>
   }
 
   return (
-    <section className="min-w-0" data-monitor-resizable-layout={id}>
+    <section className="min-w-0 space-y-5" data-monitor-resizable-layout={id}>
+      {summary}
       <ResizablePanelGroup
         id={groupId}
         orientation="horizontal"
@@ -68,7 +78,7 @@ export function ResizableMonitorLayout({
         className="h-auto min-w-0 items-start"
       >
         <ResizablePanel id={DETAILS_PANEL_ID} minSize="12rem" maxSize="50%" className="min-w-0">
-          <div className="min-w-0 pr-2">{details}</div>
+          <div className="min-w-0 space-y-5 pr-2">{status}{details}</div>
         </ResizablePanel>
         <ResizableHandle
           withHandle

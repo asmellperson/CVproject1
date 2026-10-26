@@ -20,10 +20,10 @@ export function SecurityVideoPanel({ camera }: { camera: AiVisionCamera }) {
     setFrame(objectUrl.current); setError('')
   }, { enabled, intervalMs: 500, timeoutMs: 8000, restartKey: camera.shm_name,
     onError: (cause) => { setFrame(''); setError(cause instanceof Error ? cause.message : String(cause)) } })
-  return <div className="overflow-hidden rounded-lg border bg-slate-950">
+  return <div className="min-w-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
     <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-3 py-2">
-      <span className="truncate text-sm font-medium text-slate-100">{camera.name}</span>
-      <span className="text-xs text-slate-400">{enabled && frame ? '实时' : '未就绪'}</span>
+      <span className="min-w-0 break-words text-sm font-medium text-slate-100">{camera.name}</span>
+      <span className="shrink-0 text-xs text-slate-400">{enabled && frame ? '实时' : '未就绪'}</span>
     </div>
     <div className="aspect-video">
       {enabled && frame ? <img src={frame} alt={`${camera.name}实时画面`} className="h-full w-full select-none object-contain" />

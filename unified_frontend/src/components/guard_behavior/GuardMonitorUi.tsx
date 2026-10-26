@@ -29,19 +29,19 @@ export function GuardMonitorStatCard({
   const toneClasses = statToneClasses[tone]
 
   return (
-    <article className="relative rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl', toneClasses.icon)}>
+    <article className="relative min-w-0 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4">
+      <div className={cn('hidden h-9 w-9 items-center justify-center rounded-xl sm:flex', toneClasses.icon)}>
         <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
       </div>
       {ping && (
-        <span className="absolute right-4 top-4 flex h-2.5 w-2.5" aria-label="全部在线">
+        <span className="absolute right-3 top-3 flex h-2.5 w-2.5 sm:right-4 sm:top-4" aria-label="全部在线">
           <span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-60', toneClasses.ping)} />
           <span className={cn('relative inline-flex h-2.5 w-2.5 rounded-full', toneClasses.ping)} />
         </span>
       )}
-      <p className="mt-4 text-xs font-medium text-slate-400">{label}</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100">{value}</p>
-      <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>
+      <p className="pr-3 text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-4">{label}</p>
+      <p className="mt-1 text-xl font-bold leading-tight text-slate-950 dark:text-slate-100 sm:text-[22px]">{value}</p>
+      <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>
     </article>
   )
 }
@@ -92,7 +92,7 @@ export function GuardVideoStatusPill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm',
+        'inline-flex min-w-0 items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm',
         state === 'danger' && 'text-rose-300',
       )}
     >

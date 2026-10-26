@@ -215,7 +215,7 @@ export function FeatureCameraManager({
         description="管理已启用当前检测功能的摄像头、展示顺序和功能配置。"
       />
       <DetectionConfigCardContent className="space-y-4">
-        {operationError ? <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{operationError}</div> : null}
+        {operationError ? <div role="alert" className="break-words rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{operationError}</div> : null}
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">添加已有摄像头到当前功能</div>
@@ -223,12 +223,12 @@ export function FeatureCameraManager({
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Select value={cameraToAdd ? existingCamera : ''} onValueChange={setExistingCamera} disabled={readOnly || availableCameras.length === 0}>
-              <SelectTrigger className="min-w-0 flex-1 bg-white" aria-label="添加已有摄像头">
+              <SelectTrigger className="min-h-11 w-full min-w-0 flex-1 bg-white sm:min-h-9" aria-label="添加已有摄像头">
                 <SelectValue placeholder={availableCameras.length ? '选择已有摄像头' : '暂无可添加的摄像头'} />
               </SelectTrigger>
               <SelectContent>{availableCameras.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
             </Select>
-            <Button disabled={readOnly || !cameraToAdd} onClick={() => { if (cameraToAdd) void handleToggle(cameraToAdd, true) }}><Plus className="h-4 w-4" />添加到当前功能</Button>
+            <Button className="h-11 sm:h-9" disabled={readOnly || !cameraToAdd} onClick={() => { if (cameraToAdd) void handleToggle(cameraToAdd, true) }}><Plus className="h-4 w-4" />添加到当前功能</Button>
           </div>
         </div>
 
@@ -240,17 +240,23 @@ export function FeatureCameraManager({
           {enabledCameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">尚未添加摄像头到当前功能</div> : enabledCameras.map((camera, index) => {
             const active = camera.shm_name === currentCameraName
             return (
-              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
-                <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
-                  <div className="truncate text-sm font-semibold">{camera.name}</div>
-                  <div className="truncate font-mono text-xs text-slate-500">{camera.shm_name}</div>
-                  {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
-                </button>
-                <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
-                <Button size="sm" variant="outline" aria-label={`${camera.name}：停用检测`} onClick={() => void handleToggle(camera, false)} disabled={readOnly}>停用</Button>
-                <Button size="sm" variant="outline" aria-label={`${camera.name}上移`} onClick={() => void handleMove(index, -1)} disabled={readOnly || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
-                <Button size="sm" variant="outline" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === enabledCameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
+              <div key={camera.camera_id} className={`flex flex-col gap-3 rounded-xl border p-3 transition dark:border-slate-800 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
+                <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
+                  <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-h-11 min-w-0 flex-1 text-left sm:min-h-0" aria-pressed={active}>
+                    <div className="break-words text-sm font-semibold sm:truncate">{camera.name}</div>
+                    <div className="break-all font-mono text-xs text-slate-500 sm:truncate">{camera.shm_name}</div>
+                    {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
+                  </button>
+                </div>
+                <div className="flex flex-col items-start gap-2 sm:contents">
+                  <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
+                  <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto">
+                    <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}：停用检测`} onClick={() => void handleToggle(camera, false)} disabled={readOnly}>停用</Button>
+                    <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}上移`} onClick={() => void handleMove(index, -1)} disabled={readOnly || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
+                    <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === enabledCameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
+                  </div>
+                </div>
               </div>
             )
           })}
@@ -262,7 +268,7 @@ export function FeatureCameraManager({
             <div className="mt-1 text-xs font-medium text-slate-500">新摄像头归属当前页面对应的事业部或公司，并在保存后启用当前检测功能。</div>
           </div>
           <Button
-            className="gap-2"
+            className="h-11 w-full gap-2 sm:h-9 sm:w-auto"
             onClick={() => setCreateDialogOpen(true)}
             disabled={readOnly}
           >
@@ -312,7 +318,7 @@ export function FeatureCameraManager({
               </SelectContent>
             </Select>
             <Button
-              className="gap-2"
+              className="h-11 gap-2 sm:h-9"
               onClick={handleCopyConfig}
               disabled={readOnly || !copySourceCamera || !copyTargetCamera || copySourceCamera === copyTargetCamera}
             >

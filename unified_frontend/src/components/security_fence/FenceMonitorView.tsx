@@ -1,14 +1,12 @@
 import type { ReactNode } from 'react'
-import { Activity, Camera, RefreshCw, ScanFace, ShieldAlert, UserCheck, UsersRound, Video } from 'lucide-react'
+import { Activity, ScanFace, ShieldAlert, UserCheck, UsersRound, Video } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { StatCard } from '@/components/feature_dashboard/FeatureDashboardMonitorView'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
+import { MonitorCameraToolbar } from '@/components/monitor/MonitorCameraToolbar'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
+import type { AiVisionCamera } from '@/lib/aivision'
 import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import { FENCE_FEATURE } from './api'
 import { useFenceStatus } from './useFenceStatus'
@@ -37,28 +35,18 @@ export function FenceMonitorView({
 
   return (
     <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="警戒围栏实时状态">
-        <StatCard label="检测状态" value={status ? STATES[status.state] : '等待检测'} detail={status?.error || result?.error || '读取当前检测结果'} icon={Activity} tone={status?.state === 'ready' ? 'emerald' : 'amber'} />
-        <StatCard label="当前规则" value={status ? status.mode === 'forbidden' ? '禁止任何人出现' : '仅允许白名单' : '—'} detail={status?.timezone || '按每日时段执行'} icon={ShieldAlert} tone="indigo" />
-        <StatCard label="区域人数" value={status?.count == null ? '—' : String(status.count)} detail={status?.alarm ? '区域内存在违规人员' : status?.state === 'ready' ? '当前未触发报警' : '尚无有效判定'} icon={UsersRound} tone={status?.alarm ? 'rose' : 'slate'} />
-        <StatCard label="待核验人数" value={status?.pending_count == null ? '—' : String(status.pending_count)} detail="看不清人脸不会按超时报警" icon={UserCheck} tone="amber" />
-      </section>
-      <ResizableMonitorLayout id="security-fence">
+      <ResizableMonitorLayout id="security-fence" summary={
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="警戒围栏实时状态">
+          <StatCard label="检测状态" value={status ? STATES[status.state] : '等待检测'} detail={status?.error || result?.error || '读取当前检测结果'} icon={Activity} tone={status?.state === 'ready' ? 'emerald' : 'amber'} />
+          <StatCard label="当前规则" value={status ? status.mode === 'forbidden' ? '禁止任何人出现' : '仅允许白名单' : '—'} detail={status?.timezone || '按每日时段执行'} icon={ShieldAlert} tone="indigo" />
+          <StatCard label="区域人数" value={status?.count == null ? '—' : String(status.count)} detail={status?.alarm ? '区域内存在违规人员' : status?.state === 'ready' ? '当前未触发报警' : '尚无有效判定'} icon={UsersRound} tone={status?.alarm ? 'rose' : 'slate'} />
+          <StatCard label="待核验人数" value={status?.pending_count == null ? '—' : String(status.pending_count)} detail="看不清人脸不会按超时报警" icon={UserCheck} tone="amber" />
+        </section>
+      }>
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><Camera className="h-4 w-4" />监控对象</CardTitle></CardHeader>
-            <CardContent className="space-y-3 px-5 pb-5">
-              <Label htmlFor="fence-monitor-camera">摄像头</Label>
-              <Select value={selectedCamera} onValueChange={onSelectCamera} disabled={loading || !featureCameras.length}>
-                <SelectTrigger id="fence-monitor-camera" className="w-full rounded-xl border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-950/60"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
-                <SelectContent>{featureCameras.map((camera) => <SelectItem key={camera.id} value={getAiVisionCameraKey(camera)}>{camera.name}{!camera.enabled ? '（摄像头已停用）' : ''}</SelectItem>)}</SelectContent>
-              </Select>
-              <Button variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" disabled={loading} onClick={onRefreshCameras}><RefreshCw className="h-4 w-4" />刷新状态</Button>
-            </CardContent>
-          </Card>
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><ScanFace className="h-4 w-4" />当前识别结果</CardTitle></CardHeader>
-            <CardContent className="space-y-3 px-5 pb-5">
+            <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><ScanFace className="h-4 w-4" />当前识别结果</CardTitle></CardHeader>
+            <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
               <p className="text-sm text-slate-500 dark:text-slate-400">所属事业部：{DEPARTMENT_LABELS[department]}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">区域内 {status?.count ?? '—'} 人 · 待核验 {status?.pending_count ?? '—'} 人</p>
               {status?.alarm && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40">报警：警戒区域内存在{status.mode === 'forbidden' ? '禁入时段出没人员' : '非白名单或未知人员'}。</p>}
@@ -82,9 +70,16 @@ export function FenceMonitorView({
             </CardContent>
           </Card>
         </div>
-        <Card className={`${CARD_CLASS} overflow-hidden`}>
-          <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center justify-between gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex items-center gap-2"><Video className="h-4 w-4" />警戒围栏监控</span><span className="text-sm font-normal text-slate-500 dark:text-slate-400">{frameConnected ? '实时画面' : '等待连接'}</span></CardTitle></CardHeader>
+        <Card className={`${CARD_CLASS} gap-0 overflow-hidden py-0`}>
+          <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center justify-between gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex items-center gap-2"><Video className="h-4 w-4" />警戒围栏监控</span><span className="text-sm font-normal text-slate-500 dark:text-slate-400">{frameConnected ? '实时画面' : '等待连接'}</span></CardTitle></CardHeader>
           <CardContent className="p-0">
+            <MonitorCameraToolbar
+              cameras={featureCameras}
+              selectedCamera={selectedCamera}
+              loading={loading}
+              onSelectCamera={onSelectCamera}
+              onRefreshCameras={onRefreshCameras}
+            />
             <div className="relative aspect-video overflow-hidden bg-slate-950">{frameContent}</div>
             <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{message}</p>
           </CardContent>

@@ -28,13 +28,13 @@ export function InspectionHistory({ department, cameras }: { department: Departm
     onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)) })
   const recordCount = data ? data.stats.total + data.stats.error + data.stats.cancelled : 0
   const status = { compliant: '合规', non_compliant: '不合规', error: '判定失败', cancelled: '已取消' }
-  return <Card>
+  return <Card className="min-w-0">
     <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <CardTitle className="text-lg">历史判定结果 · 最近 {data?.retention_days ?? 31} 天</CardTitle>
       <Select value={cameraId} onValueChange={(value) => { setCameraId(value); setPage(0); setData(null) }}>
-        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>
-          <SelectItem value="all">全部摄像头</SelectItem>
-          {cameras.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}
+        <SelectTrigger className="h-11 min-h-11 w-full min-w-0 [&>span]:truncate sm:w-44" aria-label="筛选安检摄像头"><SelectValue /></SelectTrigger><SelectContent position="popper" className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)]">
+          <SelectItem value="all" className="min-h-11 py-2.5">全部摄像头</SelectItem>
+          {cameras.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)} className="min-h-11 whitespace-normal py-2.5"><span className="break-words">{camera.name}</span></SelectItem>)}
         </SelectContent>
       </Select>
     </CardHeader>
@@ -57,16 +57,16 @@ export function InspectionHistory({ department, cameras }: { department: Departm
         </TableRow>)}
         {!data?.items.length && <TableRow><TableCell colSpan={7} className="h-24 text-center text-slate-500">{data ? '暂无判定结果' : error ? '读取失败' : '加载中…'}</TableCell></TableRow>}
       </TableBody></Table>
-      <div className="mt-4 flex items-center justify-between gap-3 text-sm text-slate-500">
-        <span>共 {recordCount} 条{data && (data.stats.error > 0 || data.stats.cancelled > 0)
+      <div className="mt-4 flex min-w-0 flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <span className="min-w-0 break-words">共 {recordCount} 条{data && (data.stats.error > 0 || data.stats.cancelled > 0)
           && `（含判定失败 ${data.stats.error} 条、取消 ${data.stats.cancelled} 条）`}</span>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
           <Select value={String(size)} onValueChange={(value) => { setSize(Number(value)); setPage(0); setData(null) }}>
-            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent>{[10,20,50].map((value) => <SelectItem key={value} value={String(value)}>{value} 条 / 页</SelectItem>)}</SelectContent>
+            <SelectTrigger className="h-11 min-h-11 w-full min-w-0 sm:w-28" aria-label="每页显示数量"><SelectValue /></SelectTrigger><SelectContent>{[10,20,50].map((value) => <SelectItem key={value} value={String(value)} className="min-h-11 py-2.5">{value} 条 / 页</SelectItem>)}</SelectContent>
           </Select>
-          <Button variant="outline" disabled={page === 0} onClick={() => { setPage(page - 1); setData(null) }}>上一页</Button>
-          <span>{page + 1}</span>
-          <Button variant="outline" disabled={!data || (page + 1) * size >= recordCount} onClick={() => { setPage(page + 1); setData(null) }}>下一页</Button>
+          <Button variant="outline" className="h-11 min-w-0 flex-1 sm:flex-none" disabled={page === 0} onClick={() => { setPage(page - 1); setData(null) }}>上一页</Button>
+          <span className="min-w-6 text-center">{page + 1}</span>
+          <Button variant="outline" className="h-11 min-w-0 flex-1 sm:flex-none" disabled={!data || (page + 1) * size >= recordCount} onClick={() => { setPage(page + 1); setData(null) }}>下一页</Button>
         </div>
       </div>
     </CardContent>
