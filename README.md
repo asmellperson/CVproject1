@@ -363,7 +363,7 @@ npm run dev
 | 登录失败 | `auth_users` 中账号状态、MySQL 连接、`AUTH_SECRET` 和 `auth/auth.py` |
 | 页面没有可选事业部 | 用户授权部门、URL 的 `department` 参数及前端权限解析 |
 | 摄像头无画面 | 摄像头/功能开关、RTSP、FFmpeg、最新帧时间与模型状态 |
-| 普通监控画面卡顿 | MSE 查看 `window.aivisionVideoPreviewDiagnostics`；JPEG 查看 `window.aivisionPreviewDiagnostics` 及取图响应的 `Server-Timing` |
+| 普通监控画面卡顿 | 当前播放模式、浏览器网络请求、go2rtc 状态、源视频码流及后端慢响应日志 |
 | 配置保存但模型未工作 | `/api/models` 的 `reload`、`runtime` 和后端日志 |
 | 保安行为部分规则不可用 | 保安室成员状态、必需/可选模型与对应规则开关 |
 | 安检有画面但无判定 | 工位 ROI、session 条件、福达AI健康状态、排队与历史错误 |
@@ -372,11 +372,11 @@ npm run dev
 
 `/api/runtime/health` 的 `ok=true` 表示 Orchestrator 已启动且至少一个模型就绪，不代表所有摄像头、功能或福达AI服务均正常。
 
-普通监控的 JPEG 性能诊断按至少 5 秒的统计窗口汇总，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`，或开启 Debug/Verbose 查看 `[预览性能]`。报告分别记录请求到响应头、图片下载、解码及后端鉴权、摄像头访问校验、取帧标注和 JPEG 编码耗时。`serverRequest` 为应用中间件入口至响应就绪，`serverDispatch` 为其中未被分段计时覆盖的开销，`outsideServer` 为浏览器响应头等待减去该服务端总耗时，仍包含代理、连接排队及传输等等待。取图授权实时读取摄像头身份与归属，不加载全部功能配置。图片加载频率不等于屏幕绘制频率，共享帧发布速率估计不代表 RTSP 原生帧率。报告只保留当前监控上下文的最近一份，切换摄像头、隐藏页面或离开监控时清理。
+公共摄像头 JPEG 取图实时读取摄像头身份与归属，保留部门及功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。
 
-保安室监控逐路查询视频能力，命中名单时使用原始 MSE，否则读取公共摄像头 JPEG。JPEG 刷新目标为 500 毫秒一轮，取图和预解码耗时计入周期，慢请求保持串行；其诊断由 `window.aivisionPreviewDiagnostics.cameras` 按摄像头保存。MSE 播放期间不并行取 JPEG，网络或编码不支持时明确回退，权限拒绝时停止画面。保安室页面的 FPS 为检测处理统计，视频播放帧率以独立诊断为准。
+保安室监控逐路查询视频能力，命中名单时使用原始 MSE，否则读取公共摄像头 JPEG。JPEG 刷新目标为 500 毫秒一轮，取图和预解码耗时计入周期，慢请求保持串行。MSE 播放期间不并行取 JPEG，网络或编码不支持时明确回退，权限拒绝时停止画面。保安室页面的 FPS 为检测处理统计，不代表视频播放帧率。
 
-原始视频使用 `window.aivisionVideoPreviewDiagnostics`，每约 5 秒报告 `videoFps`、丢弃帧数、接收数据量、缓冲时长和尺寸。普通监控保留当前摄像头报告；保安室报告包含 `scope: 'guard_behavior'`、`siteId` 和最多三路的 `cameras`，尚无统计、离线或停用的成员为 `null`，移除成员时删除对应键。各路时效以自身 `sampledAt` 判断，切换上下文、刷新和隐藏时重置相应统计。`videoFps` 根据浏览器累计帧数扣除丢弃帧后计算，不是 AI 检测频率。浏览器不支持源编码或视频连接失败时明确回退到 JPEG，不会自动转码。视频连接按 `GO2RTC_AUTH_CHECK_SECONDS`（默认 5 秒，范围 1～5 秒）复查权限及来源，每次校验最多等待 5 秒；失败时先停止媒体发送并关闭浏览器，再限时回收上游。入口鉴权仍逐次执行，不能将持续视频复查等同于逐帧 JPEG 校验。
+原始视频由浏览器 MSE 解码，不自动转码。浏览器不支持源编码或视频连接失败时明确回退到 JPEG。视频连接按 `GO2RTC_AUTH_CHECK_SECONDS`（默认 5 秒，范围 1～5 秒）复查权限及来源，每次校验最多等待 5 秒；失败时先停止媒体发送并关闭浏览器，再限时回收上游。入口鉴权逐次执行，持续视频按周期复查访问权限。
 
 前端代码的现有检查入口：
 
@@ -386,8 +386,6 @@ npm --prefix unified_frontend run build
 ```
 
 后端改动按实际影响进行 Python 语法检查、接口验证与现场验证，重点核对权限、配置保存、资源生命周期和业务判定。
-
-福达AI助手可在项目根目录运行 `python -m AiVision.tests.assistant_diagnostics --base-url http://127.0.0.1:18100/v1 --model fuda-qwen38-27b --output /tmp/fuda-ai-diagnostics`，分别检查服务、模型、Agent、业务工具、端到端及持续多轮对话。`--layers service` 只读采集服务版本、监听进程和接口声明，以固定短请求核对格式约束与输出长度，不访问业务数据库。业务写入仅使用临时 SQLite，输出脱敏报告；真实模型与脚本模型的结果分别统计。模型层含格式一致与格式冲突的 Schema 探针，区分接口接受请求和实际输出合规；多轮评分允许复用已定位目标，仍要求本轮重新读取配置和版本。已声明代号的查询以实际读取为预期，首次绑定失败后的澄清不计为查询成功；目标拦截记录脱敏的引用类别、匹配数量和资源来源。命令和统计口径见[助手分层诊断](docs/assistant-diagnostics.md)。
 
 `AiVision/connectors/qwen/swift_deploy.py` 是模型服务器的独立部署入口，适配 `ms-swift 4.4.2` 和 `vLLM 0.27.1`，保留显式 `--port`，将 Chat Completions 的 JSON 对象及完整 JSON Schema 约束传入解码器。脚本可单独复制运行，`--check` 只检查依赖和请求协议；安装及实际生成验收见[Swift 部署与格式约束](docs/assistant-diagnostics.md#swift-部署与格式约束)。
 

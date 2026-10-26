@@ -2,19 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import { aiVisionFrameUrl } from '@/lib/aivision'
 import { createPreviewFrameBuffer } from '../AiVisionMonitor.frame'
-import { createPreviewPerformanceRecorder, type PreviewPerformanceReport } from '../AiVisionMonitor.performance'
 import { AiVisionVideoPreview } from '../AiVisionVideoPreview'
-import type { VideoPreviewPerformanceReport, VideoPreviewState } from '../AiVisionVideoPreview.performance'
+import type { VideoPreviewState } from '../AiVisionVideoPreview.mse'
 import { useCameraVideoPreview } from '../useCameraVideoPreview'
 import { GuardVideoStatusPill } from './GuardMonitorUi'
 import type { GuardMember } from './types'
 
-export function GuardCameraPreview({ member, online, aiReady, onPerformanceReport, onVideoPerformanceReport }: {
+export function GuardCameraPreview({ member, online, aiReady }: {
   member: GuardMember
   online: boolean | undefined
   aiReady: boolean
-  onPerformanceReport?: (report: PreviewPerformanceReport) => void
-  onVideoPerformanceReport?: (report: VideoPreviewPerformanceReport) => void
 }) {
   const enabled = member.physical_enabled && online !== false
   const [visible, setVisible] = useState(() => !document.hidden)
@@ -38,9 +35,7 @@ export function GuardCameraPreview({ member, online, aiReady, onPerformanceRepor
   const sessionRef = useRef<{
     key: typeof previewKey
     buffer: ReturnType<typeof createPreviewFrameBuffer>
-    recorder: ReturnType<typeof createPreviewPerformanceRecorder> | null
   } | null>(null)
-  const reportCallbackRef = useRef(onPerformanceReport)
   const frame = frameState?.key === previewKey ? frameState : null
   const error = errorState?.key === previewKey ? errorState.message : ''
 
@@ -50,31 +45,14 @@ export function GuardCameraPreview({ member, online, aiReady, onPerformanceRepor
     document.addEventListener('visibilitychange', syncVisibility)
     return () => document.removeEventListener('visibilitychange', syncVisibility)
   }, [])
-  useEffect(() => { reportCallbackRef.current = onPerformanceReport }, [onPerformanceReport])
   useEffect(() => {
     if (!previewKey.enabled) return
     const session = {
       key: previewKey,
       buffer: createPreviewFrameBuffer(),
-      recorder: null as ReturnType<typeof createPreviewPerformanceRecorder> | null,
     }
     sessionRef.current = session
-    const syncVisibility = () => {
-      session.recorder?.dispose()
-      // 隐藏时不把暂停时长计入帧率；当前画面仍遵循串行轮询原有的可见性流程。
-      session.recorder = document.visibilityState === 'hidden' ? null : createPreviewPerformanceRecorder({
-        cameraKey: previewKey.cameraKey, feature: 'guard_behavior', department: previewKey.department,
-        refreshMs: 500,
-        onReport(report) {
-          if (sessionRef.current === session) reportCallbackRef.current?.(report)
-        },
-      })
-    }
-    syncVisibility()
-    document.addEventListener('visibilitychange', syncVisibility)
     return () => {
-      document.removeEventListener('visibilitychange', syncVisibility)
-      session.recorder?.dispose()
       session.buffer.dispose()
       if (sessionRef.current === session) sessionRef.current = null
     }
@@ -83,8 +61,6 @@ export function GuardCameraPreview({ member, online, aiReady, onPerformanceRepor
   useSerialPoll(async (signal) => {
     const session = sessionRef.current
     if (!session || session.key !== previewKey) return
-    const recorder = session.recorder
-    const startedAt = performance.now()
     try {
       signal.throwIfAborted()
       const load = (annotated: boolean) => fetch(aiVisionFrameUrl(
@@ -97,27 +73,19 @@ export function GuardCameraPreview({ member, online, aiReady, onPerformanceRepor
         annotated = false
         response = await load(false)
       }
-      const headersReceivedAt = performance.now()
       signal.throwIfAborted()
       if (sessionRef.current !== session) return
       if (!response.ok) throw new Error(response.status === 503 ? '暂无视频帧' : `画面读取失败（${response.status}）`)
       const blob = await response.blob()
-      const bodyReceivedAt = performance.now()
       signal.throwIfAborted()
       if (sessionRef.current !== session) return
       const url = await session.buffer.prepare(blob, signal)
       signal.throwIfAborted()
       if (sessionRef.current !== session) return
-      recorder?.completed({
-        startedAt, headersReceivedAt, bodyReceivedAt, decodedAt: performance.now(),
-        bytes: blob.size, headers: response.headers, src: url,
-      })
       setFrame({ key: previewKey, url, annotated })
       setError(null)
     } catch (cause) {
       if (sessionRef.current === session) {
-        // 串行轮询会抑制取消异常，超时仍需计数，切换或卸载的主动取消不计失败。
-        if (!signal.aborted || signal.reason?.name === 'TimeoutError') recorder?.failed()
         if (!signal.aborted) {
           session.buffer.clear()
           setFrame(null)
@@ -146,14 +114,12 @@ export function GuardCameraPreview({ member, online, aiReady, onPerformanceRepor
       <div className="aspect-video w-full"><AiVisionVideoPreview
         url={videoPreview.url} cameraKey={member.shm_name} department={member.department} feature="guard_behavior"
         onFallback={videoPreview.onFallback} onAccessDenied={videoPreview.onAccessDenied}
-        onStateChange={(state) => setVideoState({ key: videoKey, state })}
-        onPerformanceReport={onVideoPerformanceReport} /></div>
+        onStateChange={(state) => setVideoState({ key: videoKey, state })} /></div>
     ) : jpegEnabled && frame ? <img src={frame.url} alt={`${member.name}${frame.annotated ? 'Guard 标注画面' : '原始画面'}`} className="block h-auto w-full object-contain"
       onLoad={(event) => {
         const session = sessionRef.current
         if (session?.key !== previewKey) return
         session.buffer.displayed(event.currentTarget.src)
-        session.recorder?.displayed(event.currentTarget.src)
       }} />
       : <div className="flex aspect-video items-center justify-center p-8 text-center text-sm text-slate-400">{message}</div>}
   </div>

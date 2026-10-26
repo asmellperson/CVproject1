@@ -18,7 +18,6 @@ from AiVision.api.deps import get_camera_config_manager, get_current_orchestrato
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.cameras.config_manager import camera_access_departments
-from AiVision.cameras.frame_reader import frame_reader_registry
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 
 # 摄像头API路由基础定义
@@ -326,9 +325,6 @@ def build_camera_frame_response(
     if frame is None and updated_at:
         raise HTTPException(status_code=503, detail="camera frame is stale")
 
-    # 标注预览的时间可能是绘图时间，采集进度必须使用共享帧读取端的独立元数据。
-    capture_metadata = frame_reader_registry.get_frame_metadata(key)
-
     # 开始统计JPEG编码时间
     encode_started_at = time.monotonic()
     content = encode_frame_to_jpeg(
@@ -340,7 +336,6 @@ def build_camera_frame_response(
     )
     # 计算JPEG编码耗时
     encode_seconds = time.monotonic() - encode_started_at
-    # 这里只统计取图函数内部耗时，不包含鉴权、线程池排队和网络传输。
     total_seconds = time.monotonic() - started_at
 
     # 请求耗时大于配置的值，就会打印Warning日志
@@ -356,17 +351,7 @@ def build_camera_frame_response(
     headers = {
         **frame_size_headers(frame, max_width=max_width, max_height=max_height),
         **frame_coordinate_size_headers(frame),
-        "Server-Timing": (
-            f"frame_lookup;dur={lookup_seconds * 1000:.3f}, "
-            f"jpeg_encode;dur={encode_seconds * 1000:.3f}, "
-            f"frame_total;dur={total_seconds * 1000:.3f}"
-        ),
     }
-    if capture_metadata is not None:
-        sequence, captured_at = capture_metadata
-        headers["X-Capture-Sequence"] = str(sequence)
-        headers["X-Capture-Updated-At"] = str(captured_at)
-        headers["X-Capture-Age-Ms"] = f"{max(0.0, time.time() - captured_at) * 1000:.3f}"
 
     # 最后返回HTTP图片
     return Response(
@@ -399,7 +384,6 @@ def get_camera_frame_jpg(
         orchestrator：提供当前运行画面的对象
     """
     # 这个函数做：1、摄像头不存在：404，2、用户没有权限：403，3、有权限：继续
-    access_started_at = time.monotonic()
     # 取图只需身份与归属；逐帧查询所有检测配置会把数据库往返叠加到预览周期。
     camera = _require_camera_read_access(camera_config_manager.get_camera_identity(key), user)
     if feature is not None:
@@ -407,8 +391,7 @@ def get_camera_frame_jpg(
         if get_spec(feature) is None:
             raise HTTPException(status_code=404, detail="unknown feature")
         require_feature_access(user, feature, camera["department"])
-    access_seconds = time.monotonic() - access_started_at
-    response = build_camera_frame_response(
+    return build_camera_frame_response(
         key=camera["shm_name"],
         feature=feature,
         quality=quality,
@@ -416,5 +399,3 @@ def get_camera_frame_jpg(
         max_height=max_height,
         orchestrator=orchestrator,
     )
-    response.headers["Server-Timing"] += f", camera_access;dur={access_seconds * 1000:.3f}"
-    return response

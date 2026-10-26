@@ -35,10 +35,9 @@ import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMo
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
 import { FenceMonitorView } from './security_fence/FenceMonitorView'
 import { TailgatingMonitorView } from './tailgating/TailgatingMonitorView'
-import { createPreviewPerformanceRecorder, type PreviewPerformanceReport } from './AiVisionMonitor.performance'
 import { AiVisionVideoPreview } from './AiVisionVideoPreview'
 import { useCameraVideoPreview } from './useCameraVideoPreview'
-import type { VideoPreviewState } from './AiVisionVideoPreview.performance'
+import type { VideoPreviewState } from './AiVisionVideoPreview.mse'
 
 type AiVisionMonitorProps = {
   title: string
@@ -59,7 +58,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
   const frameBufferRef = useRef<ReturnType<typeof createPreviewFrameBuffer> | null>(null)
-  const framePerformanceRef = useRef<ReturnType<typeof createPreviewPerformanceRecorder> | null>(null)
   const frameKey = `${department}:${feature}:${selectedCamera}:${rawPreview}`
   const frameSrc = frameState?.key === frameKey ? frameState.src : ''
   const needsFeatureValue = ['logistics-single-person', 'human-dwell', 'feature-dashboard'].includes(presentation)
@@ -190,16 +188,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     let hasFrame = false
     const buffer = createPreviewFrameBuffer()
     frameBufferRef.current = buffer
-    let lastReport: PreviewPerformanceReport | undefined
-    const diagnostics = createPreviewPerformanceRecorder({
-      cameraKey: selectedCamera, feature: rawPreview ? '' : feature, department, refreshMs: frameRefreshMs,
-      onReport(report) {
-        lastReport = report
-        window.aivisionPreviewDiagnostics = report
-        console.debug('[预览性能]', report)
-      },
-    })
-    framePerformanceRef.current = diagnostics
 
     const loadFrame = async () => {
       const startedAt = performance.now()
@@ -211,7 +199,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           buildAiVisionPreviewFrameUrl(selectedCamera, rawPreview ? '' : feature, Date.now()),
           { cache: 'no-store', credentials: 'include', signal: controller.signal },
         )
-        const headersReceivedAt = performance.now()
         if (cancelled) return
         if (response.status === 401) {
           window.dispatchEvent(new Event('aicv:unauthorized'))
@@ -226,20 +213,14 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         }
 
         const blob = await response.blob()
-        const bodyReceivedAt = performance.now()
         const nextFrameSrc = await buffer.prepare(blob, controller.signal)
         if (cancelled) return
-        diagnostics.completed({
-          startedAt, headersReceivedAt, bodyReceivedAt, decodedAt: performance.now(),
-          bytes: blob.size, headers: response.headers, src: nextFrameSrc,
-        })
 
         hasFrame = true
         setFrameState({ key: frameKey, src: nextFrameSrc, connected: true })
         setMessage('实时画面已连接。')
       } catch {
         if (!cancelled) {
-          diagnostics.failed()
           setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)
           setMessage(hasFrame ? '画面刷新暂不可用，当前显示上一帧，正在重试。'
             : '画面暂不可用，正在重试。请检查摄像头及检测功能运行状态。')
@@ -265,10 +246,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       if (timeoutId) window.clearTimeout(timeoutId)
       if (requestTimeoutId) clearTimeout(requestTimeoutId)
       buffer.dispose()
-      diagnostics.dispose()
       if (frameBufferRef.current === buffer) frameBufferRef.current = null
-      if (framePerformanceRef.current === diagnostics) framePerformanceRef.current = null
-      if (lastReport && window.aivisionPreviewDiagnostics === lastReport) delete window.aivisionPreviewDiagnostics
     }
   }, [department, feature, frameKey, frameRefreshMs, isPageVisible, rawPreview, selectedCamera, videoPreview.mode])
 
@@ -298,7 +276,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
             className="h-full w-full object-contain"
             onLoad={(event) => {
               frameBufferRef.current?.displayed(event.currentTarget.src)
-              framePerformanceRef.current?.displayed(event.currentTarget.src)
             }}
             onError={() => {
               setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)

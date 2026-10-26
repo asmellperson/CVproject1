@@ -1,5 +1,4 @@
-import { createVideoPreviewPerformanceRecorder } from './AiVisionVideoPreview.performance'
-import type { VideoPreviewPerformanceReport, VideoPreviewState } from './AiVisionVideoPreview.performance'
+export type VideoPreviewState = 'connecting' | 'playing' | 'reconnecting' | 'paused' | 'fallback' | 'access-denied'
 
 const VIDEO_CODECS = ['avc1.640029', 'avc1.64002A', 'avc1.640033', 'hvc1.1.6.L153.B0']
 export const MSE_MAX_PENDING_BYTES = 8 * 1024 * 1024
@@ -102,14 +101,10 @@ export function createMseAppendQueue(options: {
 export function createMsePreviewSession(options: {
   video: HTMLVideoElement
   url: string
-  cameraKey: string
-  feature: string
-  department: string
   visible?: boolean
   onState: (state: VideoPreviewState) => void
   onFallback?: () => void
   onAccessDenied?: () => void
-  onReport: (report: VideoPreviewPerformanceReport) => void
   environment?: {
     origin?: string
     createMediaSource?: () => MediaSource
@@ -140,7 +135,6 @@ export function createMsePreviewSession(options: {
   let reconnects = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let cleanupAttempt: (() => void) | undefined
-  let recorder: ReturnType<typeof createVideoPreviewPerformanceRecorder> | undefined
   const transition = (next: VideoPreviewState) => {
     state = next
     if (!disposed) options.onState(next)
@@ -159,7 +153,6 @@ export function createMsePreviewSession(options: {
     if (timer !== undefined) unschedule(timer)
     stopAttempt()
     transition(denied ? 'access-denied' : 'fallback')
-    recorder?.sample(state, true)
     if (denied) options.onAccessDenied?.()
     else options.onFallback?.()
   }
@@ -247,7 +240,6 @@ export function createMsePreviewSession(options: {
             queue = createMseAppendQueue({ buffer, video, onFailure: retry })
           } else {
             if (!queue || !(event.data instanceof ArrayBuffer)) { protocolFailure(); return }
-            recorder?.received(event.data.byteLength)
             queue.append(event.data)
           }
         } catch { protocolFailure() }
@@ -268,7 +260,6 @@ export function createMsePreviewSession(options: {
   const poll = () => {
     if (disposed || terminal || !visible) return
     const at = now()
-    recorder?.sample(state)
     if (state === 'playing') {
       if (Math.abs(video.currentTime - lastTime) > .001) {
         lastTime = video.currentTime
@@ -286,7 +277,6 @@ export function createMsePreviewSession(options: {
   const start = () => {
     deadline = now() + STARTUP_TIMEOUT_MS
     reconnects = 0
-    recorder = createVideoPreviewPerformanceRecorder({ ...options, now })
     transition('connecting')
     connect()
     if (!terminal) timer = schedule(poll, 500)
@@ -299,7 +289,6 @@ export function createMsePreviewSession(options: {
       visible = next
       if (timer !== undefined) unschedule(timer)
       stopAttempt()
-      recorder = undefined
       if (next) start()
       else transition('paused')
     },
@@ -308,7 +297,6 @@ export function createMsePreviewSession(options: {
       disposed = true
       if (timer !== undefined) unschedule(timer)
       stopAttempt()
-      recorder = undefined
     },
   }
 }

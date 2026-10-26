@@ -1,17 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Camera, Car, Coffee, Gauge, Radio, RefreshCw, ShieldCheck, Smartphone, UserRound, Users, Video } from 'lucide-react'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
-import {
-  createPreviewPerformanceGroup,
-  type PreviewPerformanceGroupReport,
-  type PreviewPerformanceReport,
-} from '@/components/AiVisionMonitor.performance'
-import {
-  createVideoPreviewPerformanceGroup,
-  type VideoPreviewPerformanceGroupReport,
-  type VideoPreviewPerformanceReport,
-} from '@/components/AiVisionVideoPreview.performance'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -42,62 +32,6 @@ export function GuardMonitorView({ site, sites = [], loadingSites = false, onSel
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const siteId = site?.id ?? null
-  const department = site?.department ?? ''
-  const performanceContext = useMemo(() => ({ siteId, department, refreshKey }), [siteId, department, refreshKey])
-  const performanceGroup = useRef<{
-    context: typeof performanceContext
-    jpeg: ReturnType<typeof createPreviewPerformanceGroup>
-    video: ReturnType<typeof createVideoPreviewPerformanceGroup>
-  } | null>(null)
-  useEffect(() => {
-    let lastReport: PreviewPerformanceGroupReport | undefined
-    let lastVideoReport: VideoPreviewPerformanceGroupReport | undefined
-    const group = createPreviewPerformanceGroup({
-      siteId, department,
-      onReport(report) {
-        lastReport = report
-        window.aivisionPreviewDiagnostics = report
-        console.debug('[保安室预览性能]', report)
-      },
-    })
-    const videoGroup = createVideoPreviewPerformanceGroup({
-      siteId, department,
-      onReport(report) {
-        lastVideoReport = report
-        window.aivisionVideoPreviewDiagnostics = report
-        console.debug('[保安室视频预览性能]', report)
-      },
-    })
-    const session = { context: performanceContext, jpeg: group, video: videoGroup }
-    performanceGroup.current = session
-    group.publish()
-    videoGroup.publish()
-    const resetVideoReports = () => videoGroup.reset()
-    document.addEventListener('visibilitychange', resetVideoReports)
-    return () => {
-      document.removeEventListener('visibilitychange', resetVideoReports)
-      group.dispose()
-      videoGroup.dispose()
-      if (performanceGroup.current === session) performanceGroup.current = null
-      if (window.aivisionPreviewDiagnostics === lastReport) delete window.aivisionPreviewDiagnostics
-      if (window.aivisionVideoPreviewDiagnostics === lastVideoReport) delete window.aivisionVideoPreviewDiagnostics
-    }
-  }, [siteId, department, performanceContext])
-  useEffect(() => {
-    const keys = members.map((member) => member.shm_name)
-    const activeKeys = members.filter((member) => member.physical_enabled
-      && status?.camera_online[String(member.camera_id)] !== false).map((member) => member.shm_name)
-    performanceGroup.current?.jpeg.setCameras(keys)
-    performanceGroup.current?.video.setCameras(keys, activeKeys)
-  }, [members, performanceContext, status?.camera_online])
-  const reportPerformance = useCallback((report: PreviewPerformanceReport) => {
-    const session = performanceGroup.current
-    if (session?.context === performanceContext) session.jpeg.update(report)
-  }, [performanceContext])
-  const reportVideoPerformance = useCallback((report: VideoPreviewPerformanceReport) => {
-    const session = performanceGroup.current
-    if (session?.context === performanceContext) session.video.update(report)
-  }, [performanceContext])
   useSerialPoll(async (signal) => {
     if (!site) return
     const [next, cameras] = await Promise.all([getSiteStatus(site.id, signal), getMembers(site.id, signal)])
@@ -187,8 +121,6 @@ export function GuardMonitorView({ site, sites = [], loadingSites = false, onSel
           </div>
           <div className={`grid h-fit gap-1 overflow-hidden bg-slate-950 ${members.length > 1 ? 'sm:grid-cols-2' : ''}`}>
           {members.map((member) => <GuardCameraPreview key={`${siteId}:${member.camera_id}:${refreshKey}`} member={member} online={status?.camera_online[String(member.camera_id)]}
-            onPerformanceReport={reportPerformance}
-            onVideoPerformanceReport={reportVideoPerformance}
             aiReady={!!site?.enabled && member.member_enabled && !!status?.running && status.camera_states[String(member.camera_id)] === 'READY'} />)}
           {!members.length && <div className="flex min-h-72 items-center justify-center px-6 text-center text-sm text-slate-300">{loadingSites ? '正在读取保安室…' : site ? '当前保安室尚未绑定摄像头。' : '请先在配置管理中新增并选择保安室。'}</div>}
         </div></CardContent>

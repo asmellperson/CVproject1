@@ -145,9 +145,6 @@ def create_app() -> FastAPI:
             call_next:继续往后走
         """
         path = request.url.path
-        timed_preview = request.method == "GET" and path.startswith("/api/cameras/") and path.endswith("/frame.jpg")
-        preview_started_at = time.monotonic() if timed_preview else 0.0
-        auth_seconds = 0.0
         if path.startswith(EXTERNAL_API_PREFIX + "/"):
             # 外部对接数据和图片允许直连，事业部及资源归属由业务路由校验。
             response = await call_next(request)
@@ -161,21 +158,11 @@ def create_app() -> FastAPI:
         if path.startswith("/api/"):
             try:
                 # 解析用户，将用户保存到这一次的Request的状态里，而各api下的各函数下的get_current_user负责从request.state.user里面把用户提供给具体函数
-                auth_started_at = time.monotonic() if timed_preview else 0.0
                 request.state.user = await run_in_threadpool(get_current_user_from_request, request)
-                if timed_preview:
-                    auth_seconds = time.monotonic() - auth_started_at
             # 认证失败
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
-        response = await call_next(request)
-        if timed_preview and response.status_code < 400:
-            # 包含认证线程池等待和路由调度；与浏览器等待相减后仍不能视为纯网络耗时。
-            request_seconds = time.monotonic() - preview_started_at
-            timing = response.headers.get("Server-Timing", "")
-            measured = f"auth;dur={auth_seconds * 1000:.3f}, request_total;dur={request_seconds * 1000:.3f}"
-            response.headers["Server-Timing"] = f"{timing}, {measured}" if timing else measured
-        return response
+        return await call_next(request)
 
     # 定义全局异常处理器，捕获没有被其他代码处理掉的异常
     @app.exception_handler(Exception)

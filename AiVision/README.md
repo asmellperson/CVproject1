@@ -1033,7 +1033,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 业务分类必须提供 `target_context`。`references` 用 `kind` 区分实际名称或标识 `named`、自定义别名 `alias`、普通指代 `context` 和澄清续办 `pending`，`text` 必须来自本轮原文；仅给出部门、功能或全部范围时可为空。`bindings` 提议 `{alias,target,evidence}`，后台核对用户本轮的正向命名声明、完整名称及真实读取结果，否定、示例、截取名称前缀和存在歧义的关系均不能建立绑定。摄像头与普通功能资源使用 `target_name` 表达实际主体名称，带功能后缀的 `name` 用于展示；身份核对使用部门和摄像头 ID。模型提议不直接授权执行，资源列表作为最终结果、配置读取、修改、绑定、删除及指定目标的参数撤销均受目标核验约束。
 
-`targets.py` 使用正式部门目录拆分引用的范围与对象，完整部门名称或编码可限定真实资源名、别名及指代。已核验别名和具有确定语法的指代根据原文及资源证据解析，`kind` 不充当身份证明；“通用电气事业部这台摄像头”中的部门限定范围，“这台摄像头”关联本轮明确目标，本轮无目标时才使用可见的近期读取目标。名称仍须完整匹配并唯一确认，未知名称不能因其他选择器匹配而被忽略；单数指代不能选择多个物理目标。仅给出部门不能授权使用缓存资源，配置和值仍须重新查询；诊断与执行共用 `matching_resources()` 核对匹配结果。
+`targets.py` 使用正式部门目录拆分引用的范围与对象，完整部门名称或编码可限定真实资源名、别名及指代。已核验别名和具有确定语法的指代根据原文及资源证据解析，`kind` 不充当身份证明；“通用电气事业部这台摄像头”中的部门限定范围，“这台摄像头”关联本轮明确目标，本轮无目标时才使用可见的近期读取目标。名称仍须完整匹配并唯一确认，未知名称不能因其他选择器匹配而被忽略；单数指代不能选择多个物理目标。仅给出部门不能授权使用缓存资源，配置和值仍须重新查询；资源执行通过 `matching_resources()` 核对范围与身份匹配结果。
 
 `parse_plan()` 保留严格 Pydantic 校验，分类 JSON 和字段错误以 `PlanFormatError` 分别标记为 `plan_json`、`plan_schema`。`runtime.py` 仅为这两类错误发起一次纠正，提供安全字段位置、校验错误类别及完整 Schema，不回传错误输出全文。首次与纠正请求共用 `api_timeout_sec` 分类预算，每次调用前后检查取消；纠正不增加业务工具调用轮数。日志只记录任务编号、错误类别和脱敏校验摘要，不包含校验输入、动态异常正文、未知字段原名、完整对话或设备凭据。
 
@@ -1049,7 +1049,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `connectors/qwen/` 复用连接合同、Chat Completions 和请求并发预算，认证由环境变量提供。网络、超时、模型服务、响应解析和输出截断分别使用 `QwenError` 的专用子类，均向调用方提供不含连接信息或响应正文的错误。截断、网络、服务及响应封装错误不触发分类格式纠正。分类与平台工具使用 `response_format=json_schema`，业务动作枚举限定为本轮允许的工具；返回后仍通过 Pydantic 和业务合同检查，不自动降级为任意 JSON。服务需支持 [JSON Schema 结构化输出](https://docs.vllm.ai/en/stable/features/structured_outputs/)，不支持时按模型服务错误处理。安检继续使用 JSON 对象模式，普通聊天不施加格式约束。分类预算为模型输出上限与 `ASSISTANT_PLAN_MAX_TOKENS` 的较小值，后者默认 `1024`；日志仅记录安全的完成原因、字符数、Token 数和思考内容存在标记，不记录正文。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接福达AI；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
 
-模型服务器的 `connectors/qwen/swift_deploy.py` 可直接作为独立脚本执行，适配 `ms-swift 4.4.2`、`vLLM 0.27.1` 的异步引擎，复用模型环境已有的 `jsonschema`。它在 Chat Completions 请求中严格校验 `response_format`，将完整 Schema 或 JSON 对象模式传入单次生成参数，保留采样、模板、适配器及上游鉴权检查；正则冲突与不支持的约束明确报错。请求校验错误与包装层日志、JSONL 不保存对话正文。`--check` 在加载模型前核对依赖及实际 SDK 请求类型；模型服务器的真实解码效果通过 `service` 层另行验收。部署操作见[助手诊断文档](../docs/assistant-diagnostics.md#swift-部署与格式约束)。
+模型服务器的 `connectors/qwen/swift_deploy.py` 可直接作为独立脚本执行，适配 `ms-swift 4.4.2`、`vLLM 0.27.1` 的异步引擎，复用模型环境已有的 `jsonschema`。它在 Chat Completions 请求中严格校验 `response_format`，将完整 Schema 或 JSON 对象模式传入单次生成参数，保留采样、模板、适配器及上游鉴权检查；正则冲突与不支持的约束明确报错。请求校验错误与包装层日志、JSONL 不保存对话正文。`--check` 在加载模型前核对依赖及实际 SDK 请求类型；模型服务器的真实解码效果通过实际 Chat Completions 请求验收。部署操作见[Swift 部署与格式约束](../docs/assistant-diagnostics.md#swift-部署与格式约束)。
 
 物流通道的 `config.schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天 `08:00～20:00`。`features/logistics_channel/schedule.py` 为检测调度和报警分发提供相同的星期、时区及含端点时段判断；时段外停止检测和报警，保留实时画面。星期从周一 `0` 到周日 `6`，空列表表示不检测、不报警，时段须在同一天内。保存时同步通道起止列与 `ai_logistics_alarm_schedule`，读取时使用两处存储的有效交集，配置通过通道事件热更新。
 
@@ -1495,8 +1495,6 @@ sudo journalctl -u hikvision-face-library-sync.service -n 100 --no-pager
 3. 在已准备的环境检查健康接口、登录后的业务 API 和配置保存结果。
 4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和福达AI，静态检查不能替代现场验证。
 
-福达AI助手的隔离诊断入口为 `python -m AiVision.tests.assistant_diagnostics --output /tmp/fuda-ai-diagnostics`，代码位于 `tests/assistant_diagnostics/`。通过 `--base-url` 和 `--model` 连接实际 Qwen 服务；真实 Schema、保存与审计只访问临时 SQLite，缓存与事件使用替身，不读取生产 `.env`。`service.py` 提供 `service` 层，只读采集版本、接口声明及本机监听进程的脱敏证据，分别测试 JSON 对象、严格 Schema、非法 Schema 拒绝和输出长度限制，不连接业务数据库；安装包与应用版本不能替代实际推理引擎版本。`model` 包含格式一致及格式冲突的 Schema 探针，分别统计输出合同与业务语义。`conversation-live` 在同一会话中连续执行默认 10～13 轮，逐轮记录历史窗口、请求字符、服务 Token 用量及结果；已定位目标可直接重新读取，评分仍核对目标来源、完整目标集合和实际保存结果。已声明代号的预期不随实际绑定失败而降低，`binding_prerequisite_ok` 标记本轮绑定前提；`target_context_evidence` 和 `target_evidence` 分别记录规划引用类别、实际匹配数量及资源来源，不导出名称、原文或资源 key。真实模型触发目标拦截时归为 `target_resolution`，需结合证据区分模型选错标识与后台误拦；如实澄清与任务完成分别统计。格式观测仅保留固定类别、长度及脱敏校验摘要，空思考标签与思考正文分开记录。完整用法及局限见[助手分层诊断](../docs/assistant-diagnostics.md)。
-
 在项目根目录检查文档：
 
 ```bash
@@ -1513,7 +1511,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | `health.ok=false` | `started`、模型就绪数、Worker 加载错误；HTTP 可达和业务就绪是不同状态 |
 | `health.ok=true` 但某功能没结果 | 该功能依赖模型、摄像头/功能开关、事业部、Consumer 及推理统计 |
 | 摄像头原图不刷新 | RTSP、ffprobe/FFmpeg、采集序号、帧时间和采集进程日志 |
-| 普通监控显示帧率低 | 按 MSE 或 JPEG 模式读取对应浏览器诊断；JPEG 另可核对 `Server-Timing` 和共享帧发布序号 |
+| 普通监控显示帧率低 | 当前预览模式、JPEG 请求等待、后端慢响应日志、go2rtc 状态及源视频码流 |
 | 原图正常，功能画面缺失 | 对应 Consumer 是否运行、功能及摄像头是否启用、采集源是否仍在 10 秒新鲜度窗口内 |
 | 推理频繁 `timeout` / `dropped` | 模型是否就绪、单次耗时、共享队列压力、同功能摄像头数 |
 | 人脸 Worker 启动失败 | 本地 ONNX 文件、完整模型目录、CUDA Provider 以及实际解释器依赖 |
@@ -1529,9 +1527,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
-公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。成功响应的 `Server-Timing` 以毫秒记录 `frame_lookup`（取帧及标注）、`jpeg_encode`（缩放、编码或缓存读取）、`frame_total`（取图函数内部处理）、`camera_access`（身份查询及访问校验）、`auth`（认证及其线程池等待）和 `request_total`（认证中间件入口至响应就绪）。`frame_total` 不包含鉴权和路由调度；`request_total` 不包含进入应用前的等待、代理及网络传输。共享帧元数据有效时，同时返回 `X-Capture-Sequence`、`X-Capture-Updated-At`（服务器读帧时间，秒）和 `X-Capture-Age-Ms`；这些数据独立于标注绘图时间，供前端估算共享帧发布速率，不代表 RTSP 原生帧率。缺失或无效时省略采集元数据头。
-
-`AiVisionMonitor` 在 JPEG 模式按至少 5 秒窗口汇总诊断，在浏览器控制台读取 `window.aivisionPreviewDiagnostics`。`averageMs` 区分请求到响应头、响应体下载、图片预解码、加载事件延迟和后端处理；`authentication`、`cameraAccess`、`serverRequest` 分别对应鉴权、摄像头访问校验和服务端总耗时。`serverDispatch` 为服务端总耗时扣除鉴权、访问校验和取图处理后的其余开销，`outsideServer` 为响应头等待扣除服务端总耗时后的等待；两者都不能直接解释为纯线程池或纯网络延迟。`outsideFrameHandler` 保留取图函数之外的整体等待。成功请求与失败请求分别计数，缺失指标保留为空。保安室的 JPEG 预览逐路读取公共摄像头帧并复用这些响应头，前端在报告的 `cameras` 中汇总各路统计；标注回退原图时，整轮等待还包含前一次失败请求，服务端分段计时仅对应最终成功请求。物流通道及站点级独立拼图接口不纳入该统计。
+公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。取图保留 JPEG 缓存、输出尺寸和原始坐标尺寸响应头，慢响应按运行配置记录日志。
 
 `api/routes/preview_stream.py` 按摄像头与功能名单提供 MSE 代理。名单支持逗号分隔，字段逐项校验并去重；能力查询和连接建立均校验登录、摄像头归属及功能分配。WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。各路连接独立复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒；策略失败时先设置停止信号并以 1008 关闭浏览器，再限时取消和回收上游，媒体循环在收发之间检查停止状态并让出调度权。网络和媒体错误以固定脱敏信息返回。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
 
