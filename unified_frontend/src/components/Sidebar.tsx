@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
-import { DEPARTMENTS, DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, hasPageAccess, type DepartmentId } from '@/auth/permissions'
+import { DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, hasPageAccess, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
@@ -65,7 +65,7 @@ export function Sidebar({
     () => buildSidebarNavGroups(user),
     [user],
   )
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(DEPARTMENTS))
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     let active = true
@@ -204,7 +204,7 @@ export function Sidebar({
               ))}
               {group.children?.map((child) => {
                 const childActive = activeChildGroupId === child.id
-                const expanded = compact || expandedGroups.has(child.id) || activeChildGroupId === child.id
+                const expanded = compact || expandedGroups.has(child.id)
                 if (!child.department) return null
                 const childMeta = sidebarChildMeta[child.department]
                 const GroupIcon = childMeta.icon
@@ -240,7 +240,7 @@ export function Sidebar({
                       />
                     </button>
                   )}
-                  <div className={cn('sidebar-child-items space-y-1.5 overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out', expanded ? 'max-h-[40rem] opacity-100' : 'max-h-0 opacity-0')}>
+                  <div inert={!expanded} aria-hidden={!expanded} className={cn('sidebar-child-items space-y-1.5 overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out', expanded ? 'max-h-[40rem] opacity-100' : 'max-h-0 opacity-0')}>
                     {child.items.map((item) => (
                       <SidebarNavButton
                         key={item.id}
