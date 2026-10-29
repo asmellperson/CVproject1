@@ -15,6 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { MonitorCameraToolbar } from '@/components/monitor/MonitorCameraToolbar'
 import { AgvRequestStatusCard } from '@/components/agv_person_check/AgvRequestStatusCard'
+import { CurrentDetectionCard } from '@/components/monitor/CurrentDetectionCard'
+import { useDetectionStatus } from '@/components/monitor/useDetectionStatus'
 import { cn } from '@/lib/utils'
 import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
 import {
@@ -174,6 +176,7 @@ export function FeatureDashboardMonitorView({
   const cameraName = selectedCameraInfo?.name || '未选择摄像头'
   const fps = selectedCameraInfo?.fps
   const rows = ruleRows(feature, featureValue)
+  const result = useDetectionStatus(selectedCamera, feature, feature !== 'agv_person_check')
 
   return (
     <div className="space-y-5">
@@ -186,6 +189,7 @@ export function FeatureDashboardMonitorView({
         </section>
       }>
         <div className="space-y-5">
+          {feature !== 'agv_person_check' && <CurrentDetectionCard feature={feature} status={result?.status} error={result?.error} />}
           <Card className={CARD_CLASS}>
             <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
             <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5 text-sm">{rows.map(([label, value]) => <div key={label} className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">{label}</span><span className="break-words text-slate-700 dark:text-slate-300">{value}</span></div>)}</CardContent>

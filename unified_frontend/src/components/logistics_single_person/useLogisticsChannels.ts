@@ -4,14 +4,11 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import {
   LOGISTICS_CHANNEL_QUERY_INVALIDATED,
-  fetchLogisticsChannelFrame,
   getLogisticsChannelAlarms,
   getLogisticsChannel,
   getLogisticsChannelStatistics,
   getLogisticsChannelStatus,
   listLogisticsChannels,
-  replaceLogisticsChannelFrameObjectUrl,
-  revokeLogisticsChannelFrameObjectUrl,
   type LogisticsChannelQueryInvalidation,
 } from './api'
 import {
@@ -37,9 +34,7 @@ import type {
 const CHANNEL_LIST_POLL_INTERVAL_MS = 5000
 export const STATUS_POLL_INTERVAL_MS = 1000
 export const SUMMARY_POLL_INTERVAL_MS = 5000
-export const FRAME_POLL_INTERVAL_MS = 200
 const JSON_REQUEST_TIMEOUT_MS = 8000
-const FRAME_REQUEST_TIMEOUT_MS = 5000
 
 type LogisticsChannelInvalidationEvent = CustomEvent<LogisticsChannelQueryInvalidation>
 
@@ -242,14 +237,10 @@ export function useLogisticsChannelStatus(
   const [alarmState, setAlarmState] = useState<KeyedValue<LogisticsChannelAlarm[]> | null>(null)
   const [statisticsState, setStatisticsState] = useState<KeyedValue<LogisticsChannelStatistics> | null>(null)
   const [eventState, setEventState] = useState<KeyedValue<LogisticsChannelStatusEvent[]> | null>(null)
-  const [frameUrlState, setFrameUrlState] = useState<KeyedValue<string> | null>(null)
   const [statusErrorState, setStatusErrorState] = useState<KeyedValue<string> | null>(null)
   const [summaryErrorState, setSummaryErrorState] = useState<KeyedValue<string> | null>(null)
-  const [frameErrorState, setFrameErrorState] = useState<KeyedValue<string> | null>(null)
   const [statusRevision, refreshStatus] = useReducer((value: number) => value + 1, 0)
   const [summaryRevision, refreshSummary] = useReducer((value: number) => value + 1, 0)
-  const [frameRevision, refreshFrame] = useReducer((value: number) => value + 1, 0)
-  const frameObjectUrlRef = useRef<string | null>(null)
   const previousReasonRef = useRef<KeyedValue<LogisticsChannelReason | null> | null>(null)
   const selectionKey = `${feature}:${channelId ?? ''}`
   const selectionToken = useMemo<SelectionToken>(() => ({ key: selectionKey }), [selectionKey])
@@ -281,6 +272,7 @@ export function useLogisticsChannelStatus(
       setStatusErrorState(null)
     } catch (reason) {
       if (signal?.aborted || currentSelectionRef.current !== requestedSelection) return
+      setStatusState(null)
       setStatusErrorState({
         selection: requestedSelection,
         value: reason instanceof Error ? reason.message : '物流通道状态加载失败',
@@ -312,35 +304,7 @@ export function useLogisticsChannelStatus(
     }
   }, [channelId, feature, selectionToken])
 
-  const loadFrame = useCallback(async (signal?: AbortSignal) => {
-    if (channelId === null) return
-    const requestedSelection = selectionToken
-    try {
-      const blob = await fetchLogisticsChannelFrame(feature, channelId, signal, { nonce: Date.now() })
-      if (currentSelectionRef.current !== requestedSelection) return
-      const nextUrl = replaceLogisticsChannelFrameObjectUrl(blob, frameObjectUrlRef.current)
-      frameObjectUrlRef.current = nextUrl
-      setFrameUrlState({ selection: requestedSelection, value: nextUrl })
-      setFrameErrorState(null)
-    } catch (reason) {
-      if (signal?.aborted || currentSelectionRef.current !== requestedSelection) return
-      setFrameErrorState({
-        selection: requestedSelection,
-        value: reason instanceof Error ? reason.message : '物流通道画面加载失败',
-      })
-    }
-  }, [channelId, feature, selectionToken])
-
-  useEffect(() => {
-    previousReasonRef.current = null
-    revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
-    frameObjectUrlRef.current = null
-  }, [selectionToken])
-
-  useEffect(() => () => {
-    revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
-    frameObjectUrlRef.current = null
-  }, [])
+  useEffect(() => { previousReasonRef.current = null }, [selectionToken])
 
   useSerialPoll(loadStatus, {
     intervalMs: STATUS_POLL_INTERVAL_MS,
@@ -354,13 +318,6 @@ export function useLogisticsChannelStatus(
     enabled: canPoll,
     restartKey: `${selectionKey}:${summaryRevision}`,
   })
-  useSerialPoll(loadFrame, {
-    intervalMs: FRAME_POLL_INTERVAL_MS,
-    timeoutMs: FRAME_REQUEST_TIMEOUT_MS,
-    enabled: canPoll,
-    restartKey: `${selectionKey}:${frameRevision}`,
-  })
-
   useEffect(() => {
     if (!canPoll || channelId === null) return
     const onInvalidated = (rawEvent: Event) => {
@@ -369,7 +326,6 @@ export function useLogisticsChannelStatus(
       if (event.detail.channelId !== undefined && event.detail.channelId !== channelId) return
       refreshStatus()
       refreshSummary()
-      refreshFrame()
     }
     window.addEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
     return () => window.removeEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
@@ -380,21 +336,16 @@ export function useLogisticsChannelStatus(
     alarms: alarmState?.selection === selectionToken ? alarmState.value : [],
     statistics: statisticsState?.selection === selectionToken ? statisticsState.value : null,
     events: eventState?.selection === selectionToken ? eventState.value : [],
-    frameUrl: frameUrlState?.selection === selectionToken ? frameUrlState.value : null,
     error: statusErrorState?.selection === selectionToken
       ? statusErrorState.value
       : summaryErrorState?.selection === selectionToken
         ? summaryErrorState.value
-        : frameErrorState?.selection === selectionToken
-          ? frameErrorState.value
-          : null,
+        : null,
     errors: {
       status: statusErrorState?.selection === selectionToken ? statusErrorState.value : null,
       summary: summaryErrorState?.selection === selectionToken ? summaryErrorState.value : null,
-      frame: frameErrorState?.selection === selectionToken ? frameErrorState.value : null,
     },
     refreshStatus,
     refreshSummary,
-    refreshFrame,
   }
 }

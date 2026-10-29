@@ -6,74 +6,47 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   getAiVisionCameraKey,
   getAiVisionCameras,
-  getAiVisionFeatureConfig,
   type AiVisionCamera,
 } from '@/lib/aivision'
-import {
-  buildAiVisionPreviewFrameUrl,
-  createPreviewFrameBuffer,
-  FRAME_REQUEST_TIMEOUT_MS,
-  previewRefreshMs,
-  scheduleFrameRequestAbort,
-} from './AiVisionMonitor.frame'
+import { CameraLivePreview } from './monitor/CameraLivePreview'
+import { useCameraPreviewConfig } from './monitor/useCameraPreviewConfig'
 import { LogisticsSinglePersonMonitorView } from './logistics_single_person/LogisticsSinglePersonMonitorView'
 import { useLogisticsSinglePersonMonitor } from './logistics_single_person/useLogisticsSinglePersonMonitor'
 import { HumanDwellMonitorView } from './human_dwell/HumanDwellMonitorView'
 import { useHumanDwellMonitor } from './human_dwell/useHumanDwellMonitor'
 import { FeatureDashboardMonitorView } from './feature_dashboard/FeatureDashboardMonitorView'
-import {
-  isFeatureDashboardKey,
-  resolveCameraFeatureValue,
-  type CameraFeatureValueState,
-} from './feature_dashboard/monitorState'
+import { isFeatureDashboardKey } from './feature_dashboard/monitorState'
 import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
 import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
 import { FenceMonitorView } from './security_fence/FenceMonitorView'
 import { TailgatingMonitorView } from './tailgating/TailgatingMonitorView'
-import { AiVisionVideoPreview } from './AiVisionVideoPreview'
-import { useCameraVideoPreview } from './useCameraVideoPreview'
-import type { VideoPreviewState } from './AiVisionVideoPreview.mse'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
-  rawPreview?: boolean
   presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence' | 'tailgating'
 }
 
-export function AiVisionMonitor({ title, feature, department, presentation = 'default', rawPreview = false }: AiVisionMonitorProps) {
+export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
-  const [frameState, setFrameState] = useState<{ key: string; src: string; connected: boolean } | null>(null)
-  const [videoState, setVideoState] = useState<{ key: string; state: VideoPreviewState } | null>(null)
   const [message, setMessage] = useState('正在读取摄像头列表...')
-  const [featureValueState, setFeatureValueState] = useState<CameraFeatureValueState | null>(null)
-  const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
+  const [connection, setConnection] = useState<{ key: string; connected: boolean } | null>(null)
   const selectedCameraRef = useRef('')
-  const frameBufferRef = useRef<ReturnType<typeof createPreviewFrameBuffer> | null>(null)
-  const frameKey = `${department}:${feature}:${selectedCamera}:${rawPreview}`
-  const frameSrc = frameState?.key === frameKey ? frameState.src : ''
-  const needsFeatureValue = ['logistics-single-person', 'human-dwell', 'feature-dashboard'].includes(presentation)
-  const videoPreview = useCameraVideoPreview({
-    cameraKey: selectedCamera, feature, department, enabled: !!selectedCamera && isPageVisible,
-  })
-  const frameConnected = videoPreview.mode === 'mse'
-    ? videoState?.key === frameKey && videoState.state === 'playing'
-    : videoPreview.mode === 'jpeg' && frameState?.key === frameKey && frameState.connected
-
+  const frameKey = `${department}:${feature}:${selectedCamera}`
+  const frameConnected = connection?.key === frameKey && connection.connected
+  const config = useCameraPreviewConfig(selectedCamera, feature)
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
     [cameras, selectedCamera],
   )
-  const frameRefreshMs = previewRefreshMs(selectedCameraInfo?.fps)
-  const featureValue = resolveCameraFeatureValue(featureValueState, selectedCamera)
+  const featureValue = config.value
   const logisticsMonitor = useLogisticsSinglePersonMonitor({
     enabled: presentation === 'logistics-single-person',
     feature,
@@ -125,26 +98,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   }, [selectedCamera])
 
   useEffect(() => {
-    if (!selectedCamera || !needsFeatureValue) {
-      setFeatureValueState(null)
-      return
-    }
-
-    let cancelled = false
-    getAiVisionFeatureConfig(feature, selectedCamera)
-      .then((payload) => {
-        if (!cancelled) setFeatureValueState({ cameraKey: selectedCamera, value: payload.config.value || {} })
-      })
-      .catch(() => {
-        if (!cancelled) setFeatureValueState(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [feature, needsFeatureValue, selectedCamera])
-
-  useEffect(() => {
     refreshCameras()
     const handleCamerasChanged = () => {
       refreshCameras()
@@ -153,153 +106,16 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     return () => window.removeEventListener('aivision:cameras-changed', handleCamerasChanged)
   }, [refreshCameras])
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsPageVisible(!document.hidden)
-    }
-
-    handleVisibilityChange()
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [])
-
-  useEffect(() => {
-    if (!selectedCamera) {
-      setFrameState(null)
-      return
-    }
-
-    if (!isPageVisible) {
-      setFrameState(null)
-      setMessage('页面不可见，已暂停实时画面刷新。')
-      return
-    }
-
-    // 持续视频与逐帧 JPEG 共用同一画面位置，试播期间不再并行拉取图片。
-    if (videoPreview.mode !== 'jpeg') {
-      setFrameState(null)
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | undefined
-    let requestTimeoutId: ReturnType<typeof setTimeout> | undefined
-    let controller: AbortController | null = null
-    let hasFrame = false
-    const buffer = createPreviewFrameBuffer()
-    frameBufferRef.current = buffer
-
-    const loadFrame = async () => {
-      const startedAt = performance.now()
-      controller = new AbortController()
-      requestTimeoutId = scheduleFrameRequestAbort(controller, FRAME_REQUEST_TIMEOUT_MS)
-      try {
-        const response = await fetch(
-          // 请求触发型检测使用实时原始画面，预览不依赖推理任务或上次检测帧。
-          buildAiVisionPreviewFrameUrl(selectedCamera, rawPreview ? '' : feature, Date.now()),
-          { cache: 'no-store', credentials: 'include', signal: controller.signal },
-        )
-        if (cancelled) return
-        if (response.status === 401) {
-          window.dispatchEvent(new Event('aicv:unauthorized'))
-        }
-        if (response.status === 401 || response.status === 403) {
-          buffer.clear()
-          hasFrame = false
-          setFrameState(null)
-        }
-        if (!response.ok) {
-          throw new Error(`${response.status} ${response.statusText}`)
-        }
-
-        const blob = await response.blob()
-        const nextFrameSrc = await buffer.prepare(blob, controller.signal)
-        if (cancelled) return
-
-        hasFrame = true
-        setFrameState({ key: frameKey, src: nextFrameSrc, connected: true })
-        setMessage('实时画面已连接。')
-      } catch {
-        if (!cancelled) {
-          setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)
-          setMessage(hasFrame ? '画面刷新暂不可用，当前显示上一帧，正在重试。'
-            : '画面暂不可用，正在重试。请检查摄像头及检测功能运行状态。')
-        }
-      } finally {
-        if (requestTimeoutId) {
-          clearTimeout(requestTimeoutId)
-          requestTimeoutId = undefined
-        }
-        if (!cancelled) {
-          const elapsed = performance.now() - startedAt
-          timeoutId = window.setTimeout(loadFrame, Math.max(0, frameRefreshMs - elapsed))
-        }
-      }
-    }
-
-    setMessage('正在读取实时画面...')
-    loadFrame()
-
-    return () => {
-      cancelled = true
-      controller?.abort()
-      if (timeoutId) window.clearTimeout(timeoutId)
-      if (requestTimeoutId) clearTimeout(requestTimeoutId)
-      buffer.dispose()
-      if (frameBufferRef.current === buffer) frameBufferRef.current = null
-    }
-  }, [department, feature, frameKey, frameRefreshMs, isPageVisible, rawPreview, selectedCamera, videoPreview.mode])
-
-  const frameContent = (
-    <>
-      {selectedCamera && videoPreview.mode === 'mse' && videoPreview.url ? (
-        <AiVisionVideoPreview key={frameKey} url={videoPreview.url} cameraKey={selectedCamera}
-          department={department} feature={feature} onFallback={videoPreview.onFallback}
-          onAccessDenied={videoPreview.onAccessDenied} onStateChange={(state) => {
-            setVideoState({ key: frameKey, state })
-            setMessage(state === 'playing' ? '原始视频已连接，未叠加检测框。' : '正在连接实时原始视频...')
-          }} />
-      ) : selectedCamera && videoPreview.mode === 'denied' ? (
-        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-          无权访问当前摄像头或检测功能，请检查登录状态与权限。
-        </div>
-      ) : selectedCamera && videoPreview.mode === 'checking' ? (
-        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-          正在连接实时画面...
-        </div>
-      ) : selectedCamera ? (
-        frameSrc ? (
-          <img
-            key={`${selectedCamera}-${feature}`}
-            src={frameSrc}
-            alt={`${title}实时画面`}
-            className="h-full w-full object-contain"
-            onLoad={(event) => {
-              frameBufferRef.current?.displayed(event.currentTarget.src)
-            }}
-            onError={() => {
-              setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)
-              setMessage('画面渲染失败，正在等待下一帧。')
-            }}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-            {message}
-          </div>
-        )
-      ) : (
-        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-          {loading ? '正在读取摄像头...' : message}
-        </div>
-      )}
-      {videoPreview.mode === 'jpeg' && videoPreview.fallbackReason && (
-        <div className="absolute bottom-3 left-3 right-3 rounded bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-          {videoPreview.fallbackReason}
-        </div>
-      )}
-      {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
-    </>
-  )
+  const handleConnectionChange = useCallback((connected: boolean, nextMessage: string) => {
+    setConnection({ key: frameKey, connected })
+    setMessage(nextMessage)
+  }, [frameKey])
+  const frameContent = <>
+    {selectedCamera ? <CameraLivePreview cameraKey={selectedCamera} feature={feature} department={department}
+      fps={selectedCameraInfo?.fps} value={featureValue} onConnectionChange={handleConnectionChange} />
+      : <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">{message}</div>}
+    {config.error && <p role="status" className="absolute left-2 right-2 top-2 rounded bg-slate-950/80 p-2 text-xs text-amber-300">{config.error}</p>}
+  </>
 
   if (presentation === 'face-identity') {
     return <FaceRecognitionMonitorView
@@ -366,6 +182,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         frameContent={frameContent}
         featureValue={featureValue}
         status={humanDwellMonitor.status}
+        error={humanDwellMonitor.error}
         events={humanDwellMonitor.events}
         todayAlarmCount={humanDwellMonitor.todayAlarmCount}
         latestAlarmAt={humanDwellMonitor.latestAlarmAt}

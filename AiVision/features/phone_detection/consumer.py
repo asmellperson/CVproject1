@@ -55,6 +55,10 @@ class PhoneConsumer(BaseFunctionConsumer):
                 timeout=0.6,
             )
 
+        if phone_result.get("status") != "ok" or (
+            require_person and person_available and person_result.get("status") != "ok"
+        ):
+            return False, None
         now = time.time()
         phones = phone_result.get("detections", []) or []
         persons = person_result.get("detections", []) or []
@@ -70,6 +74,18 @@ class PhoneConsumer(BaseFunctionConsumer):
         )
         self._prune_tracks(camera_id, now, cfg["TRACK_TTL_SECONDS"])
         return any(item.get("confirmed") for item in candidates), candidates
+
+    def _build_monitor_snapshot(self, camera_id, result):
+        alarm, candidates = result
+        if candidates is None:
+            return {"count": None, "alarm": False, "reason": "inference_error", "details": []}
+        return {"count": len(candidates), "alarm": bool(alarm),
+                "reason": "phone_confirmed" if alarm else "confirming" if candidates else "normal",
+                "threshold_seconds": self.config_cache[camera_id]["MIN_CONFIRM_SECONDS"],
+                "duration_seconds": max((item["duration"] for item in candidates), default=0),
+                "details": [{"label": f"手机轨迹 {item['track_id']}", "confidence": item.get("confidence"),
+                             "state": "phone_confirmed" if item["confirmed"] else "confirming",
+                             "duration_seconds": item["duration"], "hits": item["hits"]} for item in candidates]}
 
     def post_process(self, camera_id, result):
         """将 ROI 检测框还原到原帧，区分候选手机与已经确认的手机。"""

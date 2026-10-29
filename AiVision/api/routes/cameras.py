@@ -364,6 +364,7 @@ def build_camera_frame_response(
 def get_camera_frame_jpg(
     key: str,
     feature: str | None = Query(None, description="指定 feature 时只返回该功能标注帧；不传则返回原始帧"),
+    raw: bool = Query(False, description="读取原始帧，同时保留 feature 的功能权限校验"),
     quality: int = Query(85, ge=1, le=100),
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),
@@ -393,7 +394,7 @@ def get_camera_frame_jpg(
         require_feature_access(user, feature, camera["department"])
     return build_camera_frame_response(
         key=camera["shm_name"],
-        feature=feature,
+        feature=None if raw else feature,
         quality=quality,
         max_width=max_width,
         max_height=max_height,

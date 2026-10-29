@@ -87,6 +87,9 @@ def build_dwell_monitor_snapshot(
         "reason": "loitering" if alarm else "normal",
         "duration_seconds": round(max(durations, default=0.0), 2),      # 当前状态页展示当前最大逗留时间
         "threshold_seconds": float(threshold_seconds),
+        "details": [{"label": f"轨迹 {track_id}", "duration_seconds": round(track.dwell_time, 2),
+                     "state": "loitering" if track.alarmed else "normal"}
+                    for track_id, track in tracker.tracks.items() if track.lost == 0] if tracker else [],
         "updated_at_s": time.time() if updated_at is None else float(updated_at),
     }
 
@@ -231,6 +234,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
                 self._trackers,
                 camera_id=camera_id,
                 threshold_seconds=cfg["MAX_TIME"],
+                updated_at=self._frame_sampled_at.get(camera_id),
             ) if valid else {
                 "count": None, "alarm": False, "reason": "unknown",
                 "duration_seconds": None, "threshold_seconds": cfg["MAX_TIME"],
@@ -276,10 +280,9 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         return frame_copy
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
-        """在摄像头状态锁内读取监控快照；尚无结果时返回 None。"""
-        with self._camera_state_lock:
-            value = self.monitor_status.get(camera_key)
-            return dict(value) if value else None
+        """快照以整份字典发布，状态读取不等待正在进行的推理。"""
+        value = self.monitor_status.get(camera_key)
+        return dict(value) if value else None
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         """持续分析静止目标，以便停留时间正常累计。"""

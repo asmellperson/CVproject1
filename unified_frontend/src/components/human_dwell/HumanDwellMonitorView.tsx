@@ -1,3 +1,5 @@
+import { CurrentDetectionCard } from '@/components/monitor/CurrentDetectionCard'
+import type { DetectionStatus } from '@/components/monitor/useDetectionStatus'
 import {
   Activity,
   AlertTriangle,
@@ -15,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { MonitorCameraToolbar } from '@/components/monitor/MonitorCameraToolbar'
 import { cn } from '@/lib/utils'
-import { getAiVisionCameraKey, type AiVisionCamera, type AiVisionHumanDwellStatus } from '@/lib/aivision'
+import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
 import type { HumanDwellMonitorEvent } from './monitorState'
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
@@ -46,7 +48,8 @@ export type HumanDwellMonitorViewProps = {
   frameConnected: boolean
   frameContent: ReactNode
   featureValue: Record<string, unknown> | null
-  status: AiVisionHumanDwellStatus | null
+  error?: string
+  status: DetectionStatus | null
   events: HumanDwellMonitorEvent[]
   todayAlarmCount: number
   latestAlarmAt: string | null
@@ -64,6 +67,7 @@ export function HumanDwellMonitorView({
   frameContent,
   featureValue,
   status,
+  error,
   events,
   todayAlarmCount,
   latestAlarmAt,
@@ -94,6 +98,7 @@ export function HumanDwellMonitorView({
         </section>
       }>
         <div className="space-y-5">
+          <CurrentDetectionCard feature="detect_human" status={status} error={error} />
           <Card className={CARD_CLASS}>
             <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
             <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5 text-sm">

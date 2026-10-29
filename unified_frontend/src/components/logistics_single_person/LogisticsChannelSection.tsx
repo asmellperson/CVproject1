@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getAiVisionCameras } from '@/lib/aivision'
+import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
@@ -20,6 +20,7 @@ export type LogisticsChannelSectionProps = {
 export function LogisticsChannelSection({ feature, department, title }: LogisticsChannelSectionProps) {
   const { isAdmin } = useAuth()
   const [cameraCount, setCameraCount] = useState<number | null>(null)
+  const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraError, setCameraError] = useState('')
   useEffect(() => {
     let generation = 0
@@ -30,6 +31,7 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
         const cameras = await getAiVisionCameras(department)
         if (active && request === generation) {
           setCameraCount(cameras.length)
+          setCameras(cameras)
           setCameraError('')
         }
       } catch (error) {
@@ -40,6 +42,7 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
       }
     }
     setCameraCount(null)
+    setCameras([])
     void refresh()
     window.addEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
     return () => {
@@ -55,7 +58,6 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
     channelQuery.refreshSelectedChannel()
     runtimeQuery.refreshStatus()
     runtimeQuery.refreshSummary()
-    runtimeQuery.refreshFrame()
   }
 
   return (
@@ -71,19 +73,18 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
           {cameraError && <p role="alert">{cameraError}</p>}
           <LogisticsChannelMonitorView
             feature={feature}
+            cameras={cameras}
             title={title}
             channels={channelQuery.channels}
             selectedChannelId={channelQuery.selectedChannelId}
             selectedChannel={channelQuery.selectedChannel}
             selectedChannelDetail={channelQuery.selectedChannelDetail}
             status={runtimeQuery.status}
-            frameUrl={runtimeQuery.frameUrl}
             todayAlarmCount={runtimeQuery.statistics?.summary.today ?? runtimeQuery.alarms.length}
             latestAlarmAt={runtimeQuery.alarms[0]?.created_at ?? null}
             events={runtimeQuery.events}
             loading={channelQuery.loading}
             error={channelQuery.error || runtimeQuery.errors.status || runtimeQuery.errors.summary}
-            frameError={runtimeQuery.errors.frame}
             onSelectChannel={channelQuery.setSelectedChannelId}
             onRefresh={refreshAll}
           />

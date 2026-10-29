@@ -1,3 +1,5 @@
+import { CameraLivePreview } from '@/components/monitor/CameraLivePreview'
+import type { AiVisionCamera } from '@/lib/aivision'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import type { LucideIcon } from 'lucide-react'
 import { Activity, AlertTriangle, BellRing, Camera, Info, RefreshCw, Users, Video } from 'lucide-react'
@@ -11,7 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils'
 
 import {
-  getLogisticsFramePresentation,
   type LogisticsChannelStatusEvent,
 } from './monitorPresentation'
 import type {
@@ -107,13 +108,12 @@ export type LogisticsChannelMonitorViewProps = {
   selectedChannel: LogisticsChannel | null
   selectedChannelDetail: LogisticsChannelDetail | null
   status: LogisticsChannelRuntimeStatus | null
-  frameUrl: string | null
+  cameras: AiVisionCamera[]
   todayAlarmCount: number
   latestAlarmAt: string | null
   events: LogisticsChannelStatusEvent[]
   loading: boolean
   error: string | null
-  frameError: string | null
   onSelectChannel: (channelId: number) => void
   onRefresh: () => void
 }
@@ -126,13 +126,12 @@ export function LogisticsChannelMonitorView({
   selectedChannel,
   selectedChannelDetail,
   status,
-  frameUrl,
+  cameras,
   todayAlarmCount,
   latestAlarmAt,
   events,
   loading,
   error,
-  frameError,
   onSelectChannel,
   onRefresh,
 }: LogisticsChannelMonitorViewProps) {
@@ -152,14 +151,7 @@ export function LogisticsChannelMonitorView({
   const routeCounts = cameraStates.length
     ? cameraStates.map((camera) => camera.count ?? '--').join(' / ')
     : '--'
-  const framePresentation = getLogisticsFramePresentation(frameUrl, frameError)
-  const frameStatusClassName = framePresentation.state === 'live'
-    ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-300'
-    : framePresentation.state === 'error'
-      ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-300'
-      : framePresentation.state === 'stale'
-        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
+  const members = selectedChannelDetail?.members.filter((member) => member.enabled) ?? []
 
   return (
     <div className="min-w-0 space-y-3 sm:space-y-5">
@@ -272,23 +264,24 @@ export function LogisticsChannelMonitorView({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={cn('rounded-full border-0 px-2.5 py-1 shadow-none', presentation.className)}>{presentation.label}</Badge>
                     {status?.alarm_suppressed && <Badge variant="outline">检测与报警未启用</Badge>}
-                    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold', frameStatusClassName)}>{framePresentation.label}</span>
+
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="flex aspect-video items-center justify-center bg-slate-950">
-                  {framePresentation.showFrame && frameUrl ? <img src={frameUrl} alt={`${selectedChannel.name}拼接监控画面`} className="h-full w-full object-contain" /> : (
-                    <div className="px-6 text-center text-sm text-slate-300">{framePresentation.errorMessage || (memberCount === 0 ? '通道未配置摄像头' : '等待拼接画面')}</div>
-                  )}
+                <div className={cn('grid gap-1 bg-slate-950', members.length > 1 && 'sm:grid-cols-2', members.length > 4 && 'xl:grid-cols-3')}>
+                  {members.map((member) => {
+                    const camera = cameras.find((item) => item.camera_id === member.camera_id)
+                    return <div key={member.id} className="min-w-0">
+                      <p className="px-3 py-2 text-xs text-slate-200">{camera?.name || `摄像头 ${member.camera_id}`}</p>
+                      <div className="aspect-video">{camera ? <CameraLivePreview cameraKey={camera.shm_name} feature={feature}
+                        department={selectedChannel.department} enabled={camera.enabled} fps={camera.fps} />
+                        : <p className="flex h-full items-center justify-center text-sm text-slate-300">等待摄像头信息</p>}</div>
+                    </div>
+                  })}
+                  {!members.length && <p className="flex min-h-56 items-center justify-center text-sm text-slate-300">通道未配置启用的摄像头</p>}
                 </div>
-                {framePresentation.errorMessage ? (
-                  <div role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
-                    {framePresentation.state === 'stale' ? '当前显示最近一帧：' : '画面加载失败：'}{framePresentation.errorMessage}
-                  </div>
-                ) : (
-                  <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">画面由通道内摄像头实时拼接，状态信息显示在画面外。</div>
-                )}
+                <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">各路展示实时原始画面和 ROI，联合判定与逐路结果见旁侧卡片。</div>
               </CardContent>
             </Card>
           </ResizableMonitorLayout>

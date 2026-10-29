@@ -49,7 +49,7 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
   return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
     <DetectionPageHeader title="指令驱动智慧安防" subtitle="通过自然语言定义监控任务，持续理解视频场景，并在目标事件发生时自动触发告警。" departmentLabel={DEPARTMENT_LABELS[department]} />
     <TabsContent value="monitor">
-      <AiVisionMonitor title="指令驱动智慧安防" feature={VISUAL_LANGUAGE_FEATURE} department={department} rawPreview presentation="visual-language" />
+      <AiVisionMonitor title="指令驱动智慧安防" feature={VISUAL_LANGUAGE_FEATURE} department={department} presentation="visual-language" />
     </TabsContent>
     <TabsContent value="config" className="space-y-6">
       {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}

@@ -800,11 +800,16 @@ class Orchestrator:
         getter = getattr(consumer, "get_monitor_status", None)          # 查看Consumer有没有一个叫get_monitor_status的函数
         snapshot = getter(shm_name) if callable(getter) else None       # 从get_monitor_status函数里取当前摄像头的监控状态， callable()：这个东西能不能像函数一样被调用
         updated_at_s = float(snapshot.get("updated_at_s") or 0.0) if snapshot else 0.0   #取状态更新时间
+        enabled = bool(consumer and consumer.running and any(
+            cfg.get("shm_name") == shm_name and cfg.get("camera_enable", True)
+            for cfg in list(consumer.config_cache.values())
+        ))
         # 判断状态是不是最新的(2秒内更新)
         fresh = bool(
             snapshot
+            and online and enabled
             and updated_at_s > 0
-            and time.time() - updated_at_s <= ANNOTATED_FRAME_FRESH_SECONDS
+            and 0 <= time.time() - updated_at_s <= ANNOTATED_FRAME_FRESH_SECONDS
         )
         # 如果状态过期，返回自定义字典
         if not fresh:
@@ -814,10 +819,12 @@ class Orchestrator:
                 "online": online,
                 "count": None,
                 "alarm": False,
-                "reason": "unknown",                  # 状态未知
+                "reason": "offline" if not online else "disabled" if not enabled else "unknown",
                 "duration_seconds": None,
                 "threshold_seconds": None,
                 "updated_at": None,
+                "valid_for_seconds": 0,
+                "details": [],
                 **({"detections": [], "frame_width": None, "frame_height": None} if feature == "recognize_face" else {}),
             }
         # 如果状态有效，就转换时间
@@ -835,6 +842,9 @@ class Orchestrator:
             "duration_seconds": snapshot.get("duration_seconds"),
             "threshold_seconds": snapshot.get("threshold_seconds"),
             "updated_at": updated_at,
+            "valid_for_seconds": max(0.0, ANNOTATED_FRAME_FRESH_SECONDS - (time.time() - updated_at_s)),
+            "details": snapshot.get("details", []),
+            **({"change_ratio": snapshot.get("change_ratio"), "hits": snapshot.get("hits")} if feature == "detect_door" else {}),
             **({
                 "detections": snapshot.get("detections", []) if online else [],
                 "frame_width": snapshot.get("frame_width"),

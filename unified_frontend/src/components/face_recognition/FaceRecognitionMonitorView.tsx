@@ -31,6 +31,7 @@ export function FaceRecognitionMonitorView({
   const result = useFaceRecognitionStatus(selectedCamera, Boolean(camera))
   const status = result?.status
   const detections = camera?.enabled ? freshFaceDetections(status) : []
+  const ready = Boolean(camera?.enabled && status?.online && status.count !== null && status.updated_at)
   const online = Boolean(camera?.enabled && (status ? status.online : frameConnected))
   const allowed = detections.filter((face) => face.is_allowed).length
   const unauthorized = detections.filter((face) => face.matched && !face.is_allowed).length
@@ -42,7 +43,7 @@ export function FaceRecognitionMonitorView({
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="人脸识别实时状态">
           <StatCard label="摄像头状态" value={online ? '在线' : '离线'} detail={camera?.name || '未选择摄像头'} icon={Video} tone={online ? 'emerald' : 'rose'} ping={online} />
           <StatCard label="启用摄像头" value={`${featureCameras.length} 路`} detail="已启用人脸身份识别" icon={Camera} tone="indigo" />
-          <StatCard label="当前检测人脸" value={`${detections.length} 人`} detail="当前有效识别结果" icon={Users} tone="indigo" />
+          <StatCard label="当前检测人脸" value={ready ? `${detections.length} 人` : '—'} detail={ready ? '当前有效识别结果' : '等待有效检测结果'} icon={Users} tone="indigo" />
           <StatCard label="通行权限状态" value={alarm ? '未授权人员报警' : detections.length ? '允许通行' : '等待识别'} detail={`允许 ${allowed} / 未授权 ${unauthorized} / 未知 ${unknown}`} icon={ScanFace} tone={alarm ? 'rose' : 'emerald'} ping={alarm} />
         </section>
       }>
@@ -63,6 +64,7 @@ export function FaceRecognitionMonitorView({
               ))}
               {!detections.length && <p className="text-sm text-slate-500 dark:text-slate-400">{status?.reason === 'normal' ? '当前画面未检测到人脸' : '等待有效识别结果'}</p>}
               {result?.error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{result.error}</p>}
+              {status?.updated_at && <p className="text-xs text-slate-500 dark:text-slate-400">采样于 {new Date(status.updated_at).toLocaleTimeString('zh-CN', { hour12: false })}</p>}
             </CardContent>
           </Card>
         </div>

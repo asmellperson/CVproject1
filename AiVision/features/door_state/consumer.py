@@ -137,6 +137,20 @@ class DoorConsumer(BaseFunctionConsumer):
         self._pre_gray[camera_id] = gray
         return result
 
+    def _build_monitor_snapshot(self, camera_id, result):
+        confirmed, detail = result
+        state = self._alarm_state.get(camera_id, {})
+        start = state.get("start")
+        alarm = bool(state.get("alarmed"))
+        reason = ("background_initializing" if "stable" not in detail else
+                  "background_unstable" if not detail["stable"] else
+                  "door_alarm" if alarm else "door_changed" if confirmed else
+                  "confirming" if detail.get("hits") else "normal")
+        return {"count": None, "alarm": alarm, "reason": reason,
+                "duration_seconds": max(0, time.time() - start) if start is not None else 0,
+                "threshold_seconds": self.config_cache[camera_id]["first_alarm"],
+                "change_ratio": detail["ratio"], "hits": detail.get("hits", 0), "details": []}
+
     def post_process(self, camera_id, result):
         """在已确认异常的 ROI 上叠加颜色，保留原始监控帧供其他用途使用。"""
         frame = self._annotated_frame(camera_id)

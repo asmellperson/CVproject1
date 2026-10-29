@@ -201,6 +201,7 @@ export function getAiVisionCameraKey(camera: Pick<AiVisionCamera, 'shm_name' | '
 }
 
 export type AiVisionFrameOptions = {
+  raw?: boolean
   maxWidth?: number
   maxHeight?: number
   quality?: number
@@ -209,6 +210,7 @@ export type AiVisionFrameOptions = {
 export function aiVisionFrameUrl(cameraKey: string, feature?: string, nonce?: number, options: AiVisionFrameOptions = {}) {
   const params = new URLSearchParams()
   if (feature) params.set('feature', feature)
+  if (options.raw) params.set('raw', 'true')
   if (nonce) params.set('t', String(nonce))
   if (options.maxWidth) params.set('max_width', String(options.maxWidth))
   if (options.maxHeight) params.set('max_height', String(options.maxHeight))
@@ -306,9 +308,9 @@ export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExcept
   return (await response.json()) as AiVisionExceptionAlertSettings
 }
 
-export async function getAiVisionFeatureConfig(feature: string, cameraKey: string) {
+export async function getAiVisionFeatureConfig(feature: string, cameraKey: string, signal?: AbortSignal) {
   const response = await fetch(`/api/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
-    credentials: 'include',
+    credentials: 'include', signal,
   })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))

@@ -127,7 +127,7 @@ class ApiSettings(BaseSettings):
 
 
 class PreviewSettings(BaseSettings):
-    """按摄像头和功能名单启用原始视频；媒体服务只允许部署在本机回环地址。"""
+    """普通监控使用原始视频，安检保留名单设置；媒体服务只允许部署在本机。"""
 
     base_url: str = Field("http://127.0.0.1:1984", alias="GO2RTC_BASE_URL")
     camera_key: str = Field("", alias="GO2RTC_PREVIEW_CAMERA_KEY")

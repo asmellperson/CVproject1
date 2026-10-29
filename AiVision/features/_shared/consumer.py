@@ -160,6 +160,7 @@ class BaseFunctionConsumer(ABC):
         self.result_updated_at: dict[str, float] = {}      # {shm_name: 更新时间戳}
         self._preview_frames: dict[str, AnnotatedPreviewFrame] = {}
         self._frame_sampled_at: dict[int, float] = {}
+        self._monitor_results: dict[str, dict] = {}
 
         self._last_process_at: dict[int, float] = {}        # 上次处理时间戳，配合 cap_interval 限频
 
@@ -206,6 +207,7 @@ class BaseFunctionConsumer(ABC):
                     raise RuntimeError("Consumer 处理线程停止超时")
                 self._thread = None
             self._preview_frames.clear()
+            self._monitor_results.clear()
         logger.info(f"[{self.feature_name}] Consumer 已停止")
 
     def _load_initial_configs(self):
@@ -232,6 +234,7 @@ class BaseFunctionConsumer(ABC):
             previous = self.config_cache.get(camera_id)
             if previous:
                 self._preview_frames.pop(previous["shm_name"], None)
+                self._monitor_results.pop(previous["shm_name"], None)
             # 从全局缓存中取最新版
             cfg = config_cache.get_function_config(camera_id, self.feature_name)
             if cfg and cfg.get("enable"):
@@ -259,6 +262,7 @@ class BaseFunctionConsumer(ABC):
             previous = self.config_cache.get(camera_id)
             if previous:
                 self._preview_frames.pop(previous["shm_name"], None)
+                self._monitor_results.pop(previous["shm_name"], None)
             cfg = (
                 config_cache.get_function_config(camera_id, self.feature_name)
                 if enabled
@@ -310,6 +314,7 @@ class BaseFunctionConsumer(ABC):
             self.result_dict.pop(shm_name, None)
             self.result_updated_at.pop(shm_name, None)
             self._preview_frames.pop(shm_name, None)
+            self._monitor_results.pop(shm_name, None)
         with self._inference_status_lock:
             self._last_frame_timings.pop(camera_id, None)
             self._last_frame_started_at.pop(camera_id, None)
@@ -394,6 +399,12 @@ class BaseFunctionConsumer(ABC):
                             self._preview_frames.pop(cam_name, None)
                         # _process：得到业务结果，post_process:得到标注画面，_handle_alarm:决定是否发AlarmRequest
                         self._handle_alarm(cam_id, result, annotated)
+                        monitor = self._build_monitor_snapshot(cam_id, result)
+                        if monitor is not None:
+                            self._monitor_results[cam_name] = {
+                                **monitor,
+                                "updated_at_s": self._frame_sampled_at[cam_id],
+                            }
                         published_at = time.monotonic()
                     self._after_process(cam_id, result)
                     finished_at = time.monotonic()
@@ -417,6 +428,15 @@ class BaseFunctionConsumer(ABC):
 
     def _after_process(self, camera_id: int, result: tuple):
         """状态锁释放后执行；异步功能可在此提交任务，避免拒绝回调在锁内执行。"""
+
+    def _build_monitor_snapshot(self, camera_id: int, result: tuple) -> dict | None:
+        """子类按业务结果提供监控数据，不从历史报警或标注图片推断当前判定。"""
+        return None
+
+    def get_monitor_status(self, camera_key: str) -> dict | None:
+        """只读取原子替换的结果快照，避免取状态时等待当前摄像头推理。"""
+        snapshot = self._monitor_results.get(camera_key)
+        return dict(snapshot) if snapshot else None
 
     def _before_camera_round(self) -> None:
         """轮询摄像头前的扩展点，允许需要连续跟踪的功能提前投递有界请求。"""

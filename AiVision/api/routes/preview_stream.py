@@ -74,7 +74,7 @@ def _load_source(manager, key: str, user: dict, feature: str | None) -> dict:
     return source
 
 
-def _pilot_enabled(source: dict, feature: str | None) -> bool:
+def _preview_enabled(source: dict, feature: str | None) -> bool:
     preview = settings.preview
     try:
         address = urlsplit(source["url"])
@@ -82,8 +82,11 @@ def _pilot_enabled(source: dict, feature: str | None) -> bool:
     except ValueError:
         return False
     return bool(
-        source["shm_name"] in preview.camera_keys
-        and feature in preview.features and source["enabled"]
+        feature is not None
+        and (feature != "security_inspection" or (
+            source["shm_name"] in preview.camera_keys and feature in preview.features
+        ))
+        and source["enabled"]
         and valid_source
     )
 
@@ -96,7 +99,7 @@ def get_preview_capability(
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> PreviewCapability:
     source = _load_source(camera_config_manager, key, user, feature)
-    enabled = _pilot_enabled(source, feature)
+    enabled = _preview_enabled(source, feature)
     return PreviewCapability(
         enabled=enabled, mode="mse" if enabled else "jpeg",
         url=(f"/ws/cameras/{source['shm_name']}/preview?{urlencode({'feature': feature})}" if enabled else None),
@@ -119,7 +122,7 @@ async def _authorized_source(websocket: WebSocket, manager, key: str, feature: s
         # 超时后只放弃只读结果，不再等待阻塞线程；会话必须立即停止继续转发媒体。
         user = await to_thread.run_sync(get_current_user_from_request, websocket, abandon_on_cancel=True)
         source = await to_thread.run_sync(_load_source, manager, key, user, feature, abandon_on_cancel=True)
-        if not _pilot_enabled(source, feature):
+        if not _preview_enabled(source, feature):
             raise PreviewPolicyError()
         return source
 

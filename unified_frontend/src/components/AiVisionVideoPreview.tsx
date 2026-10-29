@@ -10,6 +10,7 @@ type Props = {
   onFallback?: () => void
   onAccessDenied?: () => void
   onStateChange?: (state: VideoPreviewState) => void
+  onDimensions?: (width: number, height: number) => void
 }
 
 const MESSAGES: Record<VideoPreviewState, string> = {
@@ -21,7 +22,7 @@ const MESSAGES: Record<VideoPreviewState, string> = {
   'access-denied': '当前账号无权查看此摄像头，画面已清空',
 }
 
-export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFallback, onAccessDenied, onStateChange }: Props) {
+export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFallback, onAccessDenied, onStateChange, onDimensions }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const callbacks = useRef({ onFallback, onAccessDenied, onStateChange })
   const [status, setStatus] = useState<{ key: string; state: VideoPreviewState } | null>(null)
@@ -55,7 +56,9 @@ export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFa
     }
   }, [key, url])
   return <div className="relative h-full w-full overflow-hidden bg-slate-950">
-    <video key={key} ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
+    <video key={key} ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain"
+      onLoadedMetadata={(event) => onDimensions?.(event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
+      onResize={(event) => onDimensions?.(event.currentTarget.videoWidth, event.currentTarget.videoHeight)} />
     <div role="status" className={state === 'playing'
       ? 'pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-slate-200'
       : 'pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300'}>

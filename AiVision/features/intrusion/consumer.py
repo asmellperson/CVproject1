@@ -50,9 +50,22 @@ class BlocksConsumer(BaseFunctionConsumer):
                 intrusions.append(enriched)
         # roi_detections：所有检测到的人，intrusions：真正处在危险区的人
         return bool(intrusions), {
+            "inference_status": outcome.get("status"),
             "detections": roi_detections, "intrusions": intrusions,
             "line_points": line_points, "alarm_side": alarm_side, "foot_ratio": foot_ratio,
         }
+
+    def _build_monitor_snapshot(self, camera_id, result):
+        alarm, detail = result
+        if detail["inference_status"] != "ok":
+            return {"count": None, "alarm": False, "reason": "inference_error", "details": []}
+        configured = len(detail["line_points"]) == 2
+        detections = detail["detections"]
+        return {"count": len(detections), "alarm": bool(alarm),
+                "reason": "unconfigured" if not configured else "intrusion" if alarm else "normal",
+                "details": [{"label": f"人员 {index + 1}", "confidence": item.get("confidence"),
+                             "state": "intrusion" if item["intrusion"] else "normal"}
+                            for index, item in enumerate(detections)]}
 
     def post_process(self, camera_id, result):
         """绘制警戒线、入侵侧方向、人体框和脚底点。"""

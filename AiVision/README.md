@@ -72,7 +72,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 
 事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
-AGV 监控通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check` 使用公共功能标注帧入口。`AgvPersonCheckConsumer.get_live_preview()` 在最新采集帧上叠加已保存的 `roi_pos`，与普通检测共用 `_shared/roi.py` 的边框绘制；空 ROI 表示全画面。预览配置使用独立短锁，待机和请求结束后仍可取图，采样推理不阻塞预览。配置热更新、摄像头停用和移除时同步替换或清理预览；原始画面过期时沿用公共取图接口的失败状态。人体检测仍仅由 HTTP 请求触发，检测输入与预览使用同一份 ROI 配置。
+AGV 监控使用公共原始视频预览；JPEG 回退通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check&raw=true` 保留功能授权并读取原始帧，浏览器按保存的 `roi_pos` 覆盖 ROI，空 ROI 表示全画面。待机和请求结束后继续更新画面，取图不触发采样推理。检测仍仅由 HTTP 请求触发，结果与回传状态通过独立状态接口展示；业务取证和功能标注接口保留原有职责。
 
 `GET /api/agv-person-check/cameras/{key}/status` 在登录会话下校验摄像头所属事业部及 AGV 功能权限，返回待机、检测、回传或不可用状态，以及当前请求的采样进度和最近一次结果。`features/agv_person_check/monitor.py` 通过独立短锁保存每路当前请求及最近一次完成记录，查询不等待推理或执行回调。同步响应记录已生成的响应正文和状态码；回调记录实际发送正文、对端 HTTP 状态码及通信失败原因，不读取对端正文或暴露回调地址、认证 Header。检测失败、取消和回传失败分别表示，失败不生成无人判定。记录仅存在于内存，摄像头移除或检测服务停止时清理。
 
@@ -761,7 +761,7 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 ### 7.8 警戒围栏：`security_fence`
 
-`features/security_fence/consumer.py` 通过共享队列分别检测完整画面人体和人脸，两个时段均调用 InsightFace 比对完整有效人员索引；人脸检测不以人体检出为前提，监控画面同时绘制人体框和实际人脸框。`runtime.py` 管理逐摄像头轨迹、身份确认、区域规则及连续违规事件；`service.py` 提供状态、事业部人员授权及报警查询，状态与报警查询供平台和外部接口共用。`schema.py`、`orm.py`、`spec.py` 分别定义契约、配置与授权表和功能注册。
+`features/security_fence/consumer.py` 通过共享队列分别检测完整画面人体和人脸，两个时段均调用 InsightFace 比对完整有效人员索引；人脸检测不以人体检出为前提，取证标注保留人体框和实际人脸框，平台监控展示原始视频、ROI 与独立结果卡片。`runtime.py` 管理逐摄像头轨迹、身份确认、区域规则及连续违规事件；`service.py` 提供状态、事业部人员授权及报警查询，状态与报警查询供平台和外部接口共用。`schema.py`、`orm.py`、`spec.py` 分别定义契约、配置与授权表和功能注册。
 
 - 每日禁入区间默认 `22:00–08:00`，时区默认 `Asia/Shanghai`，开始包含、结束不包含；支持跨午夜，起止相同表示全天禁入。剩余时段执行白名单规则。
 - `roi_pos` 是归一化多边形，空数组表示全画面；按人体框底边中心判定是否进入区域。身份在完整画面建立，可以在进入 ROI 前捕获入口正脸。
@@ -1190,7 +1190,7 @@ bash scripts/go2rtc_preview.sh status
 | `DATA_PATH` | 必填，图片/视频等存储根目录 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `7862` |
 | `GO2RTC_BASE_URL` | 原始视频侧车，默认 `http://127.0.0.1:1984`，只允许本机回环 HTTP |
-| `GO2RTC_PREVIEW_CAMERA_KEY` / `GO2RTC_PREVIEW_FEATURE` | 逗号分隔的摄像头与功能名单，单值也有效；仅两份名单均命中且已授权时使用 MSE。摄像头默认空，功能默认 `security_fence` |
+| `GO2RTC_PREVIEW_CAMERA_KEY` / `GO2RTC_PREVIEW_FEATURE` | 安检流程规范检测的原始视频名单，支持逗号分隔及单值；其他检测页面对已授权且启用的 RTSP/RTSPS 摄像头直接提供 MSE 能力。摄像头默认空，功能默认 `security_fence` |
 | `GO2RTC_AUTH_CHECK_SECONDS` | 持续视频的权限与来源复查间隔，默认 `5` 秒，范围 `1～5` 秒；整次校验另有 `5` 秒期限 |
 | `MODEL_PATHS_CONFIG` | `config/model_paths.yaml`，相对 AiVision 目录 |
 | `AUTH_SECRET` | 至少 32 字符的认证密钥；运维脚本注入 |
@@ -1259,13 +1259,13 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/runtime/status` | 有权限的运行状态与推理统计 |
 | GET / POST | `/api/cameras` | 列表 / 新建摄像头 |
 | GET / PATCH / DELETE | `/api/cameras/{key}` | 读取 / 修改 / 删除摄像头 |
-| GET | `/api/cameras/{key}/frame.jpg` | 原图；`feature` 参数选择功能标注图 |
-| GET | `/api/cameras/{key}/preview` | 当前摄像头的原始视频能力；`feature` 必须匹配名单及当前授权，返回同源播放地址或 JPEG 模式 |
+| GET | `/api/cameras/{key}/frame.jpg` | 原图；`feature` 参数选择功能标注图，`raw=true` 保留功能授权并读取原图 |
+| GET | `/api/cameras/{key}/preview` | 当前摄像头的原始视频能力；校验 `feature` 授权，安检额外匹配视频名单，返回同源播放地址或 JPEG 模式 |
 | WebSocket | `/ws/cameras/{key}/preview?feature=...` | 已授权的 MSE 转发，各路独立连接，只接受一次视频编码协商 |
 | GET | `/api/features` | 功能元数据列表 |
 | GET | `/api/features/{feature}` | 功能详情和配置元数据 |
 | GET / PUT | `/api/features/{feature}/configs/{shm_name}` | 读取 / 保存功能配置 |
-| GET | `/api/features/{feature}/cameras/{key}/status` | 摄像头功能监控状态 |
+| GET | `/api/features/{feature}/cameras/{key}/status` | 摄像头功能监控状态；返回采样时间、有效期、人数、持续时间及检测明细 |
 | PUT | `/api/features/{feature}/cameras/order` | 保存当前事业部、当前功能已启用摄像头的独立顺序 |
 | GET | `/api/models` | 模型路径、加载和重载状态 |
 | PATCH | `/api/models/{model_name}/path` | 保存模型路径并请求后台重载 |
@@ -1530,9 +1530,11 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
-公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。取图保留 JPEG 缓存、输出尺寸和原始坐标尺寸响应头，慢响应按运行配置记录日志。
+公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。取图保留 JPEG 缓存、输出尺寸和原始坐标尺寸响应头，慢响应按运行配置记录日志。 `raw=true` 仅改变取帧来源，`feature` 的权限校验仍执行，省略 `raw` 时保留功能标注接口语义。
 
-`api/routes/preview_stream.py` 按摄像头与功能名单提供 MSE 代理。名单支持逗号分隔，字段逐项校验并去重；能力查询和连接建立均校验登录、摄像头归属及功能分配。WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。各路连接独立复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒；策略失败时先设置停止信号并以 1008 关闭浏览器，再限时取消和回收上游，媒体循环在收发之间检查停止状态并让出调度权。网络和媒体错误以固定脱敏信息返回。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
+普通监控的 ROI 与判定线由前端覆盖，不进入视频编码。`BaseFunctionConsumer` 为区域入侵、门状态和手机检测发布不可变的当前结果快照；逗留检测同时提供当前可见轨迹的时长。`Orchestrator.get_feature_monitor_status()` 校验摄像头在线、功能运行和采样有效期，过期或不可用时清空人数、告警和明细；结果接口不依赖报警记录或视频刷新。
+
+`api/routes/preview_stream.py` 为安检以外的检测页面提供 MSE 原始视频代理；安检仍使用摄像头与功能名单。名单支持逗号分隔，字段逐项校验并去重；能力查询和连接建立均校验登录、摄像头归属及功能分配。WebSocket 只接受同源或明确配置的 CORS 来源，代理须保留原始 Host。源地址仅从数据库读取并限定为 RTSP/RTSPS，客户端不能指定源或操作侧车。各路连接独立复查账号有效性、权限、停用状态和来源，每次整段校验最多等待 5 秒；策略失败时先设置停止信号并以 1008 关闭浏览器，再限时取消和回收上游，媒体循环在收发之间检查停止状态并让出调度权。网络和媒体错误以固定脱敏信息返回。该模式仅播放原始视频，不改变 AI 采集和推理频率，不自动转码或叠加标注；源编码须能被浏览器 MSE 解码。
 
 ### 14.3 调参顺序
 
