@@ -21,7 +21,7 @@ def _load_configs(horn_id=None):
 
 @dataclass
 class _PlaybackJob:
-    """一台设备的一次实际播放，跟踪请求只共享尚未开始的同一音频。"""
+    """一台设备的一次实际播放，同一音频的告警共享这次播放结果。"""
     horn_id: int
     horn: Horn
     event_id: str | int
@@ -158,9 +158,10 @@ class HornRuntimeManager:
             if pending is not None and pending.horn is entry[1]:
                 # 同台喇叭只保留一项待播或在播任务，避免长音频占满所有工作线程。
                 if on_complete is not None:
-                    if (pending.event_id != event_id or pending.started
+                    if (pending.event_id != event_id
                             or len(pending.completions) >= settings.alarm.horn_queue_size):
                         return False
+                    # 相同告警已经出声时复用本次播放，避免忙碌拒绝后额外等待重试。
                     pending.completions.append(on_complete)
                 return True
             try:

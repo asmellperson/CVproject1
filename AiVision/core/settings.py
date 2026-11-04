@@ -202,6 +202,9 @@ class RuntimeSettings(BaseSettings):
     assistant_history_max_chars: int = Field(8000, ge=1000, le=32000, alias="ASSISTANT_HISTORY_MAX_CHARS")
     assistant_plan_max_tokens: int = Field(1024, ge=256, le=4096, alias="ASSISTANT_PLAN_MAX_TOKENS")
     fence_inference_timeout_seconds: float = Field(5.0, gt=0, le=30, alias="FENCE_INFERENCE_TIMEOUT_SECONDS")
+    # 每个模型分别限制在途请求，慢人脸不占用人体检测名额。
+    fence_inflight: int = Field(4, ge=1, le=4, alias="FENCE_INFLIGHT")
+    fence_horn_retry_seconds: float = Field(1.0, ge=0.1, le=30, alias="FENCE_HORN_RETRY_SECONDS")
     slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")   # 一次获取摄像头画面超过多少秒，就记慢请求日志
     # 物流通道状态多久没更新，就认为他过旧
     logistics_status_stale_seconds: float = Field(
