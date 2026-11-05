@@ -148,6 +148,18 @@ def test_migration_creates_missing_authorization_table(database):
     assert not db.migration.apply(db.engine)["needs_authorization_table"]
 
 
+def test_camera_without_department_does_not_inherit_grants(database):
+    db = database(legacy=True)
+    with db.engine.begin() as connection:
+        connection.execute(db.stored.insert(), {"department": "general_electric", "person_id": 123})
+        connection.execute(db.cameras.update().where(db.cameras.c.id == 3).values(department=None))
+    assert db.migration.check(db.engine)["camera_authorizations"] == {"1": 1, "2": 1}
+    assert db.migration.apply(db.engine)["copied"] == 2
+    from AiVision.features.security_fence.service import person_library
+
+    assert person_library.get_allowed_person_ids(camera_id=3) == set()
+
+
 def test_migration_keeps_source_if_copy_fails_then_can_retry(database, monkeypatch):
     db = database(legacy=True)
     with db.engine.begin() as connection:

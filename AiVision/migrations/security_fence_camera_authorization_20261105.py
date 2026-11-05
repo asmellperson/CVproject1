@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.exc import DBAPIError
 
 from .security_fence_authorization_20261022 import _authorization_table, _config_table
 
@@ -29,17 +30,24 @@ def _camera_rows(connection, config, legacy):
 
     cameras = config.metadata.tables["ai_camera_config"]
     persons = config.metadata.tables["ai_face_person"]
-    for department in connection.scalars(select(legacy.c.department).distinct()):
+    by_department: dict[str, list[tuple[int, object]]] = {}
+    for department, person_id, created_at in connection.execute(select(legacy)):
         require_department(department)
+        by_department.setdefault(department, []).append((person_id, created_at))
     missing = connection.execute(select(legacy.c.person_id).select_from(
         legacy.outerjoin(persons, legacy.c.person_id == persons.c.id),
     ).where(persons.c.id.is_(None))).first()
     if missing is not None:
         raise ValueError("围栏白名单引用了不存在的人员，已停止迁移")
-    return connection.execute(select(cameras.c.id, legacy.c.person_id, legacy.c.created_at).select_from(
-        legacy.join(cameras, legacy.c.department == cameras.c.department)
-        .join(config, config.c.camera_id == cameras.c.id),
-    )).tuples().all()
+    # 历史表可能使用不同的 MySQL 排序规则；按正式事业部编码匹配，避免跨表字符串比较失败。
+    rows = []
+    for camera_id, department in connection.execute(select(cameras.c.id, cameras.c.department).select_from(
+        cameras.join(config, config.c.camera_id == cameras.c.id),
+    )):
+        # 未设置归属的历史摄像头不继承任何事业部授权，保持既有的未授权状态。
+        rows.extend((camera_id, person_id, created_at)
+                    for person_id, created_at in by_department.get(department, []))
+    return rows
 
 
 def check(engine) -> dict:
@@ -159,7 +167,10 @@ def main() -> None:
         parser.exit(1, f"{action}停止：{exc}\n")
     except Exception as exc:
         hint = "请保持停写并核查数据库。" if args.apply else "请核查脚本依赖和数据库结构。"
-        parser.exit(1, f"{action}停止：{type(exc).__name__}；{hint}\n")
+        reason = type(exc).__name__
+        if isinstance(exc, DBAPIError) and exc.orig.args and isinstance(exc.orig.args[0], int):
+            reason += f"（数据库错误码 {exc.orig.args[0]}）"
+        parser.exit(1, f"{action}停止：{reason}；{hint}\n")
     finally:
         engine.dispose()
 
