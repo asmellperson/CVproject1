@@ -11,10 +11,9 @@ function points(value: unknown): RegionPoint[] {
 export function previewRegions(feature: string, value: Record<string, unknown> | null): PreviewRegion[] {
   if (!value) return []
   const rawPolygon = feature === 'guard_behavior' ? value.vehicle_roi_pos : value.roi_pos
-  const fullFrame = Array.isArray(rawPolygon) && rawPolygon.length === 0
-  const polygon: RegionPoint[] = fullFrame ? [[0, 0], [1, 0], [1, 1], [0, 1]] : points(rawPolygon)
+  const polygon = points(rawPolygon)
   const regions: PreviewRegion[] = polygon.length >= 3
-    ? [{ label: `${feature === 'guard_behavior' ? '车辆检测区域' : '检测区域'}${fullFrame ? '（全画面）' : ''}`, points: polygon }]
+    ? [{ label: feature === 'guard_behavior' ? '车辆检测区域' : '检测区域', points: polygon }]
     : []
   const line = points(value.line_points)
   if (line.length === 2) {

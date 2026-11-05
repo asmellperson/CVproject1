@@ -72,7 +72,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 
 事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
-AGV 监控使用公共原始视频预览；JPEG 回退通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check&raw=true` 保留功能授权并读取原始帧，浏览器按保存的 `roi_pos` 覆盖 ROI，空 ROI 表示全画面。待机和请求结束后继续更新画面，取图不触发采样推理。检测仍仅由 HTTP 请求触发，结果与回传状态通过独立状态接口展示；业务取证和功能标注接口保留原有职责。
+AGV 监控使用公共原始视频预览；JPEG 回退通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check&raw=true` 保留功能授权并读取原始帧，浏览器按保存的 `roi_pos` 覆盖 ROI；空 ROI 表示全画面检测，预览不叠加区域边框、填色或标签。待机和请求结束后继续更新画面，取图不触发采样推理。检测仍仅由 HTTP 请求触发，结果与回传状态通过独立状态接口展示；业务取证和功能标注接口保留原有职责。
 
 `GET /api/agv-person-check/cameras/{key}/status` 在登录会话下校验摄像头所属事业部及 AGV 功能权限，返回待机、检测、回传或不可用状态，以及当前请求的采样进度和最近一次结果。`features/agv_person_check/monitor.py` 通过独立短锁保存每路当前请求及最近一次完成记录，查询不等待推理或执行回调。同步响应记录已生成的响应正文和状态码；回调记录实际发送正文、对端 HTTP 状态码及通信失败原因，不读取对端正文或暴露回调地址、认证 Header。检测失败、取消和回传失败分别表示，失败不生成无人判定。记录仅存在于内存，摄像头移除或检测服务停止时清理。
 

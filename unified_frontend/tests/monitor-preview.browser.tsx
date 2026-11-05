@@ -24,7 +24,7 @@ window.fetch = async (input, init) => {
   if (url.pathname.endsWith('/preview')) return url.pathname.includes('camera_3') ? json({}, 403)
     : url.pathname.includes('camera_4') ? json({ enabled: true, mode: 'mse', url: '/ws/cameras/camera_4/preview?feature=detect_phone', raw: true })
     : json({ enabled: false, mode: 'jpeg', url: null, raw: true })
-  if (url.pathname.includes('/configs/')) return json({ config: { value: { roi_pos: roi } } })
+  if (url.pathname.includes('/configs/')) return json({ config: { value: { roi_pos: url.pathname.includes('camera_5') ? [] : roi } } })
   if (url.pathname.endsWith('/frame.jpg')) {
     if (url.searchParams.get('raw') !== 'true' || url.searchParams.get('feature') !== 'detect_phone') throw new Error('预览未保留功能授权或请求了标注图片')
     const width = url.pathname.includes('camera_2') ? 320 : 160
@@ -74,6 +74,14 @@ async function run() {
   svg = previewElement.querySelector('svg') as SVGSVGElement
   assert(svg.getAttribute('viewBox') !== '0 0 160 120', '切换摄像头后显示了旧画面尺寸')
   successes.push('切换摄像头清理旧图与 ROI 尺寸')
+  const previousFrame = previewElement.querySelector('img')?.src
+  render('camera_5')
+  await until(() => {
+    const image = previewElement.querySelector('img')
+    return image && image.src !== previousFrame && image.naturalWidth > 0
+  }, '全画面原始图片')
+  assert(!previewElement.querySelector('svg[aria-label="检测区域"]'), '未绘制 ROI 时不应叠加全画面边框或标签')
+  successes.push('未绘制 ROI 时显示原始画面，不叠加全画面边框或标签')
   render('camera_3')
   await until(() => previewElement.textContent?.includes('无权访问'), '拒绝预览权限')
   assert(!previewElement.querySelector('img,video,svg'), '权限拒绝后仍显示旧画面')
@@ -105,7 +113,19 @@ async function run() {
   const left = regionDirection([[0.5, 0], [0.5, 1]], 640, 360, 1)!
   assert(left.x2 < left.x1, '判定线方向与后端叉积方向不一致')
   assert(previewRegions('detect_phone', { roi_pos: [[2, 0], [0, 1], [1, 1]] }).length === 0, '无效 ROI 不应显示')
-  assert(previewRegions('detect_phone', { roi_pos: [] })[0].label.includes('全画面'), '空 ROI 应标示全画面')
+  for (const feature of ['detect_phone', 'guard_behavior']) {
+    const field = feature === 'guard_behavior' ? 'vehicle_roi_pos' : 'roi_pos'
+    for (const value of [null, {}, { [field]: [] }, { [field]: null }]) {
+      assert(previewRegions(feature, value).length === 0, `${feature} 未配置 ROI 时不应生成区域`)
+    }
+    const configured = previewRegions(feature, { [field]: roi })
+    assert(configured.length === 1 && configured[0].points === roi, `${feature} 已绘制 ROI 应正常显示`)
+  }
+  for (const feature of ['blocks', 'tailgating']) {
+    const lineOnly = previewRegions(feature, { roi_pos: [], line_points: [[0.5, 0], [0.5, 1]], direction: 0, alarm_side: -1 })
+    assert(lineOnly.length === 1 && lineOnly[0].line, `${feature} 未绘制 ROI 时仍应显示判定线`)
+    assert(lineOnly[0].directions?.length === (feature === 'tailgating' ? 2 : 1), `${feature} 判定线方向缺失`)
+  }
   successes.push('过闸双向与警戒线方向正确，无效区域不显示')
   root.unmount(); statusRoot.unmount()
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
