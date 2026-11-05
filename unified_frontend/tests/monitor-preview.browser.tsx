@@ -17,21 +17,42 @@ const successes: string[] = []
 let statusRequests = 0
 let connection = { connected: false, message: '' }
 const onConnectionChange = (connected: boolean, message: string) => { connection = { connected, message } }
+const pendingCapabilities = new Map<string, () => void>()
+let holdVideoFrame = false
+let failFirstCameraFrame = false
+let finishVideoFrame: (() => void) | null = null
+let videoFrameSignal: AbortSignal | null | undefined
+let unauthorizedEvents = 0
+const onUnauthorized = () => { unauthorizedEvents += 1 }
+window.addEventListener('aicv:unauthorized', onUnauthorized)
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 const roi = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]
 const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('已取消', 'AbortError')), { once: true }))
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   requests.push(url)
-  if (url.pathname.endsWith('/preview')) return url.pathname.includes('camera_3') ? json({}, 403)
-    : url.pathname.includes('camera_4') ? json({ enabled: true, mode: 'mse', url: '/ws/cameras/camera_4/preview?feature=detect_phone', raw: true })
-    : json({ enabled: false, mode: 'jpeg', url: null, raw: true })
+  if (url.pathname.endsWith('/preview')) {
+    const camera = url.pathname.split('/')[3]
+    if (camera === 'camera_3') return json({}, 403)
+    if (['camera_4', 'camera_6', 'camera_7'].includes(camera)) return new Promise<Response>((resolve) => {
+      pendingCapabilities.set(camera, () => resolve(json({ enabled: true, mode: 'mse',
+        url: `/ws/cameras/${camera}/preview?feature=detect_phone`, raw: true })))
+    })
+    return json({ enabled: false, mode: 'jpeg', url: null, raw: true })
+  }
   if (url.pathname.includes('/configs/')) return json({ config: { value: { roi_pos: url.pathname.includes('camera_5') ? [] : roi } } })
   if (url.pathname.endsWith('/frame.jpg')) {
     if (url.searchParams.get('raw') !== 'true' || url.searchParams.get('feature') !== 'detect_phone') throw new Error('预览未保留功能授权或请求了标注图片')
+    if (/camera_[367]\//.test(url.pathname)) return json({}, url.pathname.includes('camera_7') ? 401 : 403)
+    if (url.pathname.includes('/camera_1/') && failFirstCameraFrame) return json({}, 503)
     const width = url.pathname.includes('camera_2') ? 320 : 160
     const height = url.pathname.includes('camera_2') ? 180 : 120
-    return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#284863"/></svg>`, { headers: { 'Content-Type': 'image/svg+xml' } })
+    const response = () => new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#284863"/></svg>`, { headers: { 'Content-Type': 'image/svg+xml' } })
+    if (url.pathname.includes('camera_4') && holdVideoFrame) return new Promise<Response>((resolve) => {
+      videoFrameSignal = init?.signal
+      finishVideoFrame = () => resolve(response())
+    })
+    return response()
   }
   if (url.pathname.endsWith('/status')) {
     if (statusRequests++) return hold(init?.signal)
@@ -51,7 +72,9 @@ async function until(predicate: () => unknown, label: string) {
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
-const render = (cameraKey: string) => root.render(<StrictMode><CameraLivePreview cameraKey={cameraKey} feature="detect_phone" department="general_electric" onConnectionChange={onConnectionChange} /></StrictMode>)
+const frameCount = (camera: string) => requests.filter((url) => url.pathname === `/api/cameras/${camera}/frame.jpg`).length
+const pause = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms))
+const render = (cameraKey: string, enabled = true) => root.render(<StrictMode><CameraLivePreview cameraKey={cameraKey} feature="detect_phone" department="general_electric" enabled={enabled} onConnectionChange={onConnectionChange} /></StrictMode>)
 export function Status() {
   const result = useDetectionStatus('camera_1', 'detect_phone')
   return <CurrentDetectionCard feature="detect_phone" status={result?.status} error={result?.error} />
@@ -68,6 +91,14 @@ async function run() {
   successes.push('原始 JPEG 保留功能授权，ROI 与横屏黑边对齐，StrictMode 正常显示')
   assert(connection.connected && !connection.message, '正常 JPEG 预览不应输出常驻说明')
   successes.push('正常 JPEG 预览清空说明文案')
+  const previousFirstCameraFrame = previewElement.querySelector('img')!.src
+  failFirstCameraFrame = true
+  await until(() => previewElement.textContent?.includes('原始画面读取失败'), 'JPEG 短暂失败提示')
+  assert(previewElement.querySelector('img')?.src === previousFirstCameraFrame && !connection.connected, '短暂失败时清空了已有画面或错误显示为正常连接')
+  failFirstCameraFrame = false
+  await until(() => connection.connected && !previewElement.textContent?.includes('原始画面读取失败'), 'JPEG 重试恢复')
+  svg = previewElement.querySelector('svg[aria-label="检测区域"]') as SVGSVGElement
+  successes.push('短暂取图失败保留当前画面并提示异常，重试恢复后清除提示')
   previewElement.style.width = '300px'; previewElement.style.height = '500px'
   await new Promise((resolve) => requestAnimationFrame(resolve))
   transform = svg.getScreenCTM()!; bounds = previewElement.getBoundingClientRect()
@@ -89,7 +120,9 @@ async function run() {
   render('camera_3')
   await until(() => previewElement.textContent?.includes('无权访问'), '拒绝预览权限')
   assert(!previewElement.querySelector('img,video,svg'), '权限拒绝后仍显示旧画面')
-  assert(!requests.some((url) => url.pathname.includes('camera_3') && url.pathname.endsWith('/frame.jpg')), '权限拒绝后仍回退取图')
+  const deniedFrames = frameCount('camera_3')
+  await pause()
+  assert(frameCount('camera_3') === deniedFrames, '权限拒绝后仍继续取图')
   successes.push('权限拒绝后清空画面，不回退取图')
   const NativeSocket = window.WebSocket
   class TestSocket extends EventTarget {
@@ -99,18 +132,69 @@ async function run() {
   }
   window.WebSocket = TestSocket as unknown as typeof WebSocket
   render('camera_4')
+  await until(() => previewElement.querySelector('img')?.naturalWidth && connection.connected, '视频能力未返回前先显示首图')
+  assert(!previewElement.querySelector('video'), '能力查询未返回就启动了视频')
+  const firstVideoFrame = previewElement.querySelector('img')!.src
+  pendingCapabilities.get('camera_4')!()
   await until(() => previewElement.querySelector('video'), 'MSE 原始视频')
   const video = previewElement.querySelector('video')!
-  assert(previewElement.textContent?.includes('正在连接原始视频'), 'MSE 缺少连接状态提示')
+  assert(previewElement.querySelector('img'), '等待视频首帧期间丢失了图片画面')
+  assert(video.closest('[aria-hidden]')?.getAttribute('aria-hidden') === 'true', '已有首图时仍暴露视频加载提示')
+  Object.defineProperty(video, 'videoWidth', { value: 320, configurable: true })
+  Object.defineProperty(video, 'videoHeight', { value: 180, configurable: true })
+  video.dispatchEvent(new Event('loadedmetadata'))
+  await pause(30)
+  assert(previewElement.querySelector('svg[aria-label="检测区域"]')?.getAttribute('viewBox') === '0 0 160 120', '首图仍显示时错误使用了视频 ROI 尺寸')
+  successes.push('能力查询和视频加载期间先展示持续更新的首图，不空等视频')
+  holdVideoFrame = true
+  await until(() => finishVideoFrame !== null, '视频接管前的在途 JPEG')
+  const framesBeforePlaying = frameCount('camera_4')
   video.dispatchEvent(new Event('playing'))
-  await until(() => connection.connected && !previewElement.querySelector('[role="status"]'), '正常 MSE 隐藏提示')
+  await until(() => connection.connected && !previewElement.querySelector('img,[role="status"]'), '正常 MSE 接管图片')
   assert(!connection.message, '正常 MSE 预览不应输出常驻说明')
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  assert(!requests.some((url) => url.pathname.includes('camera_4') && url.pathname.endsWith('/frame.jpg')), 'MSE 播放期间仍并行拉 JPEG')
-  successes.push('MSE 视频与 JPEG 取图互斥')
+  assert(previewElement.querySelector('svg[aria-label="检测区域"]')?.getAttribute('viewBox') === '0 0 320 180', '视频接管后 ROI 尺寸没有切换')
+  await until(() => videoFrameSignal?.aborted, '停止在途 JPEG')
+  holdVideoFrame = false
+  finishVideoFrame!()
+  await pause(600)
+  assert(frameCount('camera_4') === framesBeforePlaying && !previewElement.querySelector('img'), '视频播放期间继续取图或晚到 JPEG 覆盖了视频')
+  assert(previewElement.querySelector('video') === video, '视频接管时重新创建了播放器')
+  successes.push('真实播放后停止 JPEG，取消在途请求，晚到首图不覆盖视频，ROI 按显示源切换')
   video.dispatchEvent(new Event('error'))
-  await until(() => previewElement.textContent?.includes('正在重连'), 'MSE 重连提示')
-  successes.push('MSE 正常播放不显示说明，连接异常时保留重连提示')
+  await until(() => previewElement.querySelector('img')?.naturalWidth && connection.connected, 'MSE 重连期间恢复原始图片')
+  assert(previewElement.querySelector('img')!.src !== firstVideoFrame, '重连时展示了很早之前的首图')
+  successes.push('MSE 重连期间获取新画面，不复用旧首图')
+  for (const camera of ['camera_6', 'camera_7']) {
+    render(camera)
+    await until(() => pendingCapabilities.has(camera), `${camera} 新会话已开始能力查询`)
+    await until(() => previewElement.textContent?.includes('无权访问'), `${camera} 首图鉴权拒绝`)
+    const count = frameCount(camera)
+    pendingCapabilities.get(camera)!()
+    await pause()
+    assert(!previewElement.querySelector('img,video,svg') && frameCount(camera) === count, '晚到的能力响应恢复了被拒绝的画面')
+  }
+  assert(unauthorizedEvents > 0, '401 未通知登录状态失效')
+  successes.push('首图 401/403 先返回时停止预览，晚到的能力查询不能恢复画面')
+  const disabledFrames = frameCount('camera_4')
+  render('camera_4', false)
+  await until(() => previewElement.textContent?.includes('摄像头已停用'), '停用摄像头')
+  await pause()
+  assert(!previewElement.querySelector('img,video') && frameCount('camera_4') === disabledFrames, '停用后仍显示或读取画面')
+  render('camera_4')
+  await until(() => previewElement.querySelector('img')?.naturalWidth && connection.connected, '重新启用时获取新首图')
+  const beforeHidden = previewElement.querySelector('img')!.src
+  Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+  document.dispatchEvent(new Event('visibilitychange'))
+  await until(() => !previewElement.querySelector('img,video'), '隐藏页面清理画面')
+  const hiddenFrames = frameCount('camera_4')
+  await pause()
+  assert(frameCount('camera_4') === hiddenFrames, '隐藏页面仍继续取图')
+  Reflect.deleteProperty(document, 'hidden'); Reflect.deleteProperty(document, 'visibilityState')
+  document.dispatchEvent(new Event('visibilitychange'))
+  await until(() => previewElement.querySelector('img')?.naturalWidth && connection.connected, '恢复页面时获取新首图')
+  assert(previewElement.querySelector('img')!.src !== beforeHidden, '恢复页面显示了旧首图')
+  successes.push('停用或隐藏页面停止取图并清空画面，重新启用或恢复时读取新图')
   render('camera_3')
   await until(() => previewElement.textContent?.includes('无权访问'), '关闭 MSE 测试会话')
   window.WebSocket = NativeSocket
@@ -140,7 +224,11 @@ async function run() {
   }
   successes.push('过闸双向与警戒线方向正确，无效区域不显示')
   root.unmount(); statusRoot.unmount()
+  window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
   resultElement.dataset.result = 'passed'
 }
-run().catch((error) => { resultElement.textContent = String(error.stack || error); resultElement.dataset.result = 'failed' })
+run().catch((error) => {
+  resultElement.textContent = `${String(error.stack || error)}\n已通过：${successes.join('；')}`
+  resultElement.dataset.result = 'failed'
+})

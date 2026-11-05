@@ -1532,7 +1532,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
-公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。取图保留 JPEG 缓存、输出尺寸和原始坐标尺寸响应头，慢响应按运行配置记录日志。 `raw=true` 仅改变取帧来源，`feature` 的权限校验仍执行，省略 `raw` 时保留功能标注接口语义。
+公共摄像头 JPEG 通过 `get_camera_identity()` 实时读取摄像头标识及事业部归属，保留部门与功能授权校验，不加载全部功能配置；摄像头详情和列表仍读取完整配置。前端在视频能力查询、MSE 首帧等待及重连期间通过原始帧接口持续更新画面，真正开始播放后停止 JPEG 请求；原始帧请求始终携带 `feature` 和 `raw=true`，401/403 拒绝后不因晚到的视频能力响应恢复预览。取图保留 JPEG 缓存、输出尺寸和原始坐标尺寸响应头，慢响应按运行配置记录日志。`raw=true` 仅改变取帧来源，`feature` 的权限校验仍执行，省略 `raw` 时保留功能标注接口语义。
 
 普通监控的 ROI 与判定线由前端覆盖，不进入视频编码。`BaseFunctionConsumer` 为区域入侵、门状态和手机检测发布不可变的当前结果快照；逗留检测同时提供当前可见轨迹的时长。`Orchestrator.get_feature_monitor_status()` 校验摄像头在线、功能运行和采样有效期，过期或不可用时清空人数、告警和明细；结果接口不依赖报警记录或视频刷新。
 
