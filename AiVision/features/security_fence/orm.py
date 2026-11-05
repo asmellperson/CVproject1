@@ -1,4 +1,4 @@
-"""摄像头独立保存围栏规则，事业部共享围栏通行授权。"""
+"""摄像头独立保存围栏规则与通行授权。"""
 from sqlalchemy import Column, Float, ForeignKey, Integer, JSON, String, TIMESTAMP, text
 
 from AiVision.core.db import Base
@@ -28,10 +28,11 @@ class FenceConfigORM(FeatureConfigBase):
 
 
 class FencePersonAuthorization(Base):
-    """一行代表人员在指定事业部获准通过围栏，与人脸识别授权独立。"""
+    """一行代表人员在指定摄像头获准通过围栏，与人脸识别授权独立。"""
     __tablename__ = "ai_security_fence_person_authorization"
-    __table_args__ = {"comment": "事业部警戒围栏通行白名单", "mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+    __table_args__ = {"comment": "摄像头警戒围栏通行白名单", "mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
-    department = Column(String(64), primary_key=True, comment="授权事业部")
+    camera_id = Column(Integer, ForeignKey("ai_camera_config.id", ondelete="CASCADE"), primary_key=True,
+                       comment="授权摄像头")
     person_id = Column(Integer, ForeignKey("ai_face_person.id", ondelete="CASCADE"), primary_key=True)
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))

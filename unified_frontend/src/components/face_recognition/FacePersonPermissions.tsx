@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { UserCheck } from 'lucide-react'
-import type { DepartmentId } from '@/auth/permissions'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,16 +11,16 @@ import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfi
 import type { FacePerson, PersonPermissionsApi } from './api'
 import { useFacePersons } from './useRecognitionConfig'
 
-export function FacePersonPermissions({ department, permissions, title = '人员权限' }: {
-  department: DepartmentId; permissions?: PersonPermissionsApi; title?: string
+export function FacePersonPermissions<Scope extends string>({ scope, permissions, title = '人员权限', description }: {
+  scope: Scope; permissions: PersonPermissionsApi<Scope>; title?: string; description?: string
 }) {
-  const state = useFacePersons(department, permissions)
+  const state = useFacePersons(scope, permissions)
   const [keyword, setKeyword] = useState('')
   const saving = state.savingId !== null
   const pages = state.result ? Math.max(1, Math.ceil(state.result.total / state.result.page_size)) : 1
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title={title} description={state.isAdmin ? '管理当前事业部的通行白名单，同事业部的摄像头共用；未添加的人员默认不允许通行。' : '查看当前事业部的通行白名单；仅管理员可以修改允许状态。'} />
+      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title={title} description={description ?? (state.isAdmin ? '管理当前事业部的通行白名单，同事业部的摄像头共用；未添加的人员默认不允许通行。' : '查看当前事业部的通行白名单；仅管理员可以修改允许状态。')} />
       <DetectionConfigCardContent className="space-y-4">
         <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => {
           event.preventDefault()

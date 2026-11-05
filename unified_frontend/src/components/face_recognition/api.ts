@@ -99,24 +99,27 @@ export type PersonPermissionsQuery = {
   is_allowed?: boolean
 }
 
-export type PersonPermissionsApi = {
-  list: (department: DepartmentId, query: PersonPermissionsQuery, signal?: AbortSignal) => Promise<FacePersonPage>
-  update: (department: DepartmentId, personId: number, isAllowed: boolean, signal?: AbortSignal) => Promise<FacePerson>
+export type PersonPermissionsApi<Scope extends string = DepartmentId> = {
+  list: (scope: Scope, query: PersonPermissionsQuery, signal?: AbortSignal) => Promise<FacePersonPage>
+  update: (scope: Scope, personId: number, isAllowed: boolean, signal?: AbortSignal) => Promise<FacePerson>
 }
 
-export function createPersonPermissionsApi(resource: 'face-recognition' | 'security-fence'): PersonPermissionsApi {
+export function createPersonPermissionsApi<Scope extends string = DepartmentId>(resource: 'face-recognition' | 'security-fence'): PersonPermissionsApi<Scope> {
+  const personsPath = (scope: Scope) => resource === 'security-fence'
+    ? `${resource}/cameras/${encodeURIComponent(scope)}/persons` : `${resource}/persons`
   return {
-    list(department, query, signal) {
-      const params = new URLSearchParams({ department, page: String(query.page), page_size: String(query.page_size) })
+    list(scope, query, signal) {
+      const params = new URLSearchParams({ page: String(query.page), page_size: String(query.page_size) })
+      if (resource === 'face-recognition') params.set('department', scope)
       if (query.keyword) params.set('keyword', query.keyword)
       if (query.source) params.set('source', query.source)
       if (query.is_active !== undefined) params.set('is_active', String(query.is_active))
       if (query.is_allowed !== undefined) params.set('is_allowed', String(query.is_allowed))
-      return requestRecognition<FacePersonPage>(`${resource}/persons?${params}`, { signal })
+      return requestRecognition<FacePersonPage>(`${personsPath(scope)}?${params}`, { signal })
     },
-    update(department, personId, isAllowed, signal) {
-      const params = new URLSearchParams({ department })
-      return requestRecognition<FacePerson>(`${resource}/persons/${personId}?${params}`, {
+    update(scope, personId, isAllowed, signal) {
+      const query = resource === 'face-recognition' ? `?${new URLSearchParams({ department: scope })}` : ''
+      return requestRecognition<FacePerson>(`${personsPath(scope)}/${personId}${query}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_allowed: isAllowed }), signal,
       })

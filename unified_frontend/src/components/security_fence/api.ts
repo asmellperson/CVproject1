@@ -37,4 +37,4 @@ export type FenceStatus = {
 export const getFenceStatus = (key: string, signal: AbortSignal) =>
   apiGet<FenceStatus>(`/security-fence/cameras/${encodeURIComponent(key)}/status`, { signal, cache: 'no-store' })
 
-export const fencePersonPermissionsApi = createPersonPermissionsApi('security-fence')
+export const fencePersonPermissionsApi = createPersonPermissionsApi<string>('security-fence')

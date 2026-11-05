@@ -225,6 +225,35 @@ def test_allowed_identity_still_passes(make_consumer):
     assert not result[0] and result[1]["persons"][0]["identity"] == "allowed"
 
 
+def test_same_department_cameras_have_independent_whitelists(make_consumer):
+    consumer = make_consumer(2, confirmation_frames=1)
+    consumer.library.get_allowed_person_ids.side_effect = lambda *, camera_id: {123} if camera_id == 1 else set()
+    consumer._before_camera_round()
+    for camera in (1, 2):
+        complete(consumer, camera, "yolo_human", [PERSON])
+        complete(consumer, camera, "insightface", [FACE])
+    first, second = process(consumer, 1), process(consumer, 2)
+    assert not first[0] and first[1]["persons"][0]["identity"] == "allowed"
+    assert second[0] and second[1]["persons"][0]["identity"] == "unauthorized"
+    assert consumer._allowed_person_ids == {1: {123}, 2: set()}
+
+
+def test_authorization_cache_refresh_and_cleanup_are_per_camera(make_consumer):
+    consumer = make_consumer(2)
+    allowed = {1: {123}, 2: {456}}
+    consumer.library.get_allowed_person_ids.side_effect = lambda *, camera_id: allowed[camera_id].copy()
+    assert consumer._camera_allowed_people(1) == {123}
+    assert consumer._camera_allowed_people(2) == {456}
+    allowed[1].clear()
+    assert consumer._camera_allowed_people(1) == {123}
+    consumer._authorization_refresh_at[1] = 0
+    assert consumer._camera_allowed_people(1) == set()
+    assert consumer._camera_allowed_people(2) == {456}
+    consumer._clear_camera_state(1, "camera_1")
+    assert 1 not in consumer._authorization_refresh_at
+    assert consumer._allowed_person_ids == {2: {456}}
+
+
 def test_timeout_uses_submission_deadline_without_another_wait(make_consumer):
     consumer = make_consumer()
     consumer._before_camera_round()

@@ -1,4 +1,4 @@
-"""围栏配置和监控契约；摄像头规则独立，准入授权按事业部共享。"""
+"""围栏配置和监控契约；规则与准入授权均按摄像头独立保存。"""
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 

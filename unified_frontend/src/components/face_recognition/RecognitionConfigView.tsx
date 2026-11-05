@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { TabsContent } from '@/components/ui/tabs'
-import { FACE_FEATURE } from './api'
+import { FACE_FEATURE, facePersonPermissionsApi } from './api'
 import { useRecognitionConfig } from './useRecognitionConfig'
 import { FacePersonPermissions } from './FacePersonPermissions'
 
@@ -89,7 +89,7 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
           onChange={(value) => state.setAlarm(normalizeFeatureAlarmConfig(value))} onSave={state.save} />
 
         </FeatureConfigGate></TabsContent>
-      <TabsContent value="persons"><FacePersonPermissions key={department} department={department} /></TabsContent>
+      <TabsContent value="persons"><FacePersonPermissions key={department} scope={department} permissions={facePersonPermissionsApi} /></TabsContent>
     </DetectionConfigTabs>
   )
 }

@@ -14,7 +14,7 @@ from .runtime import current_mode
 from .schema import FEATURE, STALE_SECONDS, FenceAlarm, FenceConfig, FenceHistory, FenceStatus
 
 
-person_library = FaceLibraryService(authorization_model=FencePersonAuthorization)
+person_library = FaceLibraryService(authorization_model=FencePersonAuthorization, authorization_scope="camera_id")
 
 
 def camera_status(camera: dict, orchestrator) -> FenceStatus:

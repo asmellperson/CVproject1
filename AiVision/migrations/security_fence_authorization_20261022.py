@@ -5,7 +5,22 @@ import argparse
 import json
 from pathlib import Path
 
-from sqlalchemy import Column, JSON, MetaData, create_engine, inspect, select, text
+from sqlalchemy import Column, ForeignKey, Integer, JSON, MetaData, String, Table, TIMESTAMP, create_engine, inspect, select, text
+
+
+def _authorization_table():
+    """固定该版本的事业部授权结构，不随当前运行时 ORM 的授权范围变化。"""
+    from AiVision.features.face_recognition.library.orm import FacePerson
+
+    metadata = MetaData()
+    FacePerson.__table__.to_metadata(metadata)
+    return Table(
+        "ai_security_fence_person_authorization", metadata,
+        Column("department", String(64), primary_key=True),
+        Column("person_id", Integer, ForeignKey("ai_face_person.id", ondelete="CASCADE"), primary_key=True),
+        Column("created_at", TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+        mysql_engine="InnoDB", mysql_charset="utf8mb4",
+    )
 
 
 def _config_table(*, legacy: bool):
@@ -57,14 +72,15 @@ def check(engine) -> dict:
     from AiVision.core.schema import assert_table_matches
     # 已有授权表会先于摄像头配置核验，独立 CLI 必须先注册其引用的人员模型。
     from AiVision.features.face_recognition.library.orm import FacePerson  # noqa: F401
-    from AiVision.features.security_fence.orm import FenceConfigORM, FencePersonAuthorization
+    from AiVision.features.security_fence.orm import FenceConfigORM
 
+    authorizations = _authorization_table()
     with engine.connect() as connection:
         inspector = inspect(connection)
         has_config = inspector.has_table(FenceConfigORM.__tablename__)
-        has_authorizations = inspector.has_table(FencePersonAuthorization.__tablename__)
+        has_authorizations = inspector.has_table(authorizations.name)
         if has_authorizations:
-            assert_table_matches(connection, FencePersonAuthorization.__table__)
+            assert_table_matches(connection, authorizations)
         legacy = False
         pairs, populated = set(), 0
         if has_config:
@@ -92,12 +108,12 @@ def apply(engine) -> dict:
     再次执行不会恢复已被管理员取消的授权。空库由应用启动创建正式结构。
     """
     from AiVision.core.schema import assert_table_matches
-    from AiVision.features.security_fence.orm import FenceConfigORM, FencePersonAuthorization
+    from AiVision.features.security_fence.orm import FenceConfigORM
 
     state = check(engine)
     if not state["config_table_present"]:
         return {**state, "copied": 0}
-    authorizations = FencePersonAuthorization.__table__
+    authorizations = _authorization_table()
     with engine.begin() as connection:
         authorizations.create(connection, checkfirst=True)
         assert_table_matches(connection, authorizations)

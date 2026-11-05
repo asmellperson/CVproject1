@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Literal
 
 from sqlalchemy import func, or_, select
 
@@ -40,9 +41,22 @@ class SyncCounts:
 
 class FaceLibraryService:
     """管理人员资料、通行授权及特征写入，保持数据库事务边界。"""
-    def __init__(self, *, authorization_model=FacePersonAuthorization):
+    def __init__(self, *, authorization_model=FacePersonAuthorization,
+                 authorization_scope: Literal["department", "camera_id"] = "department"):
         # 共享人员资料及事务逻辑，功能各自提供授权表，避免不同功能的允许状态互相影响。
         self.authorization_model = authorization_model
+        self.authorization_scope = authorization_scope
+
+    def _scope(self, *, department: str | None = None, camera_id: int | None = None) -> dict:
+        """按功能声明限定授权范围，禁止摄像头授权回退到事业部。"""
+        if self.authorization_scope == "camera_id":
+            if department is not None or type(camera_id) is not int or camera_id < 1:
+                raise ValueError("围栏授权必须指定有效的摄像头 ID")
+            return {"camera_id": camera_id}
+        if camera_id is not None:
+            raise ValueError("人脸身份识别授权必须指定事业部")
+        require_department(department)
+        return {"department": department}
 
     def list_embedding_candidates(self) -> list[EmbeddingCandidate]:
         """列出在用人员及现有特征元数据，由生成任务判断是否需要重建。"""
@@ -86,8 +100,8 @@ class FaceLibraryService:
         with get_session() as session:
             return session.query(FacePerson).filter_by(hik_source=source, hik_person_id=person_id).one_or_none()
 
-    def _person_query(self, session, department: str):
-        """人员资料共享，允许状态只由当前事业部的授权行决定。"""
+    def _person_query(self, session, scope: dict):
+        """人员资料共享，允许状态只由当前授权范围内的授权行决定。"""
         authorization = self.authorization_model
         return session.query(
             *FacePerson.__table__.columns,
@@ -95,21 +109,22 @@ class FaceLibraryService:
         ).select_from(FacePerson).outerjoin(
             authorization,
             (authorization.person_id == FacePerson.id)
-            & (authorization.department == department),
+            & (getattr(authorization, self.authorization_scope) == scope[self.authorization_scope]),
         )
 
     def list_persons(
-        self, *, department: str, page: int = 1, page_size: int = 20, keyword: str | None = None,
+        self, *, department: str | None = None, camera_id: int | None = None,
+        page: int = 1, page_size: int = 20, keyword: str | None = None,
         source: str | None = None, is_active: bool | None = None, is_allowed: bool | None = None,
     ) -> FacePersonPage:
-        """按来源、当前事业部授权及关键字筛选人员，分页计数沿用相同条件。"""
-        require_department(department)
+        """按来源、当前范围授权及关键字筛选人员，分页计数沿用相同条件。"""
+        scope = self._scope(department=department, camera_id=camera_id)
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("页码必须大于零，每页数量须为 1～100")
         if source is not None:
             self._require_source(source)
         with get_session() as session:
-            query = self._person_query(session, department)
+            query = self._person_query(session, scope)
             if source is not None:
                 query = query.filter(FacePerson.hik_source == source)
             if is_active is not None:
@@ -129,29 +144,31 @@ class FaceLibraryService:
                 items=[FacePersonItem.model_validate(person) for person in persons],
             )
 
-    def update_person_allowed(self, person_id: int, is_allowed: bool, *, department: str) -> FacePersonItem | None:
-        """只增删指定事业部授权，锁定人员以串行化并发增删，提交后回读结果。"""
-        require_department(department)
+    def update_person_allowed(self, person_id: int, is_allowed: bool, *, department: str | None = None,
+                              camera_id: int | None = None) -> FacePersonItem | None:
+        """只增删指定范围的授权，锁定人员以串行化并发增删，提交后回读结果。"""
+        scope = self._scope(department=department, camera_id=camera_id)
         with session_scope() as session:
             person = session.get(FacePerson, person_id, with_for_update=True)
             if person is None:
                 return None
-            authorization = session.get(self.authorization_model, (department, person_id))
+            authorization = session.get(self.authorization_model, {**scope, "person_id": person_id})
             if is_allowed and authorization is None:
-                session.add(self.authorization_model(department=department, person_id=person_id))
+                session.add(self.authorization_model(**scope, person_id=person_id))
             elif not is_allowed and authorization is not None:
                 session.delete(authorization)
         # 提交后重新读取数据库状态，响应包含实际保存值和时间戳。
         with get_session() as session:
-            person = self._person_query(session, department).filter(FacePerson.id == person_id).one_or_none()
+            person = self._person_query(session, scope).filter(FacePerson.id == person_id).one_or_none()
             return FacePersonItem.model_validate(person) if person is not None else None
 
-    def get_allowed_person_ids(self, department: str) -> set[int]:
-        """仅返回当前事业部内仍在用且获准通行的人员 ID。"""
-        require_department(department)
+    def get_allowed_person_ids(self, department: str | None = None, *, camera_id: int | None = None) -> set[int]:
+        """仅返回当前范围内仍在用且获准通行的人员 ID。"""
+        scope = self._scope(department=department, camera_id=camera_id)
         with get_session() as session:
             return set(session.scalars(select(FacePerson.id).join(self.authorization_model).where(
-                FacePerson.is_active.is_(True), self.authorization_model.department == department,
+                FacePerson.is_active.is_(True),
+                getattr(self.authorization_model, self.authorization_scope) == scope[self.authorization_scope],
             )))
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:

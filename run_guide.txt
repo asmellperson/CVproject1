@@ -211,42 +211,44 @@ systemctl list-timers --all --no-pager -l
 日志中分别包含人员同步和特征生成阶段，以及 one、two 的处理统计。
 人员资料的 last_synced_at 只在资料实际变化时更新，不能作为任务是否持续执行的判断依据。
 
-九、警戒围栏事业部白名单
+九、警戒围栏摄像头白名单
 ------------------------
 
-在对应事业部的“警戒围栏 → 配置管理 → 围栏白名单”中设置人员允许状态。
-无需选择摄像头，同事业部的围栏摄像头共用名单；未添加人员默认不允许通行。
+在“警戒围栏 → 配置管理 → 围栏白名单”中选择摄像头，再设置人员允许状态。
+每台摄像头独立管理名单，同事业部也可设置不同权限；未添加人员默认不允许通行。
 管理员切换开关后即时保存并回读，普通账号只读；围栏与人脸身份识别分别维护授权。
 禁入时段内所有进入 ROI 的人员仍形成异常时间报警，包括白名单人员。
 
 已有围栏数据库部署此功能时，需要停止后端和相关写入、迁移结构后再启动后端。
 前端按常规部署方式更新并刷新页面。完成部署后，日常修改白名单无需重启，
-检测时约每 2 秒刷新事业部授权；资料和特征自动同步不会自动允许新人员通行。
+检测时约每 2 秒刷新当前摄像头授权；资料和特征自动同步不会自动允许新人员通行。
 
 1. 只读检查（可在停止服务前执行）
 
 cd /srv/Fuda_CVPreject
-/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_authorization_20261022 --check
+/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_camera_authorization_20261105 --check
 
 命令从 AiVision/.env 读取数据库配置，不启动算法、不修改数据库。
-结果中的 needs_migration 表示摄像头名单结构是否需要转换，
-needs_authorization_table 表示事业部授权表是否尚未创建，
-department_authorizations 显示各事业部将保留的授权数量。
+结果中的 authorization_scope 表示当前授权范围（department、camera 或 missing），
+needs_migration 表示是否需要转换为摄像头授权，needs_authorization_table 表示授权表是否尚未创建，
+camera_authorizations 显示各摄像头将保留的授权数量。
 
 2. 备份数据库，停止后端及所有围栏配置、授权写入后应用
 
-/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_authorization_20261022 --apply --offline
+/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_camera_authorization_20261105 --apply --offline
 
-迁移将已有摄像头名单按摄像头所属事业部合并，同事业部取并集。
-只有完整保存并核对授权后才移除摄像头名单列，不修改其他摄像头参数或人脸识别授权。
+迁移将已有事业部授权复制到该事业部已经配置围栏的每台摄像头，保留授权时间。
+停用但仍有围栏配置的设备也保留名单；未配置围栏的设备不继承权限。
+只有完整保存并核对授权后才切换正式表，原表保存在 ai_security_fence_authorization_department_20261105。
+迁移不修改其他摄像头参数或人脸识别授权，不会为未来加入的摄像头自动授权。
 出现无效人员引用或无法确定事业部时会停止并保留原名单，应先修正数据再重试。
 --offline 是操作者对停写状态的明确声明，命令不会自动停止服务。
 迁移可重复执行，完成后不会恢复后来被管理员取消的授权。
 
 3. 再次检查并启动后端
 
-/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_authorization_20261022 --check
+/root/miniconda3/envs/aivision/bin/python -m AiVision.migrations.security_fence_camera_authorization_20261105 --check
 
 已有围栏数据库完成迁移后，needs_migration 和 needs_authorization_table 均应为 false。
-确认检查通过，再按本指南的常规方式启动后端，检查各事业部名单及围栏实时状态。
+确认检查通过，再按本指南的常规方式启动后端，检查各摄像头名单及围栏实时状态。
 空库由后端正常启动创建正式结构，无需转换历史名单。

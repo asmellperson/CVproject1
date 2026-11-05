@@ -62,7 +62,15 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
       </Card>{saveBar}
     </FeatureConfigGate></TabsContent>
     <TabsContent value="persons" className="space-y-6">
-      <FenceWhitelist key={department} department={department} />
+      <div className="space-y-2"><Label htmlFor="fence-whitelist-camera">摄像头</Label>
+        <Select value={cameraKey} onValueChange={state.selectCamera} disabled={loading || saving || !state.enabledCameras.length}>
+          <SelectTrigger id="fence-whitelist-camera" className="w-full"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
+          <SelectContent>{state.enabledCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}{!camera.enabled ? '（摄像头已停用）' : ''}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <FeatureConfigGate cameraKey={cameraKey} disabled={false}>
+        {cameraKey && <FenceWhitelist key={`${department}:${cameraKey}`} cameraKey={cameraKey} />}
+      </FeatureConfigGate>
     </TabsContent>
     <TabsContent value="roi"><FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>
       {draft && <Suspense fallback={<p>正在加载 ROI 编辑器…</p>}><AiVisionRoiEditor key={cameraKey} title="警戒围栏 ROI 绘制" cameraKey={cameraKey} roiJson={draft.roi} disabled={disabled} saving={saving} message={message}

@@ -9,11 +9,11 @@ import {
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
-import { FACE_FEATURE, facePersonPermissionsApi, type FacePersonPage, type PersonPermissionsApi, type PersonPermissionsQuery } from './api'
+import { FACE_FEATURE, type FacePersonPage, type PersonPermissionsApi, type PersonPermissionsQuery } from './api'
 
 const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
 
-export function useFacePersons(department: DepartmentId, permissions: PersonPermissionsApi = facePersonPermissionsApi) {
+export function useFacePersons<Scope extends string>(scope: Scope, permissions: PersonPermissionsApi<Scope>) {
   const { isAdmin } = useAuth()
   const [query, setQuery] = useState<PersonPermissionsQuery>({ page: 1, page_size: 20 })
   const [result, setResult] = useState<FacePersonPage | null>(null)
@@ -32,7 +32,7 @@ export function useFacePersons(department: DepartmentId, permissions: PersonPerm
     setError('')
     setMessage('')
     try {
-      const page = await permissions.list(department, query, controller.signal)
+      const page = await permissions.list(scope, query, controller.signal)
       if (controller.signal.aborted) return false
       const lastPage = Math.max(1, Math.ceil(page.total / page.page_size))
       if (query.page > lastPage) {
@@ -50,7 +50,7 @@ export function useFacePersons(department: DepartmentId, permissions: PersonPerm
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [department, query, permissions])
+  }, [scope, query, permissions])
 
   useEffect(() => {
     void loadPersons()
@@ -67,7 +67,7 @@ export function useFacePersons(department: DepartmentId, permissions: PersonPerm
     setError('')
     setMessage('')
     try {
-      await permissions.update(department, personId, isAllowed, controller.signal)
+      await permissions.update(scope, personId, isAllowed, controller.signal)
       if (controller.signal.aborted) return
       if (await loadPersons()) setMessage('通行权限已保存，人员状态已重新读取。')
     } catch (cause) {

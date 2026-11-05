@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from AiVision.alarms.dispatcher import alarm_dispatcher
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-from AiVision.departments.department_registry import require_department
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
@@ -28,8 +27,8 @@ class FenceConsumer(BaseFunctionConsumer):
         self.unidentified_subjects: dict[int, set[str]] = {}
         self.unidentified_slots: dict[int, dict[int, int]] = {}
         self.library = person_library
-        self._allowed_person_ids: dict[str, set[int]] = {}
-        self._authorization_refresh_at: dict[str, float] = {}
+        self._allowed_person_ids: dict[int, set[int]] = {}
+        self._authorization_refresh_at: dict[int, float] = {}
         self._pending_inferences: dict[int, FenceInference] = {}
         self._submission_order: deque[int] = deque()
         self._submitted_at: dict[int, float] = {}
@@ -67,6 +66,8 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _clear_camera_state(self, camera_id, shm_name):
         self._cancel_pending(camera_id)
+        self._allowed_person_ids.pop(camera_id, None)
+        self._authorization_refresh_at.pop(camera_id, None)
         self._submitted_at.pop(camera_id, None)
         super()._clear_camera_state(camera_id, shm_name)
         self.runtimes.pop(camera_id, None)
@@ -199,20 +200,19 @@ class FenceConsumer(BaseFunctionConsumer):
         pending.early_published = True
         errors = []
         faces = response["detections"] if response is not None and response["status"] == "ok" else []
-        department = cfg["department"]
         try:
             # 禁入规则不依赖白名单，首次人体报警不能等待数据库或身份识别。
-            allowed = (self._allowed_person_ids.get(department, set()) if mode == "forbidden"
-                       else self._department_allowed_people(department))
+            allowed = (self._allowed_person_ids.get(camera_id, set()) if mode == "forbidden"
+                       else self._camera_allowed_people(camera_id))
         except Exception as exc:
             # 读取失败时撤销旧权限和身份；禁入时段仍按人体观测报警，不误用旧名单放行。
-            self._allowed_person_ids.pop(department, None)
-            self._authorization_refresh_at.pop(department, None)
+            self._allowed_person_ids.pop(camera_id, None)
+            self._authorization_refresh_at.pop(camera_id, None)
             runtime.identities.clear()
             faces = []
             allowed = set()
-            errors.append("事业部围栏白名单读取失败")
-            logger.warning(f"[security_fence] 事业部围栏白名单读取失败 department={department} error={type(exc).__name__}")
+            errors.append("摄像头围栏白名单读取失败")
+            logger.warning(f"[security_fence] 摄像头围栏白名单读取失败 camera_id={camera_id} error={type(exc).__name__}")
         if response is not None and response["status"] != "ok":
             # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
             runtime.identities.clear()
@@ -238,13 +238,12 @@ class FenceConsumer(BaseFunctionConsumer):
             self._cancel_pending(camera_id)
         return detail["alarm"], detail
 
-    def _department_allowed_people(self, department: str) -> set[int]:
-        """同事业部共用授权缓存，刷新周期与人脸身份识别保持一致。"""
-        require_department(department)
-        if time.monotonic() >= self._authorization_refresh_at.get(department, 0.0):
-            self._allowed_person_ids[department] = self.library.get_allowed_person_ids(department)
-            self._authorization_refresh_at[department] = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
-        return self._allowed_person_ids[department]
+    def _camera_allowed_people(self, camera_id: int) -> set[int]:
+        """逐摄像头缓存授权，刷新周期与人脸身份识别保持一致。"""
+        if time.monotonic() >= self._authorization_refresh_at.get(camera_id, 0.0):
+            self._allowed_person_ids[camera_id] = self.library.get_allowed_person_ids(camera_id=camera_id)
+            self._authorization_refresh_at[camera_id] = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
+        return self._allowed_person_ids[camera_id]
 
     def post_process(self, camera_id, result):
         frame = self._annotated_frame(camera_id)
