@@ -63,7 +63,7 @@ function LivePreview({ cameraKey, feature, department, enabled = true, fps, valu
   const connected = enabled && visible && (preview.mode === 'mse' ? videoState === 'playing' : jpeg && jpegConnected)
   const message = !enabled ? '摄像头已停用' : !visible ? '页面不可见，已暂停画面'
     : preview.mode === 'denied' ? '无权访问当前摄像头或检测功能'
-    : error && preview.mode === 'jpeg' ? error : connected ? '原始画面已连接，检测结果见旁侧卡片' : '正在连接原始画面…'
+    : error && preview.mode === 'jpeg' ? error : connected ? '' : '正在连接原始画面…'
   useEffect(() => { onConnectionChange?.(connected, message) }, [connected, message, onConnectionChange])
   const show = enabled && visible && preview.mode !== 'denied'
   return <div className="relative h-full w-full overflow-hidden bg-slate-950">

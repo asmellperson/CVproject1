@@ -73,7 +73,7 @@ export function VisualLanguageMonitorView({ department, cameras, selectedCamera,
         <CardContent className="p-0">
           <MonitorCameraToolbar cameras={cameras} selectedCamera={selectedCamera} loading={loading} onSelectCamera={onSelectCamera} onRefreshCameras={onRefreshCameras} />
           <div className="relative aspect-video overflow-hidden bg-slate-950">{frameContent}</div>
-          <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{message}</p>
+          {message && <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{message}</p>}
           {(error || status?.error) && <p role="alert" className="mx-4 mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error || status?.error}</p>}
         </CardContent>
       </Card>

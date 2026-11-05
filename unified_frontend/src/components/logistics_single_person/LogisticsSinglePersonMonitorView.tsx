@@ -259,7 +259,7 @@ export function LogisticsSinglePersonMonitorView({
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" />
             </div>
-            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
+            {message && <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>}
           </CardContent>
         </Card>
       </ResizableMonitorLayout>

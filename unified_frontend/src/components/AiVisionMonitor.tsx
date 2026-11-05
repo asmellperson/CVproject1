@@ -264,7 +264,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
             {frameContent}
         </div>
         </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">{message}</div>
+        {message && <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">{message}</div>}
       </CardContent>
     </Card>
   )

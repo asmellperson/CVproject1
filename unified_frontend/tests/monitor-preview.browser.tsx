@@ -15,6 +15,8 @@ const statusRoot = createRoot(statusElement)
 const requests: URL[] = []
 const successes: string[] = []
 let statusRequests = 0
+let connection = { connected: false, message: '' }
+const onConnectionChange = (connected: boolean, message: string) => { connection = { connected, message } }
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 const roi = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]
 const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('已取消', 'AbortError')), { once: true }))
@@ -49,7 +51,7 @@ async function until(predicate: () => unknown, label: string) {
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
-const render = (cameraKey: string) => root.render(<StrictMode><CameraLivePreview cameraKey={cameraKey} feature="detect_phone" department="general_electric" /></StrictMode>)
+const render = (cameraKey: string) => root.render(<StrictMode><CameraLivePreview cameraKey={cameraKey} feature="detect_phone" department="general_electric" onConnectionChange={onConnectionChange} /></StrictMode>)
 export function Status() {
   const result = useDetectionStatus('camera_1', 'detect_phone')
   return <CurrentDetectionCard feature="detect_phone" status={result?.status} error={result?.error} />
@@ -64,6 +66,8 @@ async function run() {
   let bounds = previewElement.getBoundingClientRect()
   assert(Math.abs(transform.e - bounds.left - 80) < 1 && Math.abs(transform.f - bounds.top) < 1, '横屏黑边内 ROI 错位')
   successes.push('原始 JPEG 保留功能授权，ROI 与横屏黑边对齐，StrictMode 正常显示')
+  assert(connection.connected && !connection.message, '正常 JPEG 预览不应输出常驻说明')
+  successes.push('正常 JPEG 预览清空说明文案')
   previewElement.style.width = '300px'; previewElement.style.height = '500px'
   await new Promise((resolve) => requestAnimationFrame(resolve))
   transform = svg.getScreenCTM()!; bounds = previewElement.getBoundingClientRect()
@@ -96,9 +100,17 @@ async function run() {
   window.WebSocket = TestSocket as unknown as typeof WebSocket
   render('camera_4')
   await until(() => previewElement.querySelector('video'), 'MSE 原始视频')
+  const video = previewElement.querySelector('video')!
+  assert(previewElement.textContent?.includes('正在连接原始视频'), 'MSE 缺少连接状态提示')
+  video.dispatchEvent(new Event('playing'))
+  await until(() => connection.connected && !previewElement.querySelector('[role="status"]'), '正常 MSE 隐藏提示')
+  assert(!connection.message, '正常 MSE 预览不应输出常驻说明')
   await new Promise((resolve) => setTimeout(resolve, 200))
   assert(!requests.some((url) => url.pathname.includes('camera_4') && url.pathname.endsWith('/frame.jpg')), 'MSE 播放期间仍并行拉 JPEG')
   successes.push('MSE 视频与 JPEG 取图互斥')
+  video.dispatchEvent(new Event('error'))
+  await until(() => previewElement.textContent?.includes('正在重连'), 'MSE 重连提示')
+  successes.push('MSE 正常播放不显示说明，连接异常时保留重连提示')
   render('camera_3')
   await until(() => previewElement.textContent?.includes('无权访问'), '关闭 MSE 测试会话')
   window.WebSocket = NativeSocket

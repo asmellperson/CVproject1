@@ -143,7 +143,7 @@ export function HumanDwellMonitorView({
               <div className="pointer-events-none absolute bottom-3 left-3 font-mono text-[10px] font-semibold sm:left-4 sm:text-base text-white/95 [text-shadow:0_1px_4px_rgba(0,0,0,0.85)]"><Clock3 className="mr-1 inline h-3 w-3 sm:mr-1.5 sm:h-4 sm:w-4" />{timestamp}</div>
               <span className="pointer-events-none absolute bottom-3 right-3 rounded-full sm:right-4 bg-black/45 px-2 py-1 font-mono text-[10px] text-white backdrop-blur-sm">实时画面</span>
             </div>
-            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
+            {message && <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>}
           </CardContent>
         </Card>
       </ResizableMonitorLayout>

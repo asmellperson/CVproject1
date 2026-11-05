@@ -13,9 +13,8 @@ type Props = {
   onDimensions?: (width: number, height: number) => void
 }
 
-const MESSAGES: Record<VideoPreviewState, string> = {
+const MESSAGES: Record<Exclude<VideoPreviewState, 'playing'>, string> = {
   connecting: '正在连接原始视频…',
-  playing: '原始视频，未叠加检测框',
   reconnecting: '视频连接中断，正在重连…',
   paused: '页面不可见，已暂停视频',
   fallback: '视频未连接，正在切换 JPEG 预览',
@@ -59,10 +58,8 @@ export function AiVisionVideoPreview({ url, cameraKey, department, feature, onFa
     <video key={key} ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain"
       onLoadedMetadata={(event) => onDimensions?.(event.currentTarget.videoWidth, event.currentTarget.videoHeight)}
       onResize={(event) => onDimensions?.(event.currentTarget.videoWidth, event.currentTarget.videoHeight)} />
-    <div role="status" className={state === 'playing'
-      ? 'pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-xs text-slate-200'
-      : 'pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300'}>
+    {state !== 'playing' && <div role="status" className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300">
       {MESSAGES[state]}
-    </div>
+    </div>}
   </div>
 }

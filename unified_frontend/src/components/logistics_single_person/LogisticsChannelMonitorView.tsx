@@ -281,7 +281,6 @@ export function LogisticsChannelMonitorView({
                   })}
                   {!members.length && <p className="flex min-h-56 items-center justify-center text-sm text-slate-300">通道未配置启用的摄像头</p>}
                 </div>
-                <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">各路展示实时原始画面和 ROI，联合判定与逐路结果见旁侧卡片。</div>
               </CardContent>
             </Card>
           </ResizableMonitorLayout>

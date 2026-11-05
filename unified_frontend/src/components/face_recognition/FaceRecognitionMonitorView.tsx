@@ -81,7 +81,7 @@ export function FaceRecognitionMonitorView({
             <div className="relative aspect-video overflow-hidden bg-slate-950">
               {frameContent}
             </div>
-            <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{message}</p>
+            {message && <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{message}</p>}
           </CardContent>
         </Card>
       </ResizableMonitorLayout>
