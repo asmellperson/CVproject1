@@ -1,4 +1,4 @@
-import { CameraLivePreview } from '@/components/monitor/CameraLivePreview'
+import { LogisticsCameraPreview } from './LogisticsCameraPreview'
 import type { AiVisionCamera } from '@/lib/aivision'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import type { LucideIcon } from 'lucide-react'
@@ -274,8 +274,8 @@ export function LogisticsChannelMonitorView({
                     const camera = cameras.find((item) => item.camera_id === member.camera_id)
                     return <div key={member.id} className="min-w-0">
                       <p className="px-3 py-2 text-xs text-slate-200">{camera?.name || `摄像头 ${member.camera_id}`}</p>
-                      <div className="aspect-video">{camera ? <CameraLivePreview cameraKey={camera.shm_name} feature={feature}
-                        department={selectedChannel.department} enabled={camera.enabled} fps={camera.fps} />
+                      <div className="aspect-video">{camera ? <LogisticsCameraPreview camera={camera} feature={feature}
+                        department={selectedChannel.department} channelId={selectedChannel.id} />
                         : <p className="flex h-full items-center justify-center text-sm text-slate-300">等待摄像头信息</p>}</div>
                     </div>
                   })}

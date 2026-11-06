@@ -5,6 +5,10 @@ import { CameraLivePreview } from '../src/components/monitor/CameraLivePreview'
 import { CurrentDetectionCard } from '../src/components/monitor/CurrentDetectionCard'
 import { useDetectionStatus } from '../src/components/monitor/useDetectionStatus'
 import { previewRegions, regionDirection } from '../src/components/monitor/previewRegions'
+import { LogisticsChannelMonitorView } from '../src/components/logistics_single_person/LogisticsChannelMonitorView'
+import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../src/components/logistics_single_person/api'
+import type { LogisticsChannelDetail } from '../src/components/logistics_single_person/types'
+import type { AiVisionCamera } from '../src/lib/aivision'
 import '../src/index.css'
 
 const previewElement = document.getElementById('preview')!
@@ -23,6 +27,13 @@ let failFirstCameraFrame = false
 let finishVideoFrame: (() => void) | null = null
 let videoFrameSignal: AbortSignal | null | undefined
 let unauthorizedEvents = 0
+const logisticsFeature = 'detect_logistics_single_person'
+const logisticsRois = new Map<number, number[][]>()
+let logisticsRoiReads = 0
+let failLogisticsRoi = false
+let holdLogisticsRoi = false
+let finishLogisticsRoi: (() => void) | null = null
+let logisticsRoiSignal: AbortSignal | null | undefined
 const onUnauthorized = () => { unauthorizedEvents += 1 }
 window.addEventListener('aicv:unauthorized', onUnauthorized)
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
@@ -31,6 +42,24 @@ const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) 
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   requests.push(url)
+  if (url.pathname === '/api/departments') return json([{ name: 'general_electric', display_name: '通用电气事业部' }])
+  const logisticsRoi = /^\/api\/logistics-channels\/detect_logistics_single_person\/(\d+)\/cameras\/(\d+)\/roi$/.exec(url.pathname)
+  if (logisticsRoi) {
+    const channelId = Number(logisticsRoi[1])
+    const response = () => json({ roi_pos: logisticsRois.get(channelId) ?? roi,
+      camera: { id: Number(logisticsRoi[2]), name: '物流摄像头', shm_name: 'camera_1', enable: true } })
+    if (init?.method === 'PUT') {
+      logisticsRois.set(channelId, JSON.parse(String(init.body)).roi_pos)
+      return response()
+    }
+    logisticsRoiReads += 1
+    if (failLogisticsRoi) return json({}, 503)
+    if (holdLogisticsRoi && channelId === 11) return new Promise<Response>((resolve) => {
+      logisticsRoiSignal = init?.signal
+      finishLogisticsRoi = () => resolve(response())
+    })
+    return response()
+  }
   if (url.pathname.endsWith('/preview')) {
     const camera = url.pathname.split('/')[3]
     if (camera === 'camera_3') return json({}, 403)
@@ -40,9 +69,11 @@ window.fetch = async (input, init) => {
     })
     return json({ enabled: false, mode: 'jpeg', url: null, raw: true })
   }
-  if (url.pathname.includes('/configs/')) return json({ config: { value: { roi_pos: url.pathname.includes('camera_5') ? [] : roi } } })
+  if (url.pathname.includes('/configs/')) return url.pathname.includes(logisticsFeature)
+    ? json({ detail: '物流摄像头配置只通过通道 ROI 接口访问' }, 404)
+    : json({ config: { value: { roi_pos: url.pathname.includes('camera_5') ? [] : roi } } })
   if (url.pathname.endsWith('/frame.jpg')) {
-    if (url.searchParams.get('raw') !== 'true' || url.searchParams.get('feature') !== 'detect_phone') throw new Error('预览未保留功能授权或请求了标注图片')
+    if (url.searchParams.get('raw') !== 'true' || !['detect_phone', logisticsFeature].includes(url.searchParams.get('feature') || '')) throw new Error('预览未保留功能授权或请求了标注图片')
     if (/camera_[367]\//.test(url.pathname)) return json({}, url.pathname.includes('camera_7') ? 401 : 403)
     if (url.pathname.includes('/camera_1/') && failFirstCameraFrame) return json({}, 503)
     const width = url.pathname.includes('camera_2') ? 320 : 160
@@ -78,6 +109,25 @@ const render = (cameraKey: string, enabled = true) => root.render(<StrictMode><C
 export function Status() {
   const result = useDetectionStatus('camera_1', 'detect_phone')
   return <CurrentDetectionCard feature="detect_phone" status={result?.status} error={result?.error} />
+}
+
+const logisticsCamera: AiVisionCamera = { id: '1', camera_id: 1, name: '物流摄像头', shm_name: 'camera_1',
+  department: 'general_electric', enabled: true, fps: 5, sort_order: 0,
+  feature_sort_orders: { [logisticsFeature]: 0 }, functions: { [logisticsFeature]: true } }
+function renderLogistics(channelId: number) {
+  const channel: LogisticsChannelDetail = { id: channelId, name: `通道${channelId}`, department: 'general_electric',
+    feature_name: logisticsFeature, enabled: true, sort_order: 0, created_at: null, updated_at: null, status: null,
+    config: { schedule: { weekdays: [1, 2, 3, 4, 5, 6, 7], start: '00:00', end: '23:59', timezone: 'Asia/Shanghai' },
+      confidence_threshold: 0.5, model_iou_threshold: 0.5, min_box_area: 0, min_aspect_ratio: 0,
+      max_aspect_ratio: 10, cap_interval: 0.2, empty_grace_seconds: 3, multi_grace_seconds: 3, alarm_interval: 30,
+      alarm: { sql_enable: false, horn: { enabled: false, interval: null, horn_id: null, horn_event_id: null },
+        wechat: { enabled: false, interval: null, user: '' } } },
+    members: [{ id: channelId * 10, channel_id: channelId, camera_id: 1, enabled: true,
+      sort_order: 0, created_at: null, updated_at: null }] }
+  root.render(<StrictMode><LogisticsChannelMonitorView feature={logisticsFeature} title="物流通道单人检测"
+    channels={[channel]} selectedChannelId={channelId} selectedChannel={channel} selectedChannelDetail={channel}
+    status={null} cameras={[logisticsCamera]} todayAlarmCount={0} latestAlarmAt={null} events={[]}
+    loading={false} error={null} onSelectChannel={() => {}} onRefresh={() => {}} /></StrictMode>)
 }
 
 async function run() {
@@ -223,6 +273,38 @@ async function run() {
     assert(lineOnly[0].directions?.length === (feature === 'tailgating' ? 2 : 1), `${feature} 判定线方向缺失`)
   }
   successes.push('过闸双向与警戒线方向正确，无效区域不显示')
+  renderLogistics(11)
+  await until(() => previewElement.querySelector('img')?.naturalWidth && previewElement.querySelector('svg[aria-label="检测区域"] polygon'), '物流通道原始画面及专用 ROI')
+  assert(!requests.some((url) => url.pathname.startsWith(`/api/features/${logisticsFeature}/configs/`)), '物流预览仍请求普通功能配置接口')
+  assert(!previewElement.textContent?.includes('检测区域读取失败'), '物流通道 ROI 读取失败')
+  successes.push('真实物流监控视图从通道成员 ROI 接口读取区域，不请求普通功能配置')
+  const reads = logisticsRoiReads
+  await updateLogisticsCameraRoi(logisticsFeature, 11, 1, { roi_pos: [] })
+  await until(() => logisticsRoiReads > reads && !previewElement.querySelector('svg[aria-label="检测区域"]'), '保存空 ROI 后立即刷新')
+  assert(previewElement.querySelector('img'), '清空 ROI 后丢失了物流画面')
+  await updateLogisticsCameraRoi(logisticsFeature, 11, 1, { roi_pos: roi as [number, number][] })
+  await until(() => previewElement.querySelector('svg[aria-label="检测区域"] polygon'), '保存 ROI 后重新显示区域')
+  successes.push('物流 ROI 保存后即时刷新，空 ROI 不叠加区域且持续显示画面')
+  failLogisticsRoi = true
+  invalidateLogisticsChannelQueries(logisticsFeature, 11)
+  await until(() => previewElement.textContent?.includes('检测区域读取失败'), '专用 ROI 接口失败提示')
+  assert(!previewElement.querySelector('svg[aria-label="检测区域"]') && previewElement.querySelector('img'), 'ROI 读取失败后仍显示旧区域或丢失画面')
+  failLogisticsRoi = false
+  invalidateLogisticsChannelQueries(logisticsFeature, 11)
+  await until(() => previewElement.querySelector('svg[aria-label="检测区域"] polygon') && !previewElement.textContent?.includes('检测区域读取失败'), '专用 ROI 接口恢复')
+  successes.push('专用 ROI 接口真实失败时保留错误提示，恢复后清除错误并重画区域')
+  holdLogisticsRoi = true
+  invalidateLogisticsChannelQueries(logisticsFeature, 11)
+  await until(() => finishLogisticsRoi !== null, '旧通道 ROI 挂起请求')
+  logisticsRois.set(12, [[0.2, 0.2], [0.8, 0.2], [0.5, 0.8]])
+  renderLogistics(12)
+  await until(() => previewElement.querySelector('svg[aria-label="检测区域"] polygon')?.getAttribute('points') === '32,24 128,24 80,96', '切换通道使用新 ROI')
+  assert(logisticsRoiSignal?.aborted, '切换通道未取消旧 ROI 请求')
+  finishLogisticsRoi!()
+  await pause()
+  assert(previewElement.querySelector('svg[aria-label="检测区域"] polygon')?.getAttribute('points') === '32,24 128,24 80,96', '晚到的旧通道 ROI 覆盖了当前通道')
+  assert(!requests.some((url) => url.pathname.startsWith(`/api/features/${logisticsFeature}/configs/`)), '物流刷新或切换时回退到普通配置接口')
+  successes.push('切换通道取消旧 ROI 请求，同一摄像头晚到的旧通道响应不会覆盖新区域')
   root.unmount(); statusRoot.unmount()
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
