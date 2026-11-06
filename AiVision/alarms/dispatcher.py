@@ -60,7 +60,8 @@ class AlarmRequest:
         feature_name   : 触发告警的功能名称。
         camera_id      : 告警来源摄像头数字 ID。
         camera_name    : 摄像头展示名称，写入告警消息与数据库。
-        frame          : 违规帧的 BGR 图像（np.ndarray），用于截图保存与微信推图。
+        frame          : 完整违规帧的 BGR 图像，用于录像触发；未指定 snapshot_frame 时也用于截图。
+        snapshot_frame : 可选的独立截图帧，用于保存图片与微信推图，不参与录像。
         violation_type : 违规类型编号，对应数据库中的枚举值。
         alarm_config   : 告警通道配置字典，结构为
                          {"horn": {...}, "wechat": {...}, "sql": {...}}，
@@ -86,6 +87,8 @@ class AlarmRequest:
     reason: str = ""
     metadata: dict = field(default_factory=dict)
     evidence: AlarmEvidenceRequest | None = field(default=None, kw_only=True)
+    # 截图可使用业务裁剪图；frame 继续作为完整录像的触发帧。
+    snapshot_frame: np.ndarray | None = field(default=None, kw_only=True, repr=False)
     on_horn_complete: Callable[[bool], None] | None = field(default=None, kw_only=True, repr=False)
     # 记录与企微可显式使用稳定范围，避免业务事件、身份或报警原因变化绕过间隔。
     notification_cooldown_subject: tuple[str, str] | None = field(default=None, kw_only=True)
@@ -428,7 +431,7 @@ class AlarmDispatcher:
         subject_type = req.subject_type or "camera"
         # 准备传给ViolationWriter的参数
         values = {
-            "frame": req.frame,                                # 违规截图
+            "frame": req.snapshot_frame if req.snapshot_frame is not None else req.frame,
             "violation_type": req.violation_type,              # 违规类型编号
             "feature_name": req.feature_name,
             "department": req.department,      # 单部门历史字段

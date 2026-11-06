@@ -147,6 +147,23 @@ def test_record_only_remains_asynchronous(alarm_modules):
     assert dispatcher._wechat_queue.empty()
 
 
+@pytest.mark.parametrize("violation_type", [15, 16])
+@pytest.mark.parametrize("channels", [{"sql"}, {"wechat"}, {"sql", "wechat"}])
+def test_fence_snapshot_is_separate_from_full_video_frame(alarm_modules, violation_type, channels):
+    dispatcher = make_dispatcher(alarm_modules)
+    snapshot = np.full((2, 3, 3), 180, dtype=np.uint8)
+    request = make_request(alarm_modules, violation_type, snapshot_frame=snapshot)
+
+    assert dispatcher.maybe_dispatch(request, channels=channels)
+
+    writer = dispatcher.violation_writer.save_now if "wechat" in channels else dispatcher.violation_writer.enqueue
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["frame"] is snapshot
+    assert writer.call_args.kwargs["video_path"] == "/test/alarm.mp4"
+    dispatcher.evidence_recorder.start_alarm.assert_called_once_with("camera_1", request.frame)
+    assert request.frame.shape == (4, 4, 3) and not request.frame.any()
+
+
 @pytest.mark.parametrize("save_result", [None, RuntimeError("test storage unavailable")])
 def test_card_storage_failure_does_not_break_horn(alarm_modules, monkeypatch, save_result):
     dispatcher = make_dispatcher(alarm_modules)

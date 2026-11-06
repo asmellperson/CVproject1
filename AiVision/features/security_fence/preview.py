@@ -14,7 +14,7 @@ from .schema import STALE_SECONDS, FenceValue
 
 
 def draw_fence_detections(frame, detail):
-    """预览和告警证据复用相同的人体、人脸标注样式。"""
+    """预览和完整画面录像复用相同的人体、人脸标注样式。"""
     for person in detail["persons"]:
         x1, y1, x2, y2 = map(int, person["bbox"])
         color = (0, 0, 255) if person["alarm"] else (0, 180, 255) if person["identity"] == "pending" else (60, 200, 80)

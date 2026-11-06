@@ -83,6 +83,7 @@ class FenceRuntime:
         self.tracker = IouTracker(max_lost=ceil(self.retention_seconds / config.cap_interval), smooth_alpha=1.0)
         self.identities: dict[int, Identity] = {}
         self.events: dict[int, FenceEvent] = {}
+        self.face_boxes: dict[int, list[float]] = {}
         self.last_seen: float | None = None
         self.shape: tuple[int, ...] | None = None
 
@@ -90,6 +91,7 @@ class FenceRuntime:
         self.tracker.reset()
         self.identities.clear()
         self.events.clear()
+        self.face_boxes.clear()
         self.last_seen = None
 
     def update(self, detections: list[dict], faces: list[dict], shape: tuple[int, ...], *, now: datetime,
@@ -134,10 +136,14 @@ class FenceRuntime:
             else:
                 ambiguous.update(candidates)
         self._recover_known_people(associations, ambiguous)
+        # 截图只使用当帧唯一关联的人脸，不能沿用旧框或借用其他人员的人脸。
+        self.face_boxes.clear()
         persons = []
         for tid, track in visible.items():
             identity = self.identities[tid]
             observations = associations.get(tid, [])
+            if tid not in ambiguous and len(observations) == 1:
+                self.face_boxes[tid] = list(observations[0]["bbox"])
             if tid in ambiguous or len(observations) > 1:
                 # 一张脸对应多个人体或一个人体关联多张脸时，不能传播通行身份。
                 identity = self.identities[tid] = Identity()

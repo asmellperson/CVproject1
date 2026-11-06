@@ -225,6 +225,125 @@ def test_allowed_identity_still_passes(make_consumer):
     assert not result[0] and result[1]["persons"][0]["identity"] == "allowed"
 
 
+@pytest.mark.parametrize("kind", ["known_face", "unknown_face", "no_face"])
+def test_alarm_png_crops_person_evidence_and_video_keeps_full_frame(make_consumer, fence_modules, monkeypatch, tmp_path, kind):
+    import cv2
+    from AiVision.alarms.dispatcher import AlarmDispatcher
+    from AiVision.alarms.records.service import AsyncViolationWriter
+    from AiVision.features._shared import consumer as shared_consumer
+
+    consumer = make_consumer(forbidden=kind == "no_face", confirmation_frames=1)
+    consumer.config_cache[1]["horn_enable"] = False
+    raw = np.random.default_rng(42).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+    consumer.latest_frames["camera_1"] = raw
+    original = raw.copy()
+    dispatcher = AlarmDispatcher()
+    writer = dispatcher.violation_writer = AsyncViolationWriter()
+    writer._data_path = tmp_path
+    recorder = dispatcher.evidence_recorder = Mock()
+    recorder.start_alarm.return_value = "/test/full-frame.mp4"
+    monkeypatch.setattr(shared_consumer, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(fence_modules[0], "alarm_dispatcher", dispatcher)
+
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    if kind != "no_face":
+        face = FACE if kind == "known_face" else {
+            **FACE, "matched": False, "person_id": None, "person_name": None, "similarity": 0.1,
+            "quality": {"size": 80, "sharpness": 100, "asymmetry": 0.0},
+        }
+        complete(consumer, 1, "insightface", [face])
+    # 推理期间到达的新画面不能替代截图坐标所属的旧输入帧。
+    consumer.latest_frames["camera_1"] = np.full_like(raw, 255)
+    result = process(consumer, 1)
+    assert result[0]
+    annotated = consumer.post_process(1, result)
+    consumer._handle_alarm(1, result, annotated)
+
+    item = writer._queue.get_nowait()
+    try:
+        row = writer._save_alarm_snapshot(item)
+    finally:
+        writer._queue.task_done()
+    assert row is not None and writer._queue.empty()
+    expected = raw[20:190, 20:180] if kind == "no_face" else raw[30:110, 60:140]
+    np.testing.assert_array_equal(cv2.imread(row["image_path"]), expected)
+    assert row["event_metadata"]["snapshot"]["kind"] == ("person" if kind == "no_face" else "face")
+    assert row["video_path"] == "/test/full-frame.mp4" and row["video_status"] == "pending"
+    recorder.start_alarm.assert_called_once()
+    assert recorder.start_alarm.call_args.args[0] == "camera_1"
+    assert recorder.start_alarm.call_args.args[1] is annotated
+    assert annotated.shape == raw.shape
+    np.testing.assert_array_equal(raw, original)
+
+
+def test_alarm_faces_follow_each_person_and_do_not_reuse_old_boxes(make_consumer):
+    from AiVision.features.security_fence.runtime import FenceRuntime
+    from AiVision.features.security_fence.schema import FenceValue
+
+    consumer = make_consumer(confirmation_frames=1)
+    runtime = consumer.runtimes[1] = FenceRuntime(FenceValue(confirmation_frames=1))
+    frame = consumer.frame_cache[1] = np.random.default_rng(42).integers(0, 256, (200, 400, 3), dtype=np.uint8)
+    second = {**PERSON, "bbox": [220.0, 20.0, 380.0, 190.0]}
+    second_face = {**FACE, "bbox": [260.0, 30.0, 340.0, 110.0], "person_id": 456}
+    now = datetime(2026, 11, 6, 4, 0, tzinfo=timezone.utc)
+    persons = runtime.update([PERSON, second], [second_face, FACE], frame.shape, now=now, monotonic=100)
+    for person, x1, x2 in zip(persons, [60, 260], [140, 340]):
+        context = consumer._alarm_context(1, (True, person.model_dump()))
+        np.testing.assert_array_equal(context["snapshot_frame"], frame[30:110, x1:x2])
+        assert context["metadata"]["snapshot"] == {"kind": "face", "bbox": [x1, 30, x2, 110]}
+        assert not np.shares_memory(context["snapshot_frame"], frame)
+
+    persons = runtime.update([PERSON, second], [], frame.shape, now=now, monotonic=100.2)
+    assert not runtime.face_boxes
+    for person, x1, x2 in zip(persons, [20, 220], [180, 380]):
+        assert person.alarm
+        context = consumer._alarm_context(1, (True, person.model_dump()))
+        np.testing.assert_array_equal(context["snapshot_frame"], frame[20:190, x1:x2])
+        assert context["metadata"]["snapshot"]["kind"] == "person"
+
+
+def test_ambiguous_face_uses_each_person_body_snapshot(make_consumer):
+    from AiVision.features.security_fence.runtime import FenceRuntime
+    from AiVision.features.security_fence.schema import FenceValue
+
+    consumer = make_consumer(forbidden=True)
+    runtime = consumer.runtimes[1] = FenceRuntime(FenceValue(forbidden_start="00:00", forbidden_end="00:00"))
+    frame = consumer.frame_cache[1] = np.zeros((200, 200, 3), dtype=np.uint8)
+    people = [PERSON, {**PERSON, "bbox": [80.0, 20.0, 195.0, 190.0]}]
+    persons = runtime.update(people, [FACE], frame.shape,
+                             now=datetime(2026, 11, 6, tzinfo=timezone.utc), monotonic=100)
+    assert not runtime.face_boxes
+    consumer.unidentified_slots[1] = {person.track_id: index for index, person in enumerate(persons)}
+    for person in persons:
+        context = consumer._alarm_context(1, (True, person.model_dump()))
+        assert context["metadata"]["snapshot"]["kind"] == "person"
+
+
+@pytest.mark.parametrize("face_box,expected", [
+    ([-2.5, -1.5, 40.2, 50.8], [0, 0, 41, 51]),
+    ([float("nan"), 0, 40, 50], [20, 20, 180, 190]),
+    ([300, 300, 400, 400], [20, 20, 180, 190]),
+    ([60, 30, 60, 110], [20, 20, 180, 190]),
+])
+def test_snapshot_crop_clamps_edges_and_rejects_invalid_face(fence_modules, face_box, expected):
+    from AiVision.features.security_fence.evidence import crop_alarm_snapshot
+
+    frame = np.zeros((200, 200, 3), dtype=np.uint8)
+    snapshot, region = crop_alarm_snapshot(frame, PERSON["bbox"], face_box)
+    x1, y1, x2, y2 = expected
+    assert region["bbox"] == expected
+    assert snapshot.shape == (y2 - y1, x2 - x1, 3)
+    assert not np.shares_memory(snapshot, frame)
+
+
+def test_snapshot_crop_never_falls_back_to_full_frame_for_invalid_boxes(fence_modules):
+    from AiVision.features.security_fence.evidence import crop_alarm_snapshot
+
+    with pytest.raises(ValueError, match="截图区域"):
+        crop_alarm_snapshot(np.zeros((200, 200, 3), dtype=np.uint8), [300, 300, 400, 400], None)
+
+
 def test_same_department_cameras_have_independent_whitelists(make_consumer):
     consumer = make_consumer(2, confirmation_frames=1)
     consumer.library.get_allowed_person_ids.side_effect = lambda *, camera_id: {123} if camera_id == 1 else set()
