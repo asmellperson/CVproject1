@@ -13,7 +13,8 @@ import pytest
 
 PERSON = {"bbox": [20.0, 20.0, 180.0, 190.0], "confidence": 0.99, "class_id": 0}
 FACE = {"bbox": [60.0, 30.0, 140.0, 110.0], "matched": True, "person_id": 123,
-        "person_name": "回归测试人员", "similarity": 0.95}
+        "person_name": "回归测试人员", "similarity": 0.95,
+        "quality": {"size": 80.0, "sharpness": 100.0, "asymmetry": 0.0, "landmarks_valid": True}}
 
 
 @pytest.fixture
@@ -225,6 +226,138 @@ def test_allowed_identity_still_passes(make_consumer):
     assert not result[0] and result[1]["persons"][0]["identity"] == "allowed"
 
 
+@pytest.mark.parametrize("angle", [-25, 0, 25])
+def test_face_quality_accepts_clear_face_with_in_plane_tilt(fence_modules, angle):
+    from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
+
+    frame = np.random.default_rng(42).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+    points = np.array([[80, 55], [120, 55], [100, 73], [85, 90], [115, 90]], dtype=float)
+    radians = np.deg2rad(angle)
+    rotation = np.array([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]])
+    face = SimpleNamespace(bbox=FACE["bbox"], kps=(points - [100, 70]) @ rotation.T + [100, 70])
+    quality = FaceRecognizerWorker._face_quality(face, frame)
+    assert quality["landmarks_valid"]
+    assert quality["size"] == 80 and quality["sharpness"] >= 60
+    assert quality["asymmetry"] < 0.35
+
+
+@pytest.mark.parametrize("include_quality", [False, True])
+@pytest.mark.parametrize("valid_landmarks", [False, True])
+def test_shared_worker_only_adds_quality_when_requested(fence_modules, include_quality, valid_landmarks):
+    from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
+
+    frame = np.random.default_rng(42).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+    points = [[80, 55], [120, 55], [100, 73], [85, 90], [115, 90]] if valid_landmarks else [[100, 70]] * 5
+    face = SimpleNamespace(bbox=FACE["bbox"], kps=points, det_score=0.99, normed_embedding=np.zeros(512))
+    worker = object.__new__(FaceRecognizerWorker)
+    worker._index_refreshed_at = time.monotonic()
+    worker._index_available = True
+    worker.index = Mock(match=Mock(return_value={key: FACE[key] for key in (
+        "matched", "person_id", "person_name", "similarity",
+    )}))
+    model = SimpleNamespace(get_faces=Mock(return_value=[face]))
+    rows = worker.infer(model, frame, {"include_face_quality": include_quality, "conf": 0.7})
+    assert len(rows) == 1 and rows[0]["person_id"] == 123
+    assert ("quality" in rows[0]) == include_quality
+    if include_quality:
+        assert rows[0]["quality"]["landmarks_valid"] == valid_landmarks
+    model.get_faces.assert_called_once_with(frame, detection_threshold=0.7)
+
+
+@pytest.mark.parametrize("points", [
+    None,
+    [[100, 70]] * 5,
+    [[98, 55], [102, 55], [100, 73], [85, 90], [115, 90]],
+    [[80, 55], [120, 55], [100, 55], [85, 55], [115, 55]],
+    [[80, 55], [120, 55], [100, 40], [85, 90], [115, 90]],
+    [[80, 55], [120, 55], [100, 73], [85, 65], [115, 65]],
+    [[80, 55], [120, 55], [100, 73], [100, 90], [100, 90]],
+    [[80, 55], [120, 55], [100, 73], [115, 90], [85, 90]],
+    [[80, 55], [120, 55], [150, 73], [85, 90], [115, 90]],
+    [[80, 55], [120, 55], [float("nan"), 73], [85, 90], [115, 90]],
+    [[80, 55], [120, 55], [100, 73]],
+])
+def test_degenerate_face_landmarks_never_confirm_or_crop_a_face(make_consumer, points):
+    from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
+
+    consumer = make_consumer(confirmation_frames=1)
+    consumer.library.get_allowed_person_ids.return_value = {123}
+    frame = consumer.latest_frames["camera_1"] = np.random.default_rng(42).integers(
+        0, 256, (200, 200, 3), dtype=np.uint8,
+    )
+    quality = FaceRecognizerWorker._face_quality(SimpleNamespace(bbox=FACE["bbox"], kps=points), frame)
+    assert not quality["landmarks_valid"]
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    complete(consumer, 1, "insightface", [{**FACE, "quality": quality}])
+    result = process(consumer, 1)
+    assert not result[0] and result[1]["persons"][0]["identity"] == "pending"
+    assert result[1]["persons"][0]["person_id"] is None
+    assert result[1]["pending_count"] == 1 and not result[1]["faces"]
+    assert not consumer.runtimes[1].face_boxes
+
+
+@pytest.mark.parametrize("matched", [True, False])
+@pytest.mark.parametrize("quality", [
+    None,
+    {**FACE["quality"], "landmarks_valid": False},
+    {**FACE["quality"], "landmarks_valid": None},
+    {**FACE["quality"], "size": 79.0},
+    {**FACE["quality"], "sharpness": 59.0},
+    {**FACE["quality"], "asymmetry": 0.36},
+    {**FACE["quality"], "size": float("inf")},
+    {**FACE["quality"], "asymmetry": float("nan")},
+])
+def test_fence_rejects_poor_quality_for_known_and_unknown_faces(make_consumer, matched, quality):
+    consumer = make_consumer(confirmation_frames=1)
+    face = {**FACE, "quality": quality, "matched": matched,
+            "person_id": 123 if matched else None, "similarity": 0.95 if matched else 0.1}
+    for _ in range(3):
+        consumer._before_camera_round()
+        complete(consumer, 1, "yolo_human", [PERSON])
+        complete(consumer, 1, "insightface", [face])
+        result = process(consumer, 1)
+        assert not result[0] and result[1]["persons"][0]["identity"] == "pending"
+        assert not result[1]["faces"] and not consumer.runtimes[1].face_boxes
+        assert next(iter(consumer.runtimes[1].identities.values())).observations == 0
+        refresh_frame(consumer, 1)
+
+
+def test_rejected_face_keeps_forbidden_body_alarm_and_snapshot(make_consumer):
+    consumer = make_consumer(forbidden=True, confirmation_frames=1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    early = process(consumer, 1)
+    assert early[0]
+    consumer._before_camera_round()
+    complete(consumer, 1, "insightface", [{**FACE, "quality": {**FACE["quality"], "landmarks_valid": False}}])
+    result = process(consumer, 1)
+    assert result[0] and result[1]["persons"][0]["reason"] == "forbidden_time"
+    assert result[1]["persons"][0]["identity"] == "pending" and not result[1]["faces"]
+    consumer.unidentified_slots[1] = {result[1]["persons"][0]["track_id"]: 0}
+    context = consumer._alarm_context(1, (True, result[1]["persons"][0]))
+    assert context["metadata"]["snapshot"] == {"kind": "person", "bbox": [20, 20, 180, 190]}
+    np.testing.assert_array_equal(context["snapshot_frame"], consumer.frame_cache[1][20:190, 20:180])
+
+
+def test_rejected_match_cannot_move_another_person_identity_or_event(make_consumer):
+    from AiVision.features.security_fence.runtime import FenceRuntime
+    from AiVision.features.security_fence.schema import FenceValue
+
+    runtime = FenceRuntime(FenceValue(confirmation_frames=1))
+    people = [PERSON, {**PERSON, "bbox": [220.0, 20.0, 380.0, 190.0]}]
+    faces = [FACE, {**FACE, "bbox": [260.0, 30.0, 340.0, 110.0], "person_id": 456}]
+    now = datetime(2026, 11, 9, 4, 0, tzinfo=timezone.utc)
+    persons = runtime.update(people, faces, (200, 400, 3), now=now, monotonic=100)
+    event_keys = [runtime.events[person.track_id].key for person in persons]
+    rejected = [{**face, "person_id": person_id, "quality": {**FACE["quality"], "landmarks_valid": False}}
+                for face, person_id in zip(faces, [456, 123])]
+    persons = runtime.update(people, rejected, (200, 400, 3), now=now, monotonic=103)
+    assert [runtime.events[person.track_id].key for person in persons] == event_keys
+    assert all(person.identity == "pending" and person.person_id is None for person in persons)
+    assert not runtime.face_boxes
+
+
 @pytest.mark.parametrize("kind", ["known_face", "unknown_face", "no_face"])
 def test_alarm_png_crops_person_evidence_and_video_keeps_full_frame(make_consumer, fence_modules, monkeypatch, tmp_path, kind):
     import cv2
@@ -250,7 +383,6 @@ def test_alarm_png_crops_person_evidence_and_video_keeps_full_frame(make_consume
     if kind != "no_face":
         face = FACE if kind == "known_face" else {
             **FACE, "matched": False, "person_id": None, "person_name": None, "similarity": 0.1,
-            "quality": {"size": 80, "sharpness": 100, "asymmetry": 0.0},
         }
         complete(consumer, 1, "insightface", [face])
     # 推理期间到达的新画面不能替代截图坐标所属的旧输入帧。

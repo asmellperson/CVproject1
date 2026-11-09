@@ -227,7 +227,8 @@ class FenceConsumer(BaseFunctionConsumer):
             persons = runtime.update(people["detections"], faces, roi.shape, now=now,
                                      monotonic=pending.observed_at, allowed_person_ids=allowed)
         detail = {
-            "mode": mode, "persons": [person.model_dump() for person in persons], "faces": faces,
+            "mode": mode, "persons": [person.model_dump() for person in persons],
+            "faces": [face for face in faces if runtime.usable_face(face)],
             "count": sum(person.in_roi for person in persons) if people["status"] == "ok" else None,
             "pending_count": sum(person.in_roi and person.identity == "pending" for person in persons) if people["status"] == "ok" else None,
             "alarm": any(person.alarm for person in persons), "error": "；".join(errors) or None,

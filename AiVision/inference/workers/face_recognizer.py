@@ -15,6 +15,7 @@ from AiVision.core.logger import logger
 from AiVision.features.face_recognition.library.constants import (
     DEFAULT_DETECTION_THRESHOLD, DEFAULT_SIMILARITY_THRESHOLD, DEFAULT_NMS_THRESHOLD,
     INDEX_REFRESH_SECONDS, RECOGNITION_MODEL_FILE,
+    MIN_FACE_EYE_SPAN_RATIO, MIN_FACE_FEATURE_GAP_RATIO, MIN_FACE_MOUTH_SPAN_RATIO,
 )
 from AiVision.features.face_recognition.library.index import FaceIndex
 from AiVision.inference.base_worker import BaseModelWorker
@@ -95,12 +96,44 @@ class FaceRecognizerWorker(BaseModelWorker):
 
     @staticmethod
     def _face_quality(face, frame) -> dict:
-        """返回尺寸、清晰度及关键点对称性，业务层决定是否足以判断身份。"""
-        x1, y1, x2, y2 = np.asarray(face.bbox, dtype=int)
-        crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-        sharpness = float(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()) if crop.size else 0.0
-        left, right, nose = np.asarray(face.kps, dtype=float)[:3]
+        """返回画质和五点几何有效性，拒绝退化关键点被误当作对称正脸。"""
+        quality = {"size": 0.0, "sharpness": 0.0, "asymmetry": 1.0, "landmarks_valid": False}
+        bbox = np.asarray(face.bbox, dtype=float)
+        if bbox.shape != (4,) or not np.isfinite(bbox).all():
+            return quality
+        x1, y1, x2, y2 = bbox
+        if x2 <= x1 or y2 <= y1:
+            return quality
+        height, width = frame.shape[:2]
+        left_edge, top = max(0, int(x1)), max(0, int(y1))
+        right_edge, bottom = min(width, int(x2)), min(height, int(y2))
+        crop = frame[top:bottom, left_edge:right_edge]
+        if right_edge <= left_edge or bottom <= top or not crop.size:
+            return quality
+        quality["size"] = float(min(right_edge - left_edge, bottom - top))
+        quality["sharpness"] = float(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
+        points = np.asarray(face.kps, dtype=float)
+        if points.shape != (5, 2) or not np.isfinite(points).all():
+            return quality
+        if not ((points >= [max(x1, 0), max(y1, 0)]).all()
+                and (points <= [min(x2, width), min(y2, height)]).all()):
+            return quality
+        left, right, nose = points[:3]
         eye_distance = float(np.linalg.norm(right - left))
+        if right[0] <= left[0] or eye_distance < (x2 - x1) * MIN_FACE_EYE_SPAN_RATIO:
+            return quality
+        # 以双眼连线为横轴，允许画面内歪头，但鼻子和嘴必须依次位于双眼下方。
+        horizontal = (right - left) / eye_distance
+        vertical = np.array([-horizontal[1], horizontal[0]])
+        normalized = (points - left) @ np.stack((horizontal, vertical), axis=1) / eye_distance
+        nose_x, nose_y = normalized[2]
+        mouth_left, mouth_right = normalized[3:]
+        quality["landmarks_valid"] = bool(
+            0 < nose_x < 1 and nose_y >= MIN_FACE_FEATURE_GAP_RATIO
+            and min(mouth_left[1], mouth_right[1]) - nose_y >= MIN_FACE_FEATURE_GAP_RATIO
+            and mouth_right[0] - mouth_left[0] >= MIN_FACE_MOUTH_SPAN_RATIO
+        )
         left_distance, right_distance = np.linalg.norm(nose - left), np.linalg.norm(nose - right)
         asymmetry = float(abs(left_distance - right_distance) / max(eye_distance, 1.0))
-        return {"size": float(min(x2 - x1, y2 - y1)), "sharpness": sharpness, "asymmetry": asymmetry}
+        quality["asymmetry"] = asymmetry
+        return quality

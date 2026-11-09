@@ -4,7 +4,7 @@ from collections.abc import Collection
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime
-from math import ceil
+from math import ceil, isfinite
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -127,6 +127,9 @@ class FenceRuntime:
         ambiguous: set[int] = set()
         associations: dict[int, list[dict]] = {}
         for face in faces:
+            # 身份恢复、累计确认和截图共用同一门槛，匹配分数不能替代有效人脸证据。
+            if not self.usable_face(face):
+                continue
             x1, y1, x2, y2 = face["bbox"]
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             candidates = [tid for tid, track in visible.items()
@@ -147,7 +150,7 @@ class FenceRuntime:
             if tid in ambiguous or len(observations) > 1:
                 # 一张脸对应多个人体或一个人体关联多张脸时，不能传播通行身份。
                 identity = self.identities[tid] = Identity()
-            elif len(observations) == 1 and self._usable_face(observations[0]):
+            elif len(observations) == 1:
                 identity.observe(observations[0], self.config)
             elif tid in overlapping:
                 # 人体重叠且没有可靠的当帧人脸时，撤销可能被跟踪交换的旧身份。
@@ -215,11 +218,11 @@ class FenceRuntime:
             if source is not None and source != tid:
                 self.identities[tid].revoke()
 
-    def _usable_face(self, face: dict) -> bool:
-        """库内匹配沿用共享识别结论，库外未知身份需要额外质量依据。"""
-        if face["matched"]:
-            return True
+    def usable_face(self, face: dict) -> bool:
+        """库内、库外均要求合理的五官关键点和当前摄像头配置的画质。"""
         quality = face.get("quality")
-        return bool(quality and quality["size"] >= self.config.min_face_size
+        return bool(quality and quality.get("landmarks_valid") is True
+                    and all(isfinite(quality.get(key, float("nan"))) for key in ("size", "sharpness", "asymmetry"))
+                    and quality["size"] >= self.config.min_face_size
                     and quality["sharpness"] >= self.config.min_face_sharpness
                     and quality["asymmetry"] <= self.config.max_face_asymmetry)
