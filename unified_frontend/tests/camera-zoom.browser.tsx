@@ -8,7 +8,6 @@ import { CameraMembership } from '../src/components/guard_behavior/CameraMembers
 import { LogisticsChannelConfigView } from '../src/components/logistics_single_person/LogisticsChannelConfigView'
 import type { LogisticsChannelDetail } from '../src/components/logistics_single_person/types'
 import type { AiVisionCamera } from '../src/lib/aivision'
-import { previewPointAt, previewZoomTransform } from '../src/components/camera/previewZoomGeometry'
 import '../src/index.css'
 
 const container = document.getElementById('app')!
@@ -101,8 +100,6 @@ const pause = () => new Promise((resolve) => setTimeout(resolve, 60))
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((item) => item.textContent === text)
 const trigger = () => container.querySelector<HTMLButtonElement>('button[aria-label$="：变焦"]')!
 const rateSlider = () => document.querySelector<HTMLElement>('[role="slider"][aria-label="摄像头连续变焦速度"]')!
-const localSlider = () => document.querySelector<HTMLElement>('[role="slider"][aria-label="局部查看放大倍数"]')!
-const localView = () => document.querySelector<HTMLElement>('[data-local-zoom]')!
 const key = (element: HTMLElement, type: 'keydown' | 'keyup', value: string) => element.dispatchEvent(new KeyboardEvent(type, { key: value, bubbles: true }))
 const rateRequests = () => requests.filter(({ speedFraction }) => speedFraction !== undefined)
 async function open() {
@@ -121,18 +118,6 @@ async function close() {
 }
 
 async function run() {
-  const viewport = { width: 800, height: 450 }
-  const source = { width: 1600, height: 900 }
-  const center = { x: 0.75, y: 0.5 }
-  const transform = previewZoomTransform(viewport, source, 2, center)
-  assert(transform.x === -800 && transform.y === -225, '指定中心未移动到查看区域中心')
-  const point = previewPointAt({ x: 400, y: 225 }, viewport, source, 2, center)
-  assert(point?.x === 0.75 && point.y === 0.5, '放大后点击未还原到原图坐标')
-  assert(previewPointAt({ x: 10, y: 225 }, viewport, { width: 600, height: 800 }, 1, { x: 0.5, y: 0.5 }) === null, '黑边点击错误变更了局部中心')
-  const edge = previewZoomTransform(viewport, source, 2, { x: 1, y: 1 })
-  assert(edge.x === -800 && edge.y === -450, '边缘放大超出真实图像范围')
-  successes.push('局部查看几何覆盖原图坐标还原、指定中心、黑边和边界夹取')
-
   render()
   await pause()
   assert(!requests.some((request) => request.url.pathname.endsWith('/zoom')), '未打开时提前查询或控制了设备')
@@ -151,19 +136,11 @@ async function run() {
   await ready()
   successes.push('按需查询真实设备能力，原始预览保留功能授权，放大/缩小使用当前设备')
 
-  const beforeLocal = requests.filter(({ method }) => method === 'POST').length
-  const picture = document.querySelector<HTMLElement>('[aria-label="点击画面选择局部查看中心"]')!
-  const bounds = picture.getBoundingClientRect()
-  picture.dispatchEvent(new MouseEvent('click', { clientX: bounds.left + bounds.width * 0.75, clientY: bounds.top + bounds.height * 0.4, bubbles: true }))
-  await until(() => Math.abs(Number(localView().dataset.centerX) - 0.75) < 0.01, '点击选择局部中心')
-  localSlider().focus(); key(localSlider(), 'keydown', 'End'); key(localSlider(), 'keyup', 'End')
-  await until(() => localView().dataset.localZoom === '8', '滑条局部放大')
-  assert(Math.abs(Number(localView().dataset.centerY) - 0.4) < 0.01, '局部放大未保留选中中心')
-  assert(localView().style.transform.includes('scale(8)'), '局部查看未放大实时画面')
-  button('重置查看')!.click()
-  await until(() => localView().dataset.localZoom === '1' && localView().dataset.centerX === '0.5', '局部查看复位')
-  assert(requests.filter(({ method }) => method === 'POST').length === beforeLocal, '局部查看错误下发了镜头或检测配置操作')
-  successes.push('点击中心和倍率滑条只改变当前预览，重置恢复全图且不发送设备操作')
+  assert(!document.querySelector('[data-local-zoom]') && !button('重置查看'), '仍存在局部查看控件')
+  assert(document.querySelectorAll('[role="dialog"] [role="slider"]').length === 1 && rateSlider(), '变焦弹窗应只保留镜头速度滑条')
+  const picture = document.querySelector<HTMLImageElement>('img[alt="实时原始画面"]')!
+  assert(picture && picture.getBoundingClientRect().height > 0, '原始预览未正常显示')
+  successes.push('只保留实时原始预览和摄像头镜头控制，无局部查看控件')
 
   const beforeRate = rateRequests().length
   rateSlider().focus(); key(rateSlider(), 'keydown', 'End')
@@ -202,8 +179,7 @@ async function run() {
   await new Promise((resolve) => setTimeout(resolve, 150))
   assert(rateRequests().length === afterClosingRate, '关闭弹窗后仍在重复发送变焦动作')
   await open(); await ready()
-  assert(localView().dataset.localZoom === '1' && localView().dataset.centerX === '0.5', '重开弹窗遗留旧局部取景状态')
-  successes.push('连续调整时关闭弹窗会结束重复动作，重新打开从完整画面开始')
+  successes.push('连续调整时关闭弹窗会结束重复动作，重新打开可继续控制镜头')
 
   holdControl = true
   heldControl = null
@@ -249,11 +225,11 @@ async function run() {
     await open()
     await until(() => document.body.textContent?.includes(value === 'unsupported' ? '不支持变焦' : '能力未确认'), '不可用设备状态')
     assert(button('放大')!.disabled && button('缩小')!.disabled, '未支持的设备开放了变焦控制')
-    await until(() => localSlider().getAttribute('aria-disabled') !== 'true' && !document.querySelector('[aria-label="点击画面选择局部查看中心"][aria-disabled="true"]'), '未支持镜头设备仍可局部查看')
-    const beforeDigitalOnly = requests.filter(({ method }) => method === 'POST').length
-    localSlider().focus(); key(localSlider(), 'keydown', 'End'); key(localSlider(), 'keyup', 'End')
-    await until(() => localView().dataset.localZoom === '8', '镜头不可用时局部查看')
-    assert(requests.filter(({ method }) => method === 'POST').length === beforeDigitalOnly, '镜头不支持时局部查看发出了设备动作')
+    assert(rateSlider().hasAttribute('data-disabled'), '未支持的设备开放了连续变焦')
+    const beforeDisabled = rateRequests().length
+    key(rateSlider(), 'keydown', 'End'); key(rateSlider(), 'keyup', 'End')
+    await pause()
+    assert(rateRequests().length === beforeDisabled, '未支持的设备仍发送了连续变焦动作')
     await close()
   }
   successes.push('明确不支持与能力未确认分别展示，均不允许镜头动作')

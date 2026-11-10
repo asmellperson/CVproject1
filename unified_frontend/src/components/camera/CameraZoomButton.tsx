@@ -8,7 +8,6 @@ import { CameraLivePreview } from '@/components/monitor/CameraLivePreview'
 import { Slider } from '@/components/ui/slider'
 import type { AiVisionCamera } from '@/lib/aivision'
 import { useCameraZoom } from './useCameraZoom'
-import { CameraLocalPreview } from './CameraLocalPreview'
 
 type ZoomCamera = Pick<AiVisionCamera, 'shm_name' | 'name' | 'department' | 'enabled' | 'fps'>
 type Props = { camera: ZoomCamera; feature: string; disabled?: boolean }
@@ -29,7 +28,7 @@ function CameraZoomLauncher({ camera, feature, disabled }: Props) {
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-4xl">
       <DialogHeader>
         <DialogTitle>摄像头变焦 · {camera.name}</DialogTitle>
-        <DialogDescription>点击画面局部放大查看，或使用镜头控制调整摄像头取景范围。</DialogDescription>
+        <DialogDescription>通过镜头控制调整摄像头取景范围。</DialogDescription>
       </DialogHeader>
       {open && available && <CameraZoomSession key={`${camera.department}:${feature}:${camera.shm_name}`} camera={camera} feature={feature} />}
     </DialogContent>
@@ -42,10 +41,10 @@ function CameraZoomSession({ camera, feature }: Props) {
   const supported = zoom.capabilities?.status === 'supported'
   const canMove = supported && connected && !zoom.loading && !zoom.pending && !zoom.rate && !zoom.denied
   return <div className="space-y-4">
-    <CameraLocalPreview connected={connected && !zoom.denied}>
+    <div className="aspect-video overflow-hidden rounded-xl bg-slate-950">
       <CameraLivePreview cameraKey={camera.shm_name} feature={feature} department={camera.department!}
         enabled={camera.enabled && !zoom.denied} fps={camera.fps} value={null} onConnectionChange={setConnected} />
-    </CameraLocalPreview>
+    </div>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold">摄像头镜头</span>
