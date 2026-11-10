@@ -38,6 +38,12 @@ def get_camera_config_manager():
     from AiVision.cameras.config_manager import camera_config_manager
     return camera_config_manager
 
+
+def get_camera_zoom_service():
+    """所有检测页面复用同一个设备变焦控制服务。"""
+    from AiVision.cameras.zoom import camera_zoom_service
+    return camera_zoom_service
+
 def get_inference_runtime_manager():
     """获取本机模型运行服务"""
     from AiVision.inference.runtime_manager import inference_runtime_manager

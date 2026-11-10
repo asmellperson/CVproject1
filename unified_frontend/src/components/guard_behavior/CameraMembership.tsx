@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Camera, Link, Unlink } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader } from '@/components/detection/DetectionConfigUi'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
@@ -59,7 +60,9 @@ export function CameraMembership({ site, members, busy, onChange }: {
       {members.length >= 9 && <p className="text-sm text-slate-500">当前保安室已绑定 9 路摄像头，可重新启用已停用的成员；添加其他设备前请先解除绑定。</p>}
       {enabledMembers.map((member, index) => <div key={member.camera_id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
         <div><p className="font-semibold">{index + 1}. {member.name}</p><p className="mt-1 text-xs text-slate-500">{member.shm_name} · {member.physical_enabled ? '物理设备已启用' : '物理设备已停用'}</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" aria-label={`停用 ${member.name}`} disabled={!isAdmin || busy} onClick={() => void onChange(() => setCameraEnabled(site.id, member.camera_id, false))}>停用</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <CameraZoomButton camera={{ shm_name: member.shm_name, name: member.name, department: site.department, enabled: member.physical_enabled }} feature="guard_behavior" disabled={!isAdmin || busy} />
+          <Button variant="outline" aria-label={`停用 ${member.name}`} disabled={!isAdmin || busy} onClick={() => void onChange(() => setCameraEnabled(site.id, member.camera_id, false))}>停用</Button>
           {isAdmin && <><Button size="icon" variant="outline" aria-label={`上移 ${member.name}`} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button>
             <Button size="icon" variant="outline" aria-label={`下移 ${member.name}`} disabled={busy || index === enabledMembers.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button>
             <Button variant="outline" disabled={busy} onClick={() => void onChange(() => removeCamera(site.id, member.camera_id))}><Unlink className="h-4 w-4" />解除绑定</Button></>}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import re
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
@@ -122,6 +123,18 @@ class ApiSettings(BaseSettings):
     host: str              = Field("0.0.0.0", alias="API_HOST")             # 监听本机所有网卡
     port: int              = Field(7862,       alias="API_PORT")
     cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")     # 允许所有来源
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+
+class CameraZoomSettings(BaseSettings):
+    """镜头控制只使用服务器配置的管理端口，每次动作有固定时限。"""
+
+    scheme: Literal["http", "https"] = Field("http", alias="CAMERA_ZOOM_SCHEME")
+    port: int = Field(80, ge=1, le=65535, alias="CAMERA_ZOOM_PORT")
+    request_timeout_seconds: float = Field(2.0, ge=0.2, le=5, alias="CAMERA_ZOOM_REQUEST_TIMEOUT_SECONDS")
+    step_seconds: float = Field(0.25, ge=0.05, le=0.5, alias="CAMERA_ZOOM_STEP_SECONDS")
+    speed_fraction: float = Field(0.2, gt=0, le=1, alias="CAMERA_ZOOM_SPEED_FRACTION")
 
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -303,6 +316,7 @@ class Settings:
         self.storage = StorageSettings()
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
+        self.camera_zoom = CameraZoomSettings()
         self.preview = PreviewSettings()
         self.runtime = RuntimeSettings()
         self.model_paths = ModelPathSettings()

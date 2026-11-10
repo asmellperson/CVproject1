@@ -21,6 +21,7 @@ import {
 } from '@/lib/aivision'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { LogisticsCameraCreateDialog } from '@/components/logistics_single_person/LogisticsCameraCreateDialog'
+import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
 import type { LogisticsCameraCreateInput } from '@/components/logistics_single_person/logisticsCameraCreateState'
 
 type FeatureCameraManagerProps = {
@@ -251,7 +252,8 @@ export function FeatureCameraManager({
                 </div>
                 <div className="flex flex-col items-start gap-2 sm:contents">
                   <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
-                  <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto">
+                  <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                    <CameraZoomButton camera={camera} feature={feature} disabled={readOnly} />
                     <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}：停用检测`} onClick={() => void handleToggle(camera, false)} disabled={readOnly}>停用</Button>
                     <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}上移`} onClick={() => void handleMove(index, -1)} disabled={readOnly || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
                     <Button size="sm" variant="outline" className="h-11 sm:h-8" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === enabledCameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>

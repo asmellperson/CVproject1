@@ -10,6 +10,7 @@ import { ArrowDown, ArrowUp, Bell, Camera, Clock, Crosshair, Layers3, Plus, Slid
 
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
+import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
 import {
   DETECTION_CONFIG_CARD_CLASS,
   DetectionConfigCardContent,
@@ -588,6 +589,7 @@ export function LogisticsChannelConfigView({
                       <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E8ECF5] bg-white p-3 transition hover:border-blue-200 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate font-mono text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
+                        {camera && <CameraZoomButton camera={camera} feature={feature} disabled={!isAdmin || busy} />}
                         <Button size="sm" variant="outline" aria-label="停用" onClick={() => setMemberEnabled(member.camera_id, false)} disabled={!isAdmin || busy}>停用</Button>
                         <Button size="sm" variant="outline" aria-label="上移" onClick={() => moveMember(member.camera_id, -1)} disabled={!isAdmin || busy || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
                         <Button size="sm" variant="outline" aria-label="下移" onClick={() => moveMember(member.camera_id, 1)} disabled={!isAdmin || busy || index === enabledMembers.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
