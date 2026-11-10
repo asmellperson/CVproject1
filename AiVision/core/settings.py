@@ -203,6 +203,8 @@ class RuntimeSettings(BaseSettings):
     shutdown_grace_seconds: int = Field(75, ge=1, le=600, alias="SHUTDOWN_GRACE_SECONDS")
     # 限制同时探测和等待首帧的路数，避免离线设备串行拖慢整个平台启动。
     camera_start_workers: int = Field(4, ge=1, le=16, alias="CAMERA_START_WORKERS")
+    # 先统一通知退出，再有限并行回收，避免逐路累加 ffmpeg 的退出等待。
+    camera_stop_workers: int = Field(8, ge=1, le=16, alias="CAMERA_STOP_WORKERS")
     qwen_max_concurrent_requests: int = Field(3, ge=1, le=16, alias="QWEN_MAX_CONCURRENT_REQUESTS")
     # 为其他功能保留共享模型队列空间，安检最多提前投递四路。
     security_inspection_inflight: int = Field(4, ge=1, le=4, alias="SECURITY_INSPECTION_INFLIGHT")

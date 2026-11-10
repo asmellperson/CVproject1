@@ -106,16 +106,33 @@ class CameraRuntimeManager:
         )
 
     def stop_all(self):
-        """
-        逻辑：
-            先禁止新启动并停止watchdog -》 遍历所有已配置/运行中的Camera -》 stop_camera
-        """
+        """统一通知采集退出，再有限并行回收；某一路失败也继续回收其他路。"""
+        started_at = time.monotonic()
         with self._lock:
             self._stopping = True
         self._stop_watchdog()
-        for shm_name in set(self._shared_configs) | set(self._runtimes):
-            self.stop_camera(shm_name)
-        logger.info("[CameraRuntimeManager] 所有采集进程已停止")
+        with self._lock:
+            names = set(self._shared_configs) | set(self._runtimes)
+            runtimes = list(self._runtimes.values())
+        for runtime in runtimes:
+            runtime.request_stop()
+        failures = []
+        if names:
+            with ThreadPoolExecutor(
+                max_workers=min(len(names), settings.runtime.camera_stop_workers),
+                thread_name_prefix="camera-stop",
+            ) as executor:
+                futures = {executor.submit(self.stop_camera, name): name for name in names}
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        name = futures[future]
+                        failures.append(name)
+                        logger.error(f"[CameraRuntimeManager] 摄像头停止失败: {name} error_type={type(exc).__name__}")
+        if failures:
+            raise RuntimeError(f"{len(failures)} 路摄像头停止失败，请检查采集进程日志")
+        logger.info(f"[CameraRuntimeManager] 所有采集进程已停止，耗时 {time.monotonic() - started_at:.1f}s")
 
     def start_camera(self, shm_name: str) -> bool:
         """单独启动一个摄像头(配置必须已在 _shared_configs 中)"""

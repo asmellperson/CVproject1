@@ -201,7 +201,8 @@ class Orchestrator:
         logger.info("=" * 20 + " Orchestrator 启动完成 " + "=" * 20)
 
     def begin_shutdown(self):
-        """只关闭 AGV 请求入口，HTTP 排空期间保留模型、采集和消费者。"""
+        """关闭 AGV 入口并取消媒体扫描，HTTP 排空期间保留检测与告警写入。"""
+        violation_writer.request_cleanup_stop()
         consumer = self.consumers.get("agv_person_check")
         if consumer is not None:
             pending = consumer.service.begin_shutdown(settings.runtime.shutdown_grace_seconds)
@@ -270,8 +271,8 @@ class Orchestrator:
         # 7、停止摄像头采集进程
         try:
             self.camera_runtime_manager.stop_all()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error(f"[Orchestrator] 停止摄像头采集失败: {exc}")
         # 8、释放数据库连接
         from AiVision.core.db import dispose
         dispose()

@@ -170,6 +170,11 @@ class CameraRuntime:
                 self.stop()
                 raise TimeoutError(f"[{self.name}] 摄像头初始化超时")
 
+    def request_stop(self):
+        """先通知采集循环退出，供多路关停统一发出通知后再逐路回收。"""
+        if self.proc is not None and self.proc.pid is not None:
+            self.stop_event.set()
+
     def stop(self):
         """通知采集退出，必要时升级为 terminate/kill，确认退出后清理进程组与残留共享内存。"""
         proc = self.proc
@@ -177,7 +182,7 @@ class CameraRuntime:
             self.running = False
             return
         # 通知子进程while循环该退出了
-        self.stop_event.set()
+        self.request_stop()
         # 先等待子进程5秒结束，未退出再依次terminate/kill
         proc.join(timeout=_CAPTURE_JOIN_SECONDS)
         if proc.is_alive():

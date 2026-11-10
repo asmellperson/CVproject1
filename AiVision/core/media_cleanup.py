@@ -20,6 +20,10 @@ GIB = 1024 ** 3
 CLEANUP_BATCH_SIZE = 500
 
 
+class _CleanupCancelled(Exception):
+    """在文件操作与业务事务之间结束本轮维护，避免关停等待全盘扫描。"""
+
+
 @dataclass
 class MediaCleanupStats:
     """本轮清理计数，包括文件/字节/记录删除数，以及不安全路径和失败文件数。"""
@@ -28,6 +32,7 @@ class MediaCleanupStats:
     removed_records: int = 0
     skipped_unsafe_paths: int = 0
     failed_files: int = 0
+    cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,8 +72,21 @@ class MediaCleaner:
         self._primary_references = tuple(references)
         self._references = self._primary_references
         self._lock = threading.Lock()
+        self._stop_requested = threading.Event()
         self.data_path.mkdir(parents=True, exist_ok=True)
         self.set_additional_references(())
+
+    def request_stop(self) -> None:
+        """不获取清理锁，让运行中的扫描也能收到退出通知。"""
+        self._stop_requested.set()
+
+    def reset_stop(self) -> None:
+        """上一轮清理已退出后，由平台启动流程恢复定期维护。"""
+        self._stop_requested.clear()
+
+    def _check_cancelled(self) -> None:
+        if self._stop_requested.is_set():
+            raise _CleanupCancelled()
 
     def set_additional_references(self, references: Sequence[MediaReferences]) -> None:
         """合并固定与附加引用源，要求各源独占互不重名的根目录下一级媒体目录。"""
@@ -95,19 +113,32 @@ class MediaCleaner:
             logger.info("[MediaCleanup] 上一次媒体清理仍在运行，本轮跳过")
             return stats
         try:
+            self._check_cancelled()
             cleanup_now = now or datetime.datetime.now()
             cutoff = cleanup_now - datetime.timedelta(days=self.retention_days)
             for source in self._references:
+                self._check_cancelled()
                 for record in source.iter_records(cutoff):
+                    # 当前记录的文件删除与数据库事务必须完整结束，再响应取消。
+                    self._check_cancelled()
                     self._delete_record(source, record, stats)
+                    self._check_cancelled()
             for _, source, path in self._orphan_candidates(cutoff.timestamp()):
+                self._check_cancelled()
                 self._remove_file(path, stats, source.media_directories)
+            self._check_cancelled()
             self._report_capacity()
             self._remove_empty_directories()
             logger.info(
                 f"[MediaCleanup] 清理完成 records={stats.removed_records} files={stats.removed_files} "
                 f"freed_mb={stats.removed_bytes / 1024 / 1024:.2f} "
                 f"unsafe={stats.skipped_unsafe_paths} failed={stats.failed_files}"
+            )
+        except _CleanupCancelled:
+            stats.cancelled = True
+            logger.info(
+                f"[MediaCleanup] 收到退出通知，已结束本轮清理 "
+                f"records={stats.removed_records} files={stats.removed_files}"
             )
         except Exception as exc:
             logger.error(f"[MediaCleanup] 清理失败：{type(exc).__name__}")
@@ -125,10 +156,12 @@ class MediaCleaner:
         """分批核对磁盘文件的数据库引用，仅产生早于截止时间且无引用的媒体候选。"""
         candidates = sorted(self._media_files(), key=self._safe_mtime)
         for offset in range(0, len(candidates), CLEANUP_BATCH_SIZE):
+            self._check_cancelled()
             batch = candidates[offset:offset + CLEANUP_BATCH_SIZE]
             referenced: set[str] = set()
             owners = {}
             for source in self._references:
+                self._check_cancelled()
                 paths = [path for path in batch if self._is_managed_path(path, source.media_directories)]
                 if paths:
                     referenced.update(source.referenced_paths(paths))
@@ -143,6 +176,7 @@ class MediaCleaner:
         if self.max_bytes <= 0:
             return
         total_bytes = self._media_size()
+        self._check_cancelled()
         if total_bytes > self.max_bytes:
             logger.warning(
                 "[MediaCleanup] 媒体容量超过告警阈值，请检查存储空间；保留期内媒体不会提前删除 "
@@ -210,11 +244,13 @@ class MediaCleaner:
         """遍历各业务声明的媒体目录，只产生仍满足路径边界检查的目录或文件。"""
         for source in self._references:
             for name in source.media_directories:
+                self._check_cancelled()
                 directory = self.data_path / name
                 if not self._is_managed_path(directory) or not directory.is_dir():
                     continue
                 yield directory
                 for path in directory.rglob("*"):
+                    self._check_cancelled()
                     if self._is_managed_path(path):
                         yield path
 
@@ -233,6 +269,7 @@ class MediaCleaner:
         """累计当前可读取的受管媒体文件字节数，扫描过程中消失的文件不计入。"""
         total = 0
         for path in self._media_files():
+            self._check_cancelled()
             try:
                 total += path.stat().st_size
             except OSError:
@@ -246,14 +283,15 @@ class MediaCleaner:
             key=lambda path: len(path.parts), reverse=True,
         )
         for path in directories:
+            self._check_cancelled()
             try:
                 path.rmdir()
             except OSError:
                 continue
 
-    @staticmethod
-    def _safe_mtime(path: Path) -> float:
+    def _safe_mtime(self, path: Path) -> float:
         """读取文件修改时间，失败返回无穷大，使不确定文件不会被当作最旧候选优先删除。"""
+        self._check_cancelled()
         try:
             return path.stat().st_mtime
         except OSError:

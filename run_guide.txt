@@ -86,9 +86,14 @@ bash scripts/stop.sh -y        # 无交互停止当前两个服务
 同步返回或后台回调后再退出。AiVision/.env 中 SHUTDOWN_GRACE_SECONDS 默认 75 秒；
 原有单次检测和回调超时仍然有效，失败不能作为无人放行结果。
 
-scripts/cold_start.env 中 FUDA_STOP_TIMEOUT_SECONDS 默认 180 秒，用于等待后端进程
+scripts/cold_start.env 中 FUDA_STOP_TIMEOUT_SECONDS 默认 600 秒，用于等待后端进程
 完成请求及资源清理，应大于 SHUTDOWN_GRACE_SECONDS 并留出清理时间。超时会保留
 tmux 会话并返回失败，不强杀或继续启动另一个后端；查看 aivision 日志后再处理。
+停止期间每 15 秒输出等待进度；若 cold_start.env 显式写了 180 秒，需按实际退出耗时
+调大（例如 600 秒）。首次更新前仍运行的旧后端也需要足够的关停时间。
+媒体维护在当前删除事务结束后响应取消，已接收告警仍会落库；采集统一通知退出，
+再按 AiVision/.env 的 CAMERA_STOP_WORKERS 并行回收，默认 8 路。
+后端退出后 tmux 可能仍保留交互 shell；普通 start 会跳过已有会话，重启使用 --force。
 
 更新代码时先执行 bash scripts/stop.sh -y，确认成功后更新代码，再执行
 bash scripts/start.sh。请使用这两个脚本或向后端主进程发送 SIGTERM 正常停止。

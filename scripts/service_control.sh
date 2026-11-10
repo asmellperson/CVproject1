@@ -54,13 +54,13 @@ fuda_aivision_pid_running() {
 }
 
 fuda_stop_session() {
-  local session="$1" port="${2:-3000}" timeout="${FUDA_STOP_TIMEOUT_SECONDS:-180}"
+  local session="$1" port="${2:-3000}" timeout="${FUDA_STOP_TIMEOUT_SECONDS:-600}"
   if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
     echo "[FAIL] FUDA_STOP_TIMEOUT_SECONDS 必须为正整数"
     return 1
   fi
   if [[ "$session" == "aivision" ]]; then
-    local found pid signalled deadline waiting
+    local found pid signalled deadline waiting started_at next_progress
     local pids=()
     if ! found="$(fuda_find_aivision_pids "$session")"; then
       echo "[FAIL] 无法识别 aivision 主进程，保留会话"
@@ -83,7 +83,9 @@ fuda_stop_session() {
     if [[ ${#pids[@]} -gt 0 ]]; then
       echo "[INFO] 等待已接收的 AGV 请求完成检测和回传，再关闭算法（进程退出等待上限 ${timeout}s）"
     fi
-    deadline=$((SECONDS + timeout))
+    started_at=$SECONDS
+    deadline=$((started_at + timeout))
+    next_progress=$((started_at + 15))
     while true; do
       waiting=0
       for pid in "${pids[@]}"; do
@@ -93,6 +95,10 @@ fuda_stop_session() {
       if (( SECONDS >= deadline )); then
         echo "[FAIL] aivision 尚未退出，已保留会话；请通过 tmux attach -t aivision 查看日志"
         return 1
+      fi
+      if (( SECONDS >= next_progress )); then
+        echo "[INFO] aivision 正在完成请求或回收资源，已等待 $((SECONDS - started_at))s / ${timeout}s"
+        next_progress=$((SECONDS + 15))
       fi
       sleep 1
     done

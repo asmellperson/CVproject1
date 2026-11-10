@@ -267,6 +267,10 @@ class AsyncViolationWriter:
         logger.warning(f"[ViolationWriter] 未找到报警视频对应记录 path={video_path}")
 
     # ---------- 生命周期 ----------
+    def request_cleanup_stop(self) -> None:
+        """排空请求时先取消非必要维护，告警写入仍继续接收和落库。"""
+        self._media_cleaner.request_stop()
+
     def start(self):
         """启动后台写入系统"""
         with self._lifecycle_lock:
@@ -277,6 +281,7 @@ class AsyncViolationWriter:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop_event.clear()
+        self._media_cleaner.reset_stop()
         # 创建线程，新线程执行_run():负责保存新告警
         self._thread = threading.Thread(target=self._run, daemon=True, name="violation-writer")
         self._thread.start()
@@ -310,6 +315,7 @@ class AsyncViolationWriter:
     def stop(self):
         """系统关闭"""
         with self._lifecycle_lock:
+            self.request_cleanup_stop()
             with self._enqueue_lock:
                 self._stop_event.set()
             if self._thread:
