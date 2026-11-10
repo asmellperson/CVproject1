@@ -8,13 +8,14 @@ import { CameraMembership } from '../src/components/guard_behavior/CameraMembers
 import { LogisticsChannelConfigView } from '../src/components/logistics_single_person/LogisticsChannelConfigView'
 import type { LogisticsChannelDetail } from '../src/components/logistics_single_person/types'
 import type { AiVisionCamera } from '../src/lib/aivision'
+import { previewPointAt, previewZoomTransform } from '../src/components/camera/previewZoomGeometry'
 import '../src/index.css'
 
 const container = document.getElementById('app')!
 const result = document.getElementById('result')!
 const root = createRoot(container)
 const successes: string[] = []
-const requests: { url: URL; method: string; action?: string; keepalive?: boolean; signal?: AbortSignal | null }[] = []
+const requests: { url: URL; method: string; action?: string; speedFraction?: number; keepalive?: boolean; signal?: AbortSignal | null }[] = []
 const camera = (id: number, feature = 'detect_phone'): AiVisionCamera => ({ id: `camera_${id}`, camera_id: id,
   shm_name: `camera_${id}`, name: `测试相机${id}`, department: 'general_electric', enabled: true, fps: 5,
   sort_order: id, feature_sort_orders: { [feature]: id }, functions: { [feature]: true } })
@@ -37,8 +38,9 @@ let holdControl = false
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   const method = init?.method || 'GET'
-  const action = method === 'POST' ? JSON.parse(String(init?.body)).action : undefined
-  requests.push({ url, method, action, keepalive: init?.keepalive, signal: init?.signal })
+  const payload = method === 'POST' ? JSON.parse(String(init?.body)) : null
+  const action = payload?.action
+  requests.push({ url, method, action, speedFraction: payload?.speed_fraction, keepalive: init?.keepalive, signal: init?.signal })
   if (url.pathname === '/api/cameras') return json([camera(1, 'detect_logistics_single_person')])
   if (url.pathname === '/api/departments') return json([{ name: 'general_electric', display_name: '通用电气事业部' }])
   if (url.pathname === '/api/logistics-channels/detect_logistics_single_person/11') return json(channel)
@@ -98,6 +100,11 @@ async function until(predicate: () => unknown, label: string) {
 const pause = () => new Promise((resolve) => setTimeout(resolve, 60))
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((item) => item.textContent === text)
 const trigger = () => container.querySelector<HTMLButtonElement>('button[aria-label$="：变焦"]')!
+const rateSlider = () => document.querySelector<HTMLElement>('[role="slider"][aria-label="摄像头连续变焦速度"]')!
+const localSlider = () => document.querySelector<HTMLElement>('[role="slider"][aria-label="局部查看放大倍数"]')!
+const localView = () => document.querySelector<HTMLElement>('[data-local-zoom]')!
+const key = (element: HTMLElement, type: 'keydown' | 'keyup', value: string) => element.dispatchEvent(new KeyboardEvent(type, { key: value, bubbles: true }))
+const rateRequests = () => requests.filter(({ speedFraction }) => speedFraction !== undefined)
 async function open() {
   await pause()
   await until(() => trigger(), '变焦入口')
@@ -114,10 +121,27 @@ async function close() {
 }
 
 async function run() {
+  const viewport = { width: 800, height: 450 }
+  const source = { width: 1600, height: 900 }
+  const center = { x: 0.75, y: 0.5 }
+  const transform = previewZoomTransform(viewport, source, 2, center)
+  assert(transform.x === -800 && transform.y === -225, '指定中心未移动到查看区域中心')
+  const point = previewPointAt({ x: 400, y: 225 }, viewport, source, 2, center)
+  assert(point?.x === 0.75 && point.y === 0.5, '放大后点击未还原到原图坐标')
+  assert(previewPointAt({ x: 10, y: 225 }, viewport, { width: 600, height: 800 }, 1, { x: 0.5, y: 0.5 }) === null, '黑边点击错误变更了局部中心')
+  const edge = previewZoomTransform(viewport, source, 2, { x: 1, y: 1 })
+  assert(edge.x === -800 && edge.y === -450, '边缘放大超出真实图像范围')
+  successes.push('局部查看几何覆盖原图坐标还原、指定中心、黑边和边界夹取')
+
   render()
   await pause()
   assert(!requests.some((request) => request.url.pathname.endsWith('/zoom')), '未打开时提前查询或控制了设备')
   await open(); await ready()
+  if (new URLSearchParams(location.search).has('preview')) {
+    if (new URLSearchParams(location.search).has('dark')) document.documentElement.classList.add('dark')
+    result.textContent = '模拟设备预览；不访问真实摄像头。'
+    return
+  }
   assert(!requests.some(({ method }) => method === 'POST'), '打开弹窗时发送了镜头动作')
   button('放大')!.click()
   await until(() => document.body.textContent?.includes('镜头已调整并停止'), '单步变焦完成')
@@ -126,6 +150,60 @@ async function run() {
   await until(() => requests.some(({ action }) => action === 'out'), '缩小请求')
   await ready()
   successes.push('按需查询真实设备能力，原始预览保留功能授权，放大/缩小使用当前设备')
+
+  const beforeLocal = requests.filter(({ method }) => method === 'POST').length
+  const picture = document.querySelector<HTMLElement>('[aria-label="点击画面选择局部查看中心"]')!
+  const bounds = picture.getBoundingClientRect()
+  picture.dispatchEvent(new MouseEvent('click', { clientX: bounds.left + bounds.width * 0.75, clientY: bounds.top + bounds.height * 0.4, bubbles: true }))
+  await until(() => Math.abs(Number(localView().dataset.centerX) - 0.75) < 0.01, '点击选择局部中心')
+  localSlider().focus(); key(localSlider(), 'keydown', 'End'); key(localSlider(), 'keyup', 'End')
+  await until(() => localView().dataset.localZoom === '8', '滑条局部放大')
+  assert(Math.abs(Number(localView().dataset.centerY) - 0.4) < 0.01, '局部放大未保留选中中心')
+  assert(localView().style.transform.includes('scale(8)'), '局部查看未放大实时画面')
+  button('重置查看')!.click()
+  await until(() => localView().dataset.localZoom === '1' && localView().dataset.centerX === '0.5', '局部查看复位')
+  assert(requests.filter(({ method }) => method === 'POST').length === beforeLocal, '局部查看错误下发了镜头或检测配置操作')
+  successes.push('点击中心和倍率滑条只改变当前预览，重置恢复全图且不发送设备操作')
+
+  const beforeRate = rateRequests().length
+  rateSlider().focus(); key(rateSlider(), 'keydown', 'End')
+  await until(() => rateRequests().length >= beforeRate + 3, '保持滑条持续放大')
+  assert(rateRequests().slice(beforeRate).every(({ action, speedFraction }) => action === 'in' && speedFraction === 1), '滑条没有按方向和受限速度连续控制')
+  assert(button('放大')!.disabled || button('放大中…'), '连续调整时按钮仍允许并发微调')
+  key(rateSlider(), 'keyup', 'End')
+  await until(() => rateSlider().getAttribute('aria-valuenow') === '0' && !button('重新检测')!.disabled, '松手归中停止')
+  const afterRelease = rateRequests().length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert(rateRequests().length === afterRelease, '松手后仍在下发变焦动作')
+  const beforeShrink = rateRequests().length
+  rateSlider().focus(); key(rateSlider(), 'keydown', 'Home')
+  await until(() => rateRequests().length > beforeShrink, '持续缩小')
+  assert(rateRequests()[rateRequests().length - 1].action === 'out', '负向滑条没有缩小镜头')
+  rateSlider().dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }))
+  await until(() => rateSlider().getAttribute('aria-valuenow') === '0' && !button('重新检测')!.disabled, '触控取消停止')
+  successes.push('镜头滑条持续发送受限速度的串行动作，松手和触控取消后归中停止')
+
+  const beforeBlur = rateRequests().length
+  rateSlider().focus(); key(rateSlider(), 'keydown', 'End')
+  await until(() => rateRequests().length > beforeBlur, '失焦前持续调整')
+  window.dispatchEvent(new Event('blur'))
+  await until(() => rateSlider().getAttribute('aria-valuenow') === '0', '窗口失焦归中')
+  await ready()
+  const afterBlur = rateRequests().length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert(rateRequests().length === afterBlur, '窗口失焦后仍持续变焦')
+  successes.push('窗口失焦停止连续调整，保留服务端短步停止保护')
+
+  const beforeClosingRate = rateRequests().length
+  rateSlider().focus(); key(rateSlider(), 'keydown', 'End')
+  await until(() => rateRequests().length >= beforeClosingRate + 2, '关闭前持续调整')
+  await close()
+  const afterClosingRate = rateRequests().length
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert(rateRequests().length === afterClosingRate, '关闭弹窗后仍在重复发送变焦动作')
+  await open(); await ready()
+  assert(localView().dataset.localZoom === '1' && localView().dataset.centerX === '0.5', '重开弹窗遗留旧局部取景状态')
+  successes.push('连续调整时关闭弹窗会结束重复动作，重新打开从完整画面开始')
 
   holdControl = true
   heldControl = null
@@ -171,6 +249,11 @@ async function run() {
     await open()
     await until(() => document.body.textContent?.includes(value === 'unsupported' ? '不支持变焦' : '能力未确认'), '不可用设备状态')
     assert(button('放大')!.disabled && button('缩小')!.disabled, '未支持的设备开放了变焦控制')
+    await until(() => localSlider().getAttribute('aria-disabled') !== 'true' && !document.querySelector('[aria-label="点击画面选择局部查看中心"][aria-disabled="true"]'), '未支持镜头设备仍可局部查看')
+    const beforeDigitalOnly = requests.filter(({ method }) => method === 'POST').length
+    localSlider().focus(); key(localSlider(), 'keydown', 'End'); key(localSlider(), 'keyup', 'End')
+    await until(() => localView().dataset.localZoom === '8', '镜头不可用时局部查看')
+    assert(requests.filter(({ method }) => method === 'POST').length === beforeDigitalOnly, '镜头不支持时局部查看发出了设备动作')
     await close()
   }
   successes.push('明确不支持与能力未确认分别展示，均不允许镜头动作')

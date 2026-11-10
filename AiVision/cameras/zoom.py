@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import math
 import re
 from threading import Event, Lock
+from time import monotonic
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
@@ -150,14 +151,34 @@ class CameraZoomService:
         self.client_factory = client_factory
         self._lock = Lock()
         self._motions: dict[tuple[str, int], _Motion] = {}
+        self._capability_cache: dict[_Target, tuple[float, CameraZoomCapabilities]] = {}
+
+    def _read_capabilities(self, target: _Target, client) -> CameraZoomCapabilities:
+        """连续微调复用短时能力；重新检测、认证变化及设备错误会使旧结果失效。"""
+        try:
+            result = client.capabilities()
+        except CameraZoomError:
+            with self._lock:
+                self._capability_cache.pop(target, None)
+            raise
+        with self._lock:
+            if result.status == "supported" and self.options.capability_cache_seconds > 0:
+                self._capability_cache[target] = (monotonic() + self.options.capability_cache_seconds, result)
+            else:
+                self._capability_cache.pop(target, None)
+        return result
 
     def capabilities(self, camera: dict) -> CameraZoomCapabilities:
         try:
-            return self.client_factory(_target(camera, self.options), self.options).capabilities()
+            target = _target(camera, self.options)
+            return self._read_capabilities(target, self.client_factory(target, self.options))
         except CameraZoomError as exc:
             return CameraZoomCapabilities(status="unknown", message=str(exc))
 
-    def control(self, camera: dict, action: str) -> CameraZoomResult:
+    def control(self, camera: dict, action: str, *, speed_fraction: float | None = None) -> CameraZoomResult:
+        fraction = self.options.speed_fraction if speed_fraction is None else speed_fraction
+        if not math.isfinite(fraction) or not 0 < fraction <= 1:
+            raise CameraZoomError("变焦速度比例必须大于 0 且不超过 1", 422)
         target = _target(camera, self.options)
         client = self.client_factory(target, self.options)
         with self._lock:
@@ -169,6 +190,10 @@ class CameraZoomService:
                 raise CameraZoomError("设备控制尚未结束，停止结果未确认，请稍后重试", 409)
             try:
                 client.continuous(0)
+            except CameraZoomError:
+                with self._lock:
+                    self._capability_cache.pop(target, None)
+                raise
             finally:
                 motion.lock.release()
             return CameraZoomResult(action="stop")
@@ -178,12 +203,14 @@ class CameraZoomService:
             raise CameraZoomError("该摄像头正在调整镜头，请稍后重试", 409)
         try:
             motion.cancel.clear()
-            caps = client.capabilities()
+            with self._lock:
+                cached = self._capability_cache.get(target)
+            caps = cached[1] if cached and cached[0] > monotonic() else self._read_capabilities(target, client)
             if caps.status != "supported" or not (caps.zoom_in if action == "in" else caps.zoom_out):
                 raise CameraZoomError(caps.message, 409)
             if motion.cancel.is_set():
                 return CameraZoomResult(action=action)
-            speed = (caps.maximum if action == "in" else caps.minimum) * self.options.speed_fraction
+            speed = (caps.maximum if action == "in" else caps.minimum) * fraction
             try:
                 client.continuous(speed)
                 motion.cancel.wait(self.options.step_seconds)
@@ -195,6 +222,10 @@ class CameraZoomService:
                     logger.warning(f"[CameraZoom] 摄像头 {camera.get('shm_name', '')} 停止变焦未获确认")
                     raise CameraZoomError("停止变焦未获设备确认，请点击停止并检查设备连接") from None
             return CameraZoomResult(action=action)
+        except CameraZoomError:
+            with self._lock:
+                self._capability_cache.pop(target, None)
+            raise
         finally:
             motion.lock.release()
 

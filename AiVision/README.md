@@ -1265,7 +1265,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET / POST | `/api/cameras` | 列表 / 新建摄像头 |
 | GET / PATCH / DELETE | `/api/cameras/{key}` | 读取 / 修改 / 删除摄像头 |
 | GET | `/api/cameras/{key}/zoom?feature=...` | 管理员查询设备变焦能力，校验摄像头事业部与功能授权 |
-| POST | `/api/cameras/{key}/zoom?feature=...` | 管理员发送短步放大、缩小或停止；仅接收 `action` |
+| POST | `/api/cameras/{key}/zoom?feature=...` | 管理员发送短步放大、缩小或停止；接收 `action` 与可选的受限速度比例 `speed_fraction` |
 | GET | `/api/cameras/{key}/frame.jpg` | 原图；`feature` 参数选择功能标注图，`raw=true` 保留功能授权并读取原图 |
 | GET | `/api/cameras/{key}/preview` | 当前摄像头的原始视频能力；校验 `feature` 授权，安检额外匹配视频名单，返回同源播放地址或 JPEG 模式 |
 | WebSocket | `/ws/cameras/{key}/preview?feature=...` | 已授权的 MSE 转发，各路独立连接，只接受一次视频编码协商 |
@@ -1285,7 +1285,9 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 镜头控制由 `cameras/zoom.py` 封装，公开请求与响应位于 `cameras/zoom_schema.py`，路由为 `api/routes/camera_zoom.py`。能力查询返回 `status`（`supported`、`unsupported`、`unknown`）、说明、通道及方向能力；只有设备显式返回 `zoomSupport=true` 且提供有效连续变焦范围时才开放动作。`unsupported` 仅来自明确的 `zoomSupport=false`；接口未提供能力、拒绝访问和超时均返回 `unknown`。设备管理地址及凭据从已保存的视频源读取，不由浏览器指定；当前支持海康 `/Streaming/Channels/101` 等通道路径，主码流与子码流映射到同一物理通道，无法映射时不控制镜头。
 
-控制请求为 `{ "action": "in" }`、`{ "action": "out" }` 或 `{ "action": "stop" }`。同一设备通道的重复配置与不同功能共用控制锁，并发调整返回 409。放大、缩小使用连续变焦指令执行短步，随后在 `finally` 中发送零速度停止；启动请求超时仍执行停止，只有设备确认停止才返回 `stopped=true`，停止未确认返回 502。摄像头停用后仍允许已授权管理员发送停止。操作不写入检测参数、ROI 或摄像头采集配置，光学倍率不由连续控制参数换算。
+控制请求为 `{ "action": "in" }`、`{ "action": "out" }` 或 `{ "action": "stop" }`。放大、缩小可携带 `speed_fraction`，取值大于 0 且不超过 1，例如 `{ "action": "in", "speed_fraction": 0.8 }`；省略时使用服务默认比例，停止动作禁止携带速度。该比例作用于设备对应方向的控制范围，不表示镜头倍率，客户端不能指定源地址、通道或单步持续时间。同一设备通道的重复配置与不同功能共用控制锁，并发调整返回 409。放大、缩小使用连续变焦指令执行短步，随后在 `finally` 中发送零速度停止；启动请求超时仍执行停止，只有设备确认停止才返回 `stopped=true`，停止未确认返回 502。摄像头停用后仍允许已授权管理员发送停止。操作不写入检测参数、ROI 或摄像头采集配置。
+
+连续调整通过串行短步请求实现，每步保留服务端停止保护；浏览器松手、取消、失焦或离开页面时结束重复请求并发送必要的停止。已确认的设备能力在短时间内复用于控制请求，减少反复认证和查询的等待；公开 GET 始终重新读取设备，能力变化、认证参数变化或设备请求失败后不能继续沿用旧的支持状态。前端局部查看在浏览器内裁剪实时预览，不向设备下发中心点、倍率或检测配置，也不改变 AI 输入。
 
 变焦设置集中在 `core/settings.py` 的 `CameraZoomSettings`，通过后端环境变量调整：
 
@@ -1296,6 +1298,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | `CAMERA_ZOOM_REQUEST_TIMEOUT_SECONDS` | `2` | 单次设备 HTTP 请求超时，范围 0.2～5 秒 |
 | `CAMERA_ZOOM_STEP_SECONDS` | `0.25` | 每步收到启动回执后的等待时间，范围 0.05～0.5 秒 |
 | `CAMERA_ZOOM_SPEED_FRACTION` | `0.2` | 使用设备方向控制范围的比例，大于 0 且不超过 1；不是光学倍率 |
+| `CAMERA_ZOOM_CAPABILITY_CACHE_SECONDS` | `30` | 已确认能力用于控制请求的缓存秒数，范围 0～60；0 禁用，公开 GET 不使用此缓存 |
 
 已有数据库升级时，停止 AiVision 并备份数据库，再执行 `AiVision/migrations/feature_camera_order_20260920.sql`，然后启动服务。该迁移只执行一次，初始化为现有平台顺序；新库通过 ORM 或 `schema_mysql.sql` 建表。
 

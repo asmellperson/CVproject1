@@ -46,10 +46,10 @@ def control_camera_zoom(
     manager=Depends(get_camera_config_manager),
     service=Depends(get_camera_zoom_service),
 ):
-    """只接受有限动作，源地址、通道、速度和持续时间均由后端决定。"""
+    """接受有限动作与受限速度比例，源、通道及单步持续时间由后端决定。"""
     camera = zoom_camera(key, feature, user, manager, stopping=payload.action == "stop")
     try:
-        result = service.control(camera, payload.action)
+        result = service.control(camera, payload.action, speed_fraction=payload.speed_fraction)
     except CameraZoomError as exc:
         logger.warning(f"[CameraZoom] camera_id={camera['camera_id']} feature={feature} action={payload.action}：{exc}")
         raise HTTPException(exc.status_code, str(exc)) from None

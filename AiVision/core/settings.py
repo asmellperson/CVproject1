@@ -135,6 +135,7 @@ class CameraZoomSettings(BaseSettings):
     request_timeout_seconds: float = Field(2.0, ge=0.2, le=5, alias="CAMERA_ZOOM_REQUEST_TIMEOUT_SECONDS")
     step_seconds: float = Field(0.25, ge=0.05, le=0.5, alias="CAMERA_ZOOM_STEP_SECONDS")
     speed_fraction: float = Field(0.2, gt=0, le=1, alias="CAMERA_ZOOM_SPEED_FRACTION")
+    capability_cache_seconds: float = Field(30.0, ge=0, le=60, alias="CAMERA_ZOOM_CAPABILITY_CACHE_SECONDS")
 
     model_config = SettingsConfigDict(extra="ignore")
 

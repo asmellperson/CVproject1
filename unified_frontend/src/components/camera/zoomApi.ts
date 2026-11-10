@@ -31,9 +31,10 @@ export async function getCameraZoom(cameraKey: string, feature: string, signal: 
   return (await request(cameraKey, feature, { signal })).json()
 }
 
-export async function controlCameraZoom(cameraKey: string, feature: string, action: ZoomAction, keepalive = false): Promise<void> {
+export async function controlCameraZoom(cameraKey: string, feature: string, action: ZoomAction,
+  { keepalive = false, speedFraction }: { keepalive?: boolean; speedFraction?: number } = {}): Promise<void> {
   const response = await request(cameraKey, feature, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }), keepalive,
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, speed_fraction: speedFraction }), keepalive,
   })
   const result = await response.json() as { action: ZoomAction; stopped: boolean }
   if (result.action !== action || result.stopped !== true) throw new Error('设备尚未确认停止变焦，请点击停止重试')

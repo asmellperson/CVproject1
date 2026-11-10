@@ -22,7 +22,7 @@ def modules(monkeypatch, tmp_path):
 @pytest.fixture
 def options():
     return SimpleNamespace(scheme="http", port=80, request_timeout_seconds=0.2,
-                           step_seconds=0.001, speed_fraction=0.2)
+                           step_seconds=0.001, speed_fraction=0.2, capability_cache_seconds=30)
 
 
 @pytest.fixture
@@ -206,7 +206,7 @@ def api(modules, camera):
     app.dependency_overrides[get_current_user] = lambda: user
     manager = SimpleNamespace(get_camera=Mock(return_value=camera))
     service = SimpleNamespace(capabilities=Mock(return_value=zoom.CameraZoomCapabilities(status="supported", message="支持")),
-        control=Mock(side_effect=lambda cam, action: zoom.CameraZoomResult(action=action)))
+        control=Mock(side_effect=lambda cam, action, **kwargs: zoom.CameraZoomResult(action=action)))
     app.dependency_overrides[routes.get_camera_config_manager] = lambda: manager
     app.dependency_overrides[routes.get_camera_zoom_service] = lambda: service
     with TestClient(app) as client:
@@ -256,3 +256,82 @@ def test_new_api_does_not_expose_device_credentials(api):
     assert result.json() == {'action': 'out', 'stopped': True}
     assert 'url' not in result.text and 'secret' not in result.text
     assert service.control.call_args.args[0]['shm_name'] == 'camera_1'
+
+
+def test_continuous_steps_use_bounded_speed_and_share_recent_capabilities(modules, options, camera):
+    zoom, _ = modules
+    client = fake_client(zoom)
+    service = zoom.CameraZoomService(options, lambda *args: client)
+    assert service.capabilities(camera).status == 'supported'
+    service.control(camera, 'in', speed_fraction=0.8)
+    service.control(camera, 'out', speed_fraction=0.6)
+    assert client.capabilities.call_count == 1
+    assert [call.args[0] for call in client.continuous.call_args_list] == [80, 0, -60, 0]
+    client.capabilities.return_value = zoom.CameraZoomCapabilities(status='unsupported', message='不支持')
+    assert service.capabilities(camera).status == 'unsupported'
+    with pytest.raises(zoom.CameraZoomError, match='不支持'):
+        service.control(camera, 'in', speed_fraction=0.8)
+    assert client.continuous.call_count == 4
+
+
+def test_expired_or_changed_credentials_force_capability_recheck(modules, options, camera, monkeypatch):
+    zoom, _ = modules
+    current = [0]
+    monkeypatch.setattr(zoom, 'monotonic', lambda: current[0])
+    client = fake_client(zoom)
+    service = zoom.CameraZoomService(options, lambda *args: client)
+    service.capabilities(camera)
+    current[0] = options.capability_cache_seconds + 1
+    service.control(camera, 'in')
+    assert client.capabilities.call_count == 2
+    service.control({**camera, 'url': camera['url'].replace('local%40secret', 'changed-test-password')}, 'out')
+    assert client.capabilities.call_count == 3
+
+
+def test_device_failure_invalidates_cached_capability(modules, options, camera):
+    zoom, _ = modules
+    client = fake_client(zoom)
+    service = zoom.CameraZoomService(options, lambda *args: client)
+    service.capabilities(camera)
+    client.continuous.side_effect = [zoom.CameraZoomError('启动超时'), None, None, None]
+    with pytest.raises(zoom.CameraZoomError, match='启动超时'):
+        service.control(camera, 'in')
+    service.control(camera, 'out')
+    assert client.capabilities.call_count == 2
+
+
+def test_explicit_stop_failure_invalidates_cached_capability(modules, options, camera):
+    zoom, _ = modules
+    client = fake_client(zoom)
+    service = zoom.CameraZoomService(options, lambda *args: client)
+    service.capabilities(camera)
+    client.continuous.side_effect = [zoom.CameraZoomError('停止超时'), None, None]
+    with pytest.raises(zoom.CameraZoomError, match='停止超时'):
+        service.control(camera, 'stop')
+    service.control(camera, 'in')
+    assert client.capabilities.call_count == 2
+
+
+@pytest.mark.parametrize('fraction', [0, -0.1, 1.01, float('nan'), float('inf')])
+def test_service_rejects_invalid_speed_before_device_access(modules, options, camera, fraction):
+    zoom, _ = modules
+    factory = Mock()
+    with pytest.raises(zoom.CameraZoomError) as error:
+        zoom.CameraZoomService(options, factory).control(camera, 'in', speed_fraction=fraction)
+    assert error.value.status_code == 422
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize('payload', [{'action': 'in', 'speed_fraction': 0}, {'action': 'out', 'speed_fraction': 1.01},
+    {'action': 'stop', 'speed_fraction': 0.5}])
+def test_api_rejects_out_of_range_or_stop_speed(api, payload):
+    client, _, _, service, _ = api
+    assert client.post('/api/cameras/camera_1/zoom?feature=detect_phone', json=payload).status_code == 422
+    service.control.assert_not_called()
+
+
+def test_api_passes_valid_speed_fraction_to_service(api):
+    client, _, _, service, _ = api
+    response = client.post('/api/cameras/camera_1/zoom?feature=detect_phone', json={'action': 'in', 'speed_fraction': 0.85})
+    assert response.status_code == 200
+    assert service.control.call_args.kwargs == {'speed_fraction': 0.85}
