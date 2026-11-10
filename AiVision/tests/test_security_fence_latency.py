@@ -398,7 +398,7 @@ def test_alarm_png_crops_person_evidence_and_video_keeps_full_frame(make_consume
     finally:
         writer._queue.task_done()
     assert row is not None and writer._queue.empty()
-    expected = raw[20:190, 20:180] if kind == "no_face" else raw[30:110, 60:140]
+    expected = raw[20:190, 20:180] if kind == "no_face" else raw[6:134, 36:164]
     np.testing.assert_array_equal(cv2.imread(row["image_path"]), expected)
     assert row["event_metadata"]["snapshot"]["kind"] == ("person" if kind == "no_face" else "face")
     assert row["video_path"] == "/test/full-frame.mp4" and row["video_status"] == "pending"
@@ -420,10 +420,10 @@ def test_alarm_faces_follow_each_person_and_do_not_reuse_old_boxes(make_consumer
     second_face = {**FACE, "bbox": [260.0, 30.0, 340.0, 110.0], "person_id": 456}
     now = datetime(2026, 11, 6, 4, 0, tzinfo=timezone.utc)
     persons = runtime.update([PERSON, second], [second_face, FACE], frame.shape, now=now, monotonic=100)
-    for person, x1, x2 in zip(persons, [60, 260], [140, 340]):
+    for person, x1, x2 in zip(persons, [36, 236], [164, 364]):
         context = consumer._alarm_context(1, (True, person.model_dump()))
-        np.testing.assert_array_equal(context["snapshot_frame"], frame[30:110, x1:x2])
-        assert context["metadata"]["snapshot"] == {"kind": "face", "bbox": [x1, 30, x2, 110]}
+        np.testing.assert_array_equal(context["snapshot_frame"], frame[6:134, x1:x2])
+        assert context["metadata"]["snapshot"] == {"kind": "face", "bbox": [x1, 6, x2, 134]}
         assert not np.shares_memory(context["snapshot_frame"], frame)
 
     persons = runtime.update([PERSON, second], [], frame.shape, now=now, monotonic=100.2)
@@ -453,19 +453,26 @@ def test_ambiguous_face_uses_each_person_body_snapshot(make_consumer):
 
 
 @pytest.mark.parametrize("face_box,expected", [
-    ([-2.5, -1.5, 40.2, 50.8], [0, 0, 41, 51]),
+    ([60, 30, 140, 110], [36, 6, 164, 134]),
+    ([-2.5, -1.5, 40.2, 50.8], [0, 0, 54, 67]),
+    ([170, 175, 210, 205], [158, 166, 200, 200]),
+    ([80.25, 90.75, 120.5, 140.25], [68, 75, 133, 156]),
     ([float("nan"), 0, 40, 50], [20, 20, 180, 190]),
     ([300, 300, 400, 400], [20, 20, 180, 190]),
+    ([-20, 30, -1, 60], [20, 20, 180, 190]),
+    ([202, 50, 220, 80], [20, 20, 180, 190]),
     ([60, 30, 60, 110], [20, 20, 180, 190]),
+    ([60.8, 30, 60.2, 110], [20, 20, 180, 190]),
 ])
 def test_snapshot_crop_clamps_edges_and_rejects_invalid_face(fence_modules, face_box, expected):
     from AiVision.features.security_fence.evidence import crop_alarm_snapshot
 
-    frame = np.zeros((200, 200, 3), dtype=np.uint8)
+    frame = np.random.default_rng(42).integers(0, 256, (200, 200, 3), dtype=np.uint8)
     snapshot, region = crop_alarm_snapshot(frame, PERSON["bbox"], face_box)
     x1, y1, x2, y2 = expected
     assert region["bbox"] == expected
     assert snapshot.shape == (y2 - y1, x2 - x1, 3)
+    np.testing.assert_array_equal(snapshot, frame[y1:y2, x1:x2])
     assert not np.shares_memory(snapshot, frame)
 
 
