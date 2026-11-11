@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import accessible_departments
 from AiVision.api.deps import get_department_service
 from AiVision.departments.service import DepartmentService, FeatureAssignmentConflict
 from AiVision.departments.schema import FeatureAssignmentsResponse, FeatureAssignmentsUpdate
@@ -23,7 +24,8 @@ def list_departments(
 ):
     """查询所有部门。"""
     depts = dept_service.list_departments()
-    return [{"name": d.name, "display_name": d.display_name} for d in depts]
+    allowed = accessible_departments(user)
+    return [{"name": d.name, "display_name": d.display_name} for d in depts if d.name in allowed]
 
 
 @router.get("/feature-access")

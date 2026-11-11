@@ -23,7 +23,7 @@ class ExceptionAlertSettings(BaseModel):
     repeat_interval_minutes: int = 60                        # 重复告警的间隔时间
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 def get_exception_alert() -> dict:
     """读取当前系统异常告警的配置。企微通知开关、接收人、重复告警间隔。"""
     return system_config_service.get_exception_alert()

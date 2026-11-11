@@ -1,7 +1,7 @@
 import { getEnabledFeatureCameras, selectFeatureCamera, EMPTY_FEATURE_CAMERA_MESSAGE } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import {
   getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig,
   type AiVisionCamera, type AiVisionFeatureConfig,
@@ -14,7 +14,7 @@ import { FACE_FEATURE, type FacePersonPage, type PersonPermissionsApi, type Pers
 const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
 
 export function useFacePersons<Scope extends string>(scope: Scope, permissions: PersonPermissionsApi<Scope>) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess()
   const [query, setQuery] = useState<PersonPermissionsQuery>({ page: 1, page_size: 20 })
   const [result, setResult] = useState<FacePersonPage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -60,7 +60,7 @@ export function useFacePersons<Scope extends string>(scope: Scope, permissions: 
   useEffect(() => () => { mutationRef.current?.abort() }, [])
 
   const setPersonAllowed = async (personId: number, isAllowed: boolean) => {
-    if (!isAdmin || mutationRef.current || loading) return
+    if (!canConfigure || mutationRef.current || loading) return
     const controller = new AbortController()
     mutationRef.current = controller
     setSavingId(personId)
@@ -80,11 +80,11 @@ export function useFacePersons<Scope extends string>(scope: Scope, permissions: 
     }
   }
 
-  return { isAdmin, query, setQuery, result, loading, savingId, error, message, loadPersons, setPersonAllowed }
+  return { canConfigure, query, setQuery, result, loading, savingId, error, message, loadPersons, setPersonAllowed }
 }
 
 export function useRecognitionConfig(department: DepartmentId) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, FACE_FEATURE)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const camerasRef = useRef<AiVisionCamera[]>([])
   const enabledCameras = getEnabledFeatureCameras(cameras, FACE_FEATURE, department)
@@ -202,7 +202,7 @@ export function useRecognitionConfig(department: DepartmentId) {
   }
 
   const save = async () => {
-    if (!isAdmin || !config?.alarm || !cameraKey || loadedKey !== cameraKey || loading || cameraLoading || saving) return
+    if (!canConfigure || !config?.alarm || !cameraKey || loadedKey !== cameraKey || loading || cameraLoading || saving) return
     const key = cameraKey
     try {
       const detectionThreshold = Number(form.detectionThreshold)
@@ -232,8 +232,8 @@ export function useRecognitionConfig(department: DepartmentId) {
   }
   return {
     cameras, enabledCameras, cameraKey, form, setForm, config, setAlarm, message, loading, cameraLoading, saving,
-    disabled: !isAdmin || loading || cameraLoading || saving,
-    canSave: isAdmin && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
+    disabled: !canConfigure || loading || cameraLoading || saving,
+    canSave: canConfigure && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
     selectCamera, loadConfig, refreshCameras, save,
   }
 }

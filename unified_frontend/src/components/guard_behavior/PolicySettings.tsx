@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Car, Moon, Settings2, Shield, Smartphone, UserRound } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -17,10 +17,10 @@ const GROUP_ICONS = [UserRound, Smartphone, Moon, Car, Settings2]
 export function PolicySettings({ policy, members, busy, onChange }: {
   policy: SitePolicy; members: GuardMember[]; busy: boolean; onChange: (operation: () => Promise<unknown>) => Promise<void>
 }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(undefined, 'guard_behavior')
   const [changes, setChanges] = useState<Partial<SitePolicyValues>>({})
   const value = { ...policy, ...changes }
-  const disabled = !isAdmin || busy
+  const disabled = !canConfigure || busy
   const selected = members.find((member) => member.camera_id === value.vehicle_camera_id)
   const invalid = hasInvalidPolicyNumber(value) || (value.vehicle_inspection_enabled && (!selected || !selected.member_enabled))
   return <>

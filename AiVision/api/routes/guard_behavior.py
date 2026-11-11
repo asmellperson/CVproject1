@@ -6,10 +6,10 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, Field
 
-from auth.auth import get_current_user, require_admin
-from auth.feature_permissions import feature_departments
-from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_optional_orchestrator
-from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
+from auth.auth import get_current_user, require_config_manager
+from auth.feature_permissions import feature_departments, require_feature_access
+from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_optional_orchestrator, get_camera_config_manager
+from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers, get_camera_for_user
 from AiVision.alarms.records.schema import AlarmEventResponse
 from AiVision.alarms.records.queries import event_dict
 from AiVision.alarms.records.orm import AiAlarmEvent
@@ -31,7 +31,7 @@ ResourceId = Annotated[int, Path(gt=0)]
 Service = Annotated[object, Depends(get_guard_behavior_service)]
 Runtime = Annotated[object, Depends(get_guard_behavior_runtime)]
 Orchestrator = Annotated[object, Depends(get_optional_orchestrator)]
-ADMIN = [Depends(require_admin)]
+ADMIN = [Depends(require_config_manager)]
 
 
 class OkResponse(BaseModel):
@@ -115,8 +115,10 @@ def list_sites(service: Service, user: dict = Depends(get_current_user), departm
 
 
 @router.post("/sites", response_model=GuardBehaviorSiteResponse, status_code=201, dependencies=ADMIN)
-def create_site(payload: GuardBehaviorSiteCreate, service: Service, orchestrator: Orchestrator):
+def create_site(payload: GuardBehaviorSiteCreate, service: Service, orchestrator: Orchestrator,
+                user: dict = Depends(require_config_manager)):
     """持久化站点及默认策略后通知运行时加载。"""
+    require_feature_access(user, "guard_behavior", payload.department)
     with _service_errors():
         site = service.create_site(**payload.model_dump())
     _reload(orchestrator, site["id"])
@@ -157,8 +159,12 @@ def list_cameras(site: Site, service: Service):
 
 @router.post("/sites/{site_id}/cameras", response_model=GuardBehaviorMemberResponse,
              status_code=201, dependencies=ADMIN)
-def add_camera(site: Site, payload: GuardBehaviorMemberCreate, service: Service, orchestrator: Orchestrator):
+def add_camera(site: Site, payload: GuardBehaviorMemberCreate, service: Service, orchestrator: Orchestrator,
+               manager=Depends(get_camera_config_manager), user=Depends(require_config_manager)):
     """建立成员关系并在提交后刷新站点感知配置。"""
+    camera = get_camera_for_user(manager, payload.camera_id, user)
+    if camera["department"] != site["department"]:
+        raise HTTPException(403, "摄像头和保安室必须属于同一事业部")
     with _service_errors():
         result = service.add_camera(site["id"], payload.camera_id)
     _reload(orchestrator, site["id"])

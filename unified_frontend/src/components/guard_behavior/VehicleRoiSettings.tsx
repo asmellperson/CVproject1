@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MousePointer2 } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { getRoi, updateRoi } from './api'
@@ -8,7 +8,7 @@ import { VehicleRoiEditor } from './VehicleRoiEditor'
 import type { GuardMember, VehicleRoiPoint } from './types'
 
 export function VehicleRoiSettings({ siteId, member, busy }: { siteId: number; member: GuardMember; busy: boolean }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(undefined, 'guard_behavior')
   const [roi, setRoi] = useState<VehicleRoiPoint[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -24,7 +24,7 @@ export function VehicleRoiSettings({ siteId, member, busy }: { siteId: number; m
     return () => controller.abort()
   }, [siteId, member.camera_id])
   const save = async () => {
-    if (!isAdmin || !loaded || saving || busy) return
+    if (!canConfigure || !loaded || saving || busy) return
     setSaving(true)
     try { setRoi((await updateRoi(siteId, member.camera_id, roi)).vehicle_roi_pos); setMessage('ROI 已保存。') }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
@@ -36,11 +36,11 @@ export function VehicleRoiSettings({ siteId, member, busy }: { siteId: number; m
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{member.name} · {loading ? '正在读取…' : !loaded ? message : roi.length ? `已绘制 ${roi.length} 个顶点` : '全画面检测'}</p>
       </div>
       <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next) }}>
-        <DialogTrigger asChild><Button variant="outline" className="gap-2 bg-white dark:bg-slate-900" disabled={loading || !loaded || busy}><MousePointer2 className="h-4 w-4" />{isAdmin ? '绘制车辆 ROI' : '查看车辆 ROI'}</Button></DialogTrigger>
+        <DialogTrigger asChild><Button variant="outline" className="gap-2 bg-white dark:bg-slate-900" disabled={loading || !loaded || busy}><MousePointer2 className="h-4 w-4" />{canConfigure ? '绘制车辆 ROI' : '查看车辆 ROI'}</Button></DialogTrigger>
         <DialogContent className="max-h-[92dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-6xl">
           <DialogHeader><DialogTitle>绘制车辆检测 ROI</DialogTitle><DialogDescription>使用 {member.name} 的单路画面绘制车辆检测区域，点击保存后生效。</DialogDescription></DialogHeader>
           <VehicleRoiEditor cameraId={member.camera_id} cameraLabel={member.name} roi={roi} fallbackSize={{ width: 1920, height: 1080 }}
-            disabled={!isAdmin || loading || !loaded || saving || busy} saving={saving} message={message} onChange={setRoi} onSave={() => void save()} />
+            disabled={!canConfigure || loading || !loaded || saving || busy} saving={saving} message={message} onChange={setRoi} onSave={() => void save()} />
         </DialogContent>
       </Dialog>
     </div>

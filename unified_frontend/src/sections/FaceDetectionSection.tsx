@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 
 const AiVisionRoiEditor = lazy(() =>
   import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
@@ -102,7 +102,7 @@ async function requestFaceConfig(shmName: string, config?: FaceConfig) {
 }
 
 export function FaceDetectionSection({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, 'detect_face')
   const [form, setForm] = useState(defaultForm)
   const [faceConfig, setFaceConfig] = useState<FaceConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -208,7 +208,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
       setMessage('保存失败：请先选择摄像头。')
       return
     }
-    if (!isAdmin) {
+    if (!canConfigure) {
       setMessage('当前账号为 viewer，只能查看配置。')
       return
     }
@@ -334,7 +334,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                 feature="detect_face"
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving}
+                disabled={!canConfigure || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
@@ -345,14 +345,14 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !faceConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !faceConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
                   title="人脸逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!faceConfig || !canConfigure || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -364,13 +364,13 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !faceConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !faceConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="检测人脸并按连续轨迹计算逗留时间。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!faceConfig || !canConfigure || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -442,13 +442,13 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
 
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!canConfigure || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
 
               </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !faceConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !faceConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={['insightface_detection']} />
@@ -458,13 +458,13 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !faceConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !faceConfig || loading || saving}>
 
               <AlarmPushConfig
                 alarmInterval={form.alarmInterval}
                 onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={faceConfig?.alarm}
-                disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
+                disabled={!faceConfig || !canConfigure || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setFaceConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

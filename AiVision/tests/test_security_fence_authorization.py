@@ -175,7 +175,8 @@ def test_migration_keeps_source_if_copy_fails_then_can_retry(database, monkeypat
     assert db.migration.apply(db.engine)["copied"] == 2
 
 
-def test_camera_person_routes_preserve_access_control(database):
+@pytest.mark.parametrize("role", ["admin", "department_admin"])
+def test_camera_person_routes_preserve_access_control(database, role):
     database()
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -188,7 +189,7 @@ def test_camera_person_routes_preserve_access_control(database):
         "department": "electronics_electrician" if camera_id == 3 else "general_electric",
         "functions": {"security_fence": True}, "enabled": True,
     } for camera_id in (1, 2, 3)}
-    current_user = {"role": "admin", "departments": ["general_electric"],
+    current_user = {"role": role, "departments": ["general_electric"],
                     "feature_access": {"general_electric": ["security_fence"]}}
     app = FastAPI()
     app.include_router(router)

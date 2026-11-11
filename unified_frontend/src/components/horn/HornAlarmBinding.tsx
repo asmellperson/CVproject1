@@ -1,6 +1,6 @@
 import { useEffect, useId } from 'react'
 import { Volume2 } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,15 +20,15 @@ type Props = {
 }
 
 export function HornAlarmBinding({ value, disabled, onChange, onValidationChange }: Props) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess()
   const fieldId = useId()
-  const { devices, error: loadError } = useHornCatalog(isAdmin)
-  const audio = useHornAudioCatalog(isAdmin)
+  const { devices, error: loadError } = useHornCatalog(canConfigure)
+  const audio = useHornAudioCatalog(canConfigure)
   const selectedId = value.parm.horn_id
   const selected = devices?.find((device) => device.id === selectedId)
-  const validation = validateHornBinding(value, isAdmin ? (loadError ? null : devices) : undefined,
-    isAdmin ? (audio.loadError ? null : audio.files) : undefined)
-  const readOnly = disabled || !isAdmin
+  const validation = validateHornBinding(value, canConfigure ? (loadError ? null : devices) : undefined,
+    canConfigure ? (audio.loadError ? null : audio.files) : undefined)
+  const readOnly = disabled || !canConfigure
   const warning = validation || (selected && !selected.enable ? '已绑定设备已停用，原绑定已保留；关闭喇叭告警后可保存。' : '')
   const state = selected ? (!selected.enable ? 'disabled' : selected.runtime.state) : null
 
@@ -54,7 +54,7 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
           <SelectTrigger id={`${fieldId}-device`} className="w-full"><SelectValue placeholder="请选择已启用的设备" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="none">未选择（清除设备绑定）</SelectItem>
-            {selectedId != null && !selected ? <SelectItem value={String(selectedId)} disabled>设备 #{String(selectedId)}（{isAdmin && devices && !loadError ? '不存在' : '状态待确认'}）</SelectItem> : null}
+            {selectedId != null && !selected ? <SelectItem value={String(selectedId)} disabled>设备 #{String(selectedId)}（{canConfigure && devices && !loadError ? '不存在' : '状态待确认'}）</SelectItem> : null}
             {devices?.filter((device) => device.enable || device.id === selectedId).map((device) =>
               <SelectItem key={device.id} value={String(device.id)} disabled={!device.enable}>
                 {device.name}（{HORN_STATE_LABELS[device.enable ? device.runtime.state : 'disabled']}）
@@ -92,12 +92,12 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'}>{HORN_STATE_LABELS[state]}</Badge>
       {selected?.enable && state !== 'online' ? <span>设备当前未在线；告警能否播放取决于设备连接恢复情况。</span> : null}
     </div> : null}
-    {!isAdmin ? <p className="text-xs text-slate-500 dark:text-slate-400">设备列表与实时状态仅管理员可查询，当前显示已保存的绑定。</p>
+    {!canConfigure ? <p className="text-xs text-slate-500 dark:text-slate-400">设备列表与实时状态仅管理员可查询，当前显示已保存的绑定。</p>
       : loadError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{loadError}</p>
         : devices === null ? <p role="status" className="text-xs text-slate-500">正在读取喇叭设备...</p>
           : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在“喇叭设备”中添加并启用。</p> : null}
     {warning ? <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p> : null}
-    {selected && isAdmin ? <HornPlaybackControl device={selected}
+    {selected && canConfigure ? <HornPlaybackControl device={selected}
       audioId={typeof value.parm.horn_event_id === 'number' ? value.parm.horn_event_id : null}
       duration={audio.files?.find((file) => file.id === value.parm.horn_event_id)?.duration} disabled={readOnly || Boolean(validation)} /> : null}
     <p className="text-xs text-slate-500 dark:text-slate-400">{selected?.sip

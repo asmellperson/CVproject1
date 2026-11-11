@@ -8,7 +8,7 @@ from typing import Annotated                                # 给一个普通Pyt
 from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL路径参数
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from auth.auth import get_current_user, require_admin
+from auth.auth import get_current_user, require_config_manager
 from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.api.routes.cameras import get_camera_for_user
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
@@ -134,10 +134,11 @@ def create_features_router(
     def create_feature_camera(
         feature: str,
         payload: FeatureCameraCreateRequest,
-        _user: dict = Depends(require_admin),
+        _user: dict = Depends(require_config_manager),
     ) -> dict:
         """在具体功能的检测页面新增摄像头"""
         spec = _require_spec(feature)
+        require_feature_access(_user, feature, payload.department)
         try:
             # create_camera_for_feature:创建摄像头并且启用当前的功能
             return camera_config_manager.create_camera_for_feature(
@@ -151,10 +152,11 @@ def create_features_router(
     def reorder_feature_cameras(
         feature: str,
         payload: FeatureCameraOrderRequest,
-        _user: dict = Depends(require_admin),
+        _user: dict = Depends(require_config_manager),
     ) -> None:
         """保存当前事业部内指定功能的摄像头顺序。"""
         spec = _require_spec(feature)
+        require_feature_access(_user, feature, payload.department)
         try:
             feature_config_manager.reorder_cameras(spec, payload.department, payload.camera_ids)
         except FeatureCameraOrderConflict as exc:
@@ -197,7 +199,7 @@ def create_features_router(
         feature: str,
         shm_name: str,
         payload: dict,
-        _user: dict = Depends(require_admin),  # 写操作需管理员权限
+        _user: dict = Depends(require_config_manager),
     ):
         """
         保存指定摄像头的功能配置（需管理员权限）。
@@ -213,6 +215,8 @@ def create_features_router(
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
         if feature in LOGISTICS_FEATURES:
             raise HTTPException(status_code=404, detail="物流摄像头配置只通过通道 ROI 接口访问")
+        camera = get_camera_for_user(camera_config_manager, shm_name, _user)
+        require_feature_access(_user, feature, camera["department"])
         try:
             # 用各功能自定义的 Pydantic schema 校验入参，类型错误或缺字段时抛异常
             validated = spec.config_schema.model_validate(payload).model_dump()
@@ -220,7 +224,9 @@ def create_features_router(
             raise HTTPException(status_code=400, detail=f"validation error: {e}")
 
         try:
-            result = feature_config_manager.save_config(spec, shm_name, validated)
+            result = feature_config_manager.save_config(
+                spec, shm_name, validated, expected_department=camera["department"],
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if result is None:

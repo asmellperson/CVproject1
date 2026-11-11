@@ -223,6 +223,20 @@ def test_viewer_cannot_query_or_control_lens(api, method):
     service.control.assert_not_called()
 
 
+def test_department_admin_controls_only_own_authorized_lens(api):
+    client, user, _, service, camera = api
+    user.update(role="department_admin", departments=["general_electric"])
+    url = "/api/cameras/camera_1/zoom?feature=detect_phone"
+    assert client.get(url).status_code == 200
+    assert client.post(url, json={"action": "in"}).status_code == 200
+    service.control.reset_mock()
+    camera["department"] = "electronics_electrician"
+    user["feature_access"]["electronics_electrician"] = ["detect_phone"]
+    assert client.get(url).status_code == 403
+    assert client.post(url, json={"action": "in"}).status_code == 403
+    service.control.assert_not_called()
+
+
 def test_api_checks_exact_department_disabled_camera_and_resource(api):
     client, _, manager, service, camera = api
     url = '/api/cameras/camera_1/zoom?feature=detect_phone'

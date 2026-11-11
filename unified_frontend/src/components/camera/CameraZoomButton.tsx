@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RefreshCw, Square, ZoomIn, ZoomOut } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -13,8 +13,8 @@ type ZoomCamera = Pick<AiVisionCamera, 'shm_name' | 'name' | 'department' | 'ena
 type Props = { camera: ZoomCamera; feature: string; disabled?: boolean }
 
 export function CameraZoomButton({ camera, feature, disabled }: Props) {
-  const { isAdmin } = useAuth()
-  const available = isAdmin && camera.enabled && !!camera.department && !disabled
+  const canConfigure = useDepartmentConfigAccess(camera.department, feature)
+  const available = canConfigure && camera.enabled && !!camera.department && !disabled
   // 管理状态变化时销毁弹窗会话，恢复可用后不自动重开旧设备。
   return <CameraZoomLauncher key={`${camera.department}:${feature}:${camera.shm_name}:${available}`} camera={camera} feature={feature} disabled={!available} />
 }

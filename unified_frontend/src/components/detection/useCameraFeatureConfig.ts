@@ -4,11 +4,11 @@ import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig
 import { getEnabledFeatureCameras, selectFeatureCamera } from '@/lib/feature-cameras'
 
 export function useCameraFeatureConfig<Config extends AiVisionFeatureConfig, Draft>({
-  feature, department, isAdmin, createDraft, buildConfig,
+  feature, department, canConfigure, createDraft, buildConfig,
 }: {
   feature: string
   department: DepartmentId
-  isAdmin: boolean
+  canConfigure: boolean
   createDraft: (config: Config) => Draft
   buildConfig: (draft: Draft) => Config
 }) {
@@ -75,11 +75,11 @@ export function useCameraFeatureConfig<Config extends AiVisionFeatureConfig, Dra
   }, [reload])
 
   const update = (change: (current: Draft) => Draft) => {
-    if (isAdmin && !loading && !busy.current) setDraft((current) => current ? change(current) : current)
+    if (canConfigure && !loading && !busy.current) setDraft((current) => current ? change(current) : current)
   }
 
   const save = async () => {
-    if (!draft || !isAdmin || loading || busy.current) return
+    if (!draft || !canConfigure || loading || busy.current) return
     const request = revision.current
     const key = cameraKey
     try {

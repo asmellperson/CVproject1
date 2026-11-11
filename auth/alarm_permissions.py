@@ -17,7 +17,7 @@ def allowed_alarm_event_types(user: dict[str, Any], departments: Iterable[str]) 
     role = str(user.get("role") or "").strip().lower()
     if role == "admin":
         return None
-    if role != "viewer":
+    if role not in {"viewer", "department_admin"}:
         return set()
     departments = set(departments)
     return set(DETECTION_EVENT_TYPES) if departments.intersection(DEPARTMENT_SPECS) else set()

@@ -7,13 +7,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from auth.auth import get_current_user, require_admin
-from auth.feature_permissions import feature_departments
+from auth.auth import get_current_user, require_config_manager
+from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.api.deps import (
     get_current_orchestrator,
     get_logistics_channel_service,      # 物流通道配置和成员关系管理器
+    get_camera_config_manager,
 )
-from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
+from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers, get_camera_for_user
 from AiVision.core.db import get_session
 from AiVision.features.logistics_channel.constants import (
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
@@ -127,12 +128,13 @@ def list_channels(
 def create_channel(
     feature: str,
     payload: LogisticsChannelCreate,                  # 前端创建提交的数据
-    user: dict = Depends(require_admin),              # 必须是管理员（get_current_user这个是查询，登录就有）
+    user: dict = Depends(require_config_manager),              # 必须是管理员（get_current_user这个是查询，登录就有）
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     """新建一个物流通道"""
     # 功能权限校验
     feature = _require_feature_access(feature)
+    require_feature_access(user, feature, payload.department)
     try:
         # 调用通道管理服务去新建通道，并且做参数校验
         return LogisticsChannelDetailResponse.model_validate(
@@ -158,7 +160,7 @@ def update_channel(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelPatchRequest,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     """修改物流通道基础信息和通道级检测配置"""
@@ -185,7 +187,7 @@ def update_channel(
 def delete_channel(
     feature: str,
     channel_id: int,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelOkResponse:
     """删除指定物流通道"""
@@ -202,8 +204,9 @@ def add_camera(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelMemberCreate,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
+    manager=Depends(get_camera_config_manager),
 ) -> LogisticsChannelDetailResponse:
     """
     给某个物流通道添加成员摄像头
@@ -211,7 +214,11 @@ def add_camera(
         1、把已经存在的摄像头加入通道
         2、直接新建一台摄像头，并立即加入通道
     """
-    _require_channel_access(service, feature, channel_id, user)
+    channel = _require_channel_access(service, feature, channel_id, user)
+    if payload.camera_id is not None:
+        camera = get_camera_for_user(manager, payload.camera_id, user)
+        if camera["department"] != channel["department"]:
+            raise HTTPException(403, "摄像头和通道必须属于同一事业部")
     try:
         if payload.camera_id is not None:
             # 已经存在的摄像头加入通道
@@ -231,7 +238,7 @@ def reorder_cameras(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelMemberOrder,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     """
@@ -254,11 +261,15 @@ def move_camera(
     feature: str,
     channel_id: int,
     camera_id: int,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
+    manager=Depends(get_camera_config_manager),
 ) -> LogisticsChannelDetailResponse:
     "把一个摄像头从一个通道搬到另一个通道"
-    _require_channel_access(service, feature, channel_id, user)
+    channel = _require_channel_access(service, feature, channel_id, user)
+    camera = get_camera_for_user(manager, camera_id, user)
+    if camera["department"] != channel["department"]:
+        raise HTTPException(403, "摄像头和通道必须属于同一事业部")
     try:
         return LogisticsChannelDetailResponse.model_validate(
             service.move_camera(feature, camera_id, channel_id)
@@ -275,7 +286,7 @@ def set_camera_enabled(
     channel_id: int,
     camera_id: int,
     payload: LogisticsChannelMemberEnabledUpdate,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     "设置摄像头在当前物流通道开启工作还是不开启工作"
@@ -320,7 +331,7 @@ def update_member_camera_roi(
     channel_id: int,
     camera_id: int,
     payload: LogisticsCameraRoiUpdate,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsCameraRoiResponse:
     """管理员校验通道访问权后更新成员 ROI，业务冲突按统一规则返回。"""
@@ -341,7 +352,7 @@ def remove_camera(
     feature: str,
     channel_id: int,
     camera_id: int,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelOkResponse:
     """把摄像头从当前物流通道中移除"""

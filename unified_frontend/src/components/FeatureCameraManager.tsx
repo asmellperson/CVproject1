@@ -2,7 +2,7 @@ import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Copy, Plus } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -59,10 +59,10 @@ export function FeatureCameraManager({
   const [operationError, setOperationError] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, feature)
   const operationRef = useRef(0)
   const busyRef = useRef(false)
-  const readOnly = !isAdmin || disabled || Boolean(workingCamera)
+  const readOnly = !canConfigure || disabled || Boolean(workingCamera)
 
   useEffect(() => {
     setWorkingCamera('')

@@ -9,7 +9,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
-from auth.auth import require_admin
+from auth.auth import require_admin, require_config_manager
+from auth.feature_permissions import require_department_write_access
 from AiVision.api.deps import get_horn_runtime_manager, get_horn_service, get_horn_audio_service, get_horn_sip_service
 from AiVision.core.logger import logger
 from AiVision.alarms.devices.schema import (
@@ -60,10 +61,11 @@ class HornRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/horns", tags=["horns"], route_class=HornRoute,
-                   dependencies=[Depends(require_admin)])
+                   dependencies=[Depends(require_config_manager)])
 
 
-def _horn_scope(department: str | None = None, unassigned: bool = False):
+def _horn_scope(department: str | None = None, unassigned: bool = False,
+                user: dict = Depends(require_config_manager)):
     """管理员仍须明确当前事业部；未归属设备仅通过独立清理入口读取。"""
     if unassigned and department is not None:
         raise HTTPException(422, "事业部和待分配范围不能同时指定")
@@ -72,6 +74,7 @@ def _horn_scope(department: str | None = None, unassigned: bool = False):
             department = require_department(department)
         except ValueError:
             raise HTTPException(422, "请选择当前事业部") from None
+    require_department_write_access(user, department)
     return {"department": department, "unassigned": unassigned}
 
 
@@ -96,19 +99,20 @@ def list_horns(scope=Depends(_horn_scope), service=Depends(get_horn_service), ru
 
 @router.post("", response_model=HornResponse, status_code=201)
 def create_horn(payload: HornCreate, service=Depends(get_horn_service),
-                runtime=Depends(get_horn_runtime_manager)):
+                runtime=Depends(get_horn_runtime_manager), user=Depends(require_config_manager)):
     """保存经校验的设备配置，返回脱敏资料与热同步状态。"""
+    require_department_write_access(user, payload.department)
     return _response(service.create_horn(payload.write_values()), runtime)
 
 
 @router.post("/test-connection", response_model=HornConnectionResult)
 def test_connection(payload: HornConnectionTest, service=Depends(get_horn_service),
-                    runtime=Depends(get_horn_runtime_manager), department: str | None = None, unassigned: bool = False):
+                    runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
     """合并已存或临时连接参数，仅检查认证，不保存、不启动心跳也不播放。"""
     values = payload.write_values()
     horn_id = values.pop("horn_id", None)
     if horn_id is not None:
-        _require_horn(service, horn_id, _horn_scope(department, unassigned))
+        _require_horn(service, horn_id, scope)
         configs = service.runtime_configs(horn_id)
         if not configs:
             raise HTTPException(404, "喇叭不存在")
@@ -125,13 +129,13 @@ def test_connection(payload: HornConnectionTest, service=Depends(get_horn_servic
     return {"success": bool(result.get("online")), "runtime": result}
 
 
-@router.get("/sip-server", response_model=SipServerResponse)
+@router.get("/sip-server", response_model=SipServerResponse, dependencies=[Depends(require_admin)])
 def get_sip_server(service=Depends(get_horn_sip_service)):
     """读取集中 SIP 服务参数和实际监听状态。"""
     return service.public()
 
 
-@router.put("/sip-server", response_model=SipServerResponse)
+@router.put("/sip-server", response_model=SipServerResponse, dependencies=[Depends(require_admin)])
 def save_sip_server(payload: SipServerConfig, service=Depends(get_horn_sip_service)):
     """保存并应用前端设置的本机地址与 UDP 端口。"""
     return service.save(payload)
@@ -143,7 +147,7 @@ def list_audio(service=Depends(get_horn_audio_service)):
     return service.list_audio()
 
 
-@router.post("/audio", response_model=HornAudioResponse, status_code=201)
+@router.post("/audio", response_model=HornAudioResponse, status_code=201, dependencies=[Depends(require_admin)])
 async def upload_audio(request: Request, service=Depends(get_horn_audio_service)):
     """流式限制上传大小，AAC 转码交给线程池，不阻塞 API 事件循环。"""
     filename = unquote(request.headers.get("x-audio-filename", ""))
@@ -155,7 +159,7 @@ async def upload_audio(request: Request, service=Depends(get_horn_audio_service)
     return await run_in_threadpool(service.upload, filename, bytes(content))
 
 
-@router.delete("/audio/{audio_id}", status_code=204)
+@router.delete("/audio/{audio_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_audio(audio_id: int, service=Depends(get_horn_audio_service)):
     """删除未被检测配置引用的服务器素材。"""
     if not service.delete(audio_id):
@@ -188,9 +192,12 @@ def get_horn(horn_id: int, service=Depends(get_horn_service),
 
 @router.patch("/{horn_id}", response_model=HornResponse)
 def update_horn(horn_id: int, payload: HornUpdate, service=Depends(get_horn_service),
-                runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
+                runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope),
+                user=Depends(require_config_manager)):
     """保存明确提交的设备字段并返回实际配置及同步状态。"""
     _require_horn(service, horn_id, scope)
+    if user["role"] != "admin" and "department" in payload.model_fields_set and payload.department != scope["department"]:
+        raise HTTPException(403, "仅系统管理员可以变更喇叭所属事业部")
     config = service.update_horn(horn_id, payload.write_values(), expected_department=scope["department"])
     if config is None:
         raise HTTPException(404, "喇叭不存在")

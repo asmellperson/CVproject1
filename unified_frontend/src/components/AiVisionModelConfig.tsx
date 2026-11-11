@@ -61,7 +61,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
   useSerialPoll(loadModels, {
     intervalMs: 2000,
     timeoutMs: 8000,
-    enabled: savingName === null,
+    enabled: isAdmin && savingName === null,
     onError: (error) => {
       setLoadFailed(true)
       setLoading(false)
@@ -101,6 +101,8 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
       setMessage(`模型状态读取失败：${error instanceof Error ? error.message : String(error)}`)
     })
   }
+
+  if (!isAdmin) return <p className="p-6 text-sm text-slate-500 dark:text-slate-400">全平台模型配置仅系统管理员可查看和修改。</p>
 
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>

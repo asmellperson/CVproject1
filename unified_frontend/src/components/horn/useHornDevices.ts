@@ -9,7 +9,7 @@ const POLL_INTERVAL_MS = 5000
 const READ_TIMEOUT_MS = 8000
 const ACTION_TIMEOUT_MS = 20000
 
-export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
+export function useHornDevices(canConfigure: boolean, scope: HornScope | null) {
   const [devices, setDevices] = useState<HornDevice[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -20,14 +20,14 @@ export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
   const generation = useRef(0)
   const action = useRef<AbortController | null>(null)
   const mounted = useRef(true)
-  const canManage = useRef(isAdmin)
+  const canManage = useRef(canConfigure)
 
   useEffect(() => {
-    canManage.current = isAdmin && scope !== null
+    canManage.current = canConfigure && scope !== null
     generation.current += 1
     action.current?.abort()
     setDevices([]); setLoading(true); setLoadError(''); setError(''); setMessage('')
-  }, [isAdmin, scope])
+  }, [canConfigure, scope])
 
   useEffect(() => {
     mounted.current = true
@@ -39,7 +39,7 @@ export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
   }, [])
 
   const load = async (signal: AbortSignal) => {
-    if (!isAdmin || !scope || !canManage.current || action.current) return
+    if (!canConfigure || !scope || !canManage.current || action.current) return
     const requestGeneration = generation.current
     let items: HornDevice[]
     try {
@@ -60,7 +60,7 @@ export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
 
   useSerialPoll(load, {
     intervalMs: POLL_INTERVAL_MS, timeoutMs: READ_TIMEOUT_MS,
-    enabled: isAdmin && scope !== null && !busy, restartKey: `${scope}:${revision}`,
+    enabled: canConfigure && scope !== null && !busy, restartKey: `${scope}:${revision}`,
     onError: (reason) => {
       setLoading(false)
       setLoadError(`设备列表读取失败：${reason instanceof Error ? reason.message : '请检查网络连接。'}`)
@@ -68,7 +68,7 @@ export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
   })
 
   const perform = async <T,>(operation: (signal: AbortSignal) => Promise<T>, success: string): Promise<T | undefined> => {
-    if (!isAdmin || !canManage.current || action.current || !mounted.current) return undefined
+    if (!canConfigure || !canManage.current || action.current || !mounted.current) return undefined
     const controller = new AbortController()
     action.current = controller
     generation.current += 1
@@ -130,7 +130,7 @@ export function useHornDevices(isAdmin: boolean, scope: HornScope | null) {
 
   return {
     devices, loading, loadError, error, message, busy,
-    refresh: () => { if (isAdmin && !action.current) { setLoading(true); setRevision((value) => value + 1) } },
+    refresh: () => { if (canConfigure && !action.current) { setLoading(true); setRevision((value) => value + 1) } },
     clearFeedback: () => { setError(''); setMessage('') },
     loadDevice: (id: number) => perform((signal) => getHorn(id, scope!, signal), ''),
     saveDevice, setEnabled, checkConnection,

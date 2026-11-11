@@ -62,7 +62,7 @@ def find_native_resources(catalog: ConfigurationCatalog, kind: str, departments:
         return [reference(kind, f"{site_id}:{row['camera_id']}", row["name"], parent.reference.department, "guard_behavior")
                 for row in GUARD_SERVICE.list_site_cameras(site_id)]
     if kind == "horn":
-        if catalog.user.get("role") != "admin":
+        if catalog.user.get("role") not in {"admin", "department_admin"}:
             raise HTTPException(403, "喇叭配置需要管理员权限")
         return [reference(kind, row["id"], row["name"], scope) for scope in departments
                 for row in horn_service.list_horns(department=scope)]
@@ -83,7 +83,7 @@ def resolve_native_resource(catalog: ConfigurationCatalog, parts: list[str]) -> 
     if kind in {"guard", "guard_policy", "guard_alarm", "guard_roi", "guard_member"}:
         return resolve_guard(catalog, parts)
     if kind == "horn" and len(parts) == 2:
-        if catalog.user.get("role") != "admin":
+        if catalog.user.get("role") not in {"admin", "department_admin"}:
             raise HTTPException(403, "喇叭配置需要管理员权限")
         horn_id = catalog.positive_id(parts[1])
         row = horn_service.get_horn(horn_id)

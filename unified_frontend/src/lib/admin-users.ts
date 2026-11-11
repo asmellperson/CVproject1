@@ -1,6 +1,6 @@
 import type { AiVisionDepartment } from './aivision'
 
-export type AdminUserRole = 'admin' | 'viewer'
+export type AdminUserRole = 'admin' | 'department_admin' | 'viewer'
 
 export type AdminUserDepartment = AiVisionDepartment['name']
 

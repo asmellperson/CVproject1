@@ -9,7 +9,7 @@ import { AssistantActionCard } from './AssistantActionCard'
 import { useAssistant } from './useAssistant'
 import { isTurnActive } from './types'
 
-export function AssistantChat({ department, isAdmin }: { department: DepartmentId | null; isAdmin: boolean }) {
+export function AssistantChat({ department, canModify }: { department: DepartmentId | null; canModify: boolean }) {
   const state = useAssistant(department)
   const [draft, setDraft] = useState('')
   const messages = useRef<HTMLDivElement>(null)
@@ -30,7 +30,7 @@ export function AssistantChat({ department, isAdmin }: { department: DepartmentI
       </CardContent>
     </Card>
     <Card className="min-w-0 gap-0 overflow-hidden rounded-2xl dark:border-slate-800 dark:bg-slate-900">
-      <CardHeader className="border-b border-slate-100 pb-5 dark:border-slate-800"><CardTitle className="flex items-center gap-2 text-base"><MessageSquareText className="h-5 w-5 text-blue-600 dark:text-blue-400" />福达AI助手</CardTitle><p className="text-xs text-slate-500 dark:text-slate-400">{isAdmin ? '想聊天、查配置、调参数，都可以和我说。' : '可以陪你聊天，也能查询已授权部门配置；修改需要管理员权限。'}</p></CardHeader>
+      <CardHeader className="border-b border-slate-100 pb-5 dark:border-slate-800"><CardTitle className="flex items-center gap-2 text-base"><MessageSquareText className="h-5 w-5 text-blue-600 dark:text-blue-400" />福达AI助手</CardTitle><p className="text-xs text-slate-500 dark:text-slate-400">{canModify ? '想聊天、查配置、调参数，都可以和我说。' : '可以陪你聊天，也能查询已授权部门配置；修改需要管理员权限。'}</p></CardHeader>
       <CardContent className="p-0">
         <div ref={messages} role="log" aria-label="福达AI助手对话" aria-live="polite" className="h-[min(58vh,38rem)] min-h-80 space-y-6 overflow-y-auto bg-slate-50/70 p-4 dark:bg-slate-950/30 sm:p-5">
           {!turns.length && <div className="flex h-full flex-col items-center justify-center gap-3 text-center"><Bot className="h-9 w-9 text-blue-600 dark:text-blue-400" /><p className="text-sm font-medium">嗨，我是福达AI助手 👋</p><p className="max-w-md text-xs leading-6 text-slate-500 dark:text-slate-400">可以随便聊聊，也可以让我帮你办事。<br />例如：把二厂物流出口摄像头的 FPS 改成 8，或设置物流通道周末不报警。</p></div>}

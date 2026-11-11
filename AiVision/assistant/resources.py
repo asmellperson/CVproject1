@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 from pydantic_core import to_jsonable_python
 
-from auth.feature_permissions import feature_departments
+from auth.feature_permissions import accessible_departments, feature_departments
 from AiVision.cameras.config_manager import camera_config_manager
 from AiVision.core.config_revision import configuration_revision
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
@@ -149,8 +149,7 @@ class CameraParameters(BaseModel):
 class ConfigurationCatalog:
     def __init__(self, user: dict, department: str | None, orchestrator=None):
         self.user, self.department, self.orchestrator = user, department, orchestrator
-        self.departments = (list(DEPARTMENT_SPECS) if user.get("role") == "admin" else
-                            [item for item in user.get("departments", []) if item in DEPARTMENT_SPECS])
+        self.departments = accessible_departments(user)
         if department is not None:
             if department not in self.departments:
                 raise HTTPException(403, "没有当前事业部的访问权限")
@@ -176,7 +175,11 @@ class ConfigurationCatalog:
 
     def capabilities(self) -> dict:
         features = [spec for spec in all_specs().values() if set(feature_departments(self.user, spec.name)) & set(self.departments)]
-        return {"can_modify": self.user.get("role") == "admin", "resource_kinds": RESOURCE_KINDS,
+        global_kinds = {"inspection_settings", "assistant_settings", "exception_alerts", "model_path", "department_features", "horn_sip"}
+        kinds = {key: value for key, value in RESOURCE_KINDS.items()
+                 if self.user.get("role") == "admin" or (key not in global_kinds and
+                     (key != "horn" or self.user.get("role") == "department_admin"))}
+        return {"can_modify": self.user.get("role") in {"admin", "department_admin"}, "resource_kinds": kinds,
                 "features": [{"name": spec.name, "label": spec.display_name} for spec in features],
                 "departments": [{"id": item, "name": DEPARTMENT_SPECS[item].display_name} for item in self.departments],
                 "factory_names": {key: [item for item in values if item in self.departments]

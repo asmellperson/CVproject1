@@ -57,7 +57,7 @@ class ModelPathSaveResponse(BaseModel):
     load_status: Literal["loading", "not_started"]
 
 
-@router.get("", response_model=list[ModelResponse])
+@router.get("", response_model=list[ModelResponse], dependencies=[Depends(require_admin)])
 def list_models(runtime=Depends(get_inference_runtime_manager)):
     """查询固定模型列表及状态，配置读取失败时返回服务不可用。"""
     try:

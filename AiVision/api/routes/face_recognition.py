@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from auth.auth import get_current_user, require_admin
+from auth.auth import get_current_user, require_config_manager
 from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.features.face_recognition.records import get_recognition_image, list_recognition_records
 from AiVision.features.face_recognition.library.service import FaceLibraryService
@@ -36,7 +36,7 @@ def get_persons(
 @router.patch("/persons/{person_id}", response_model=FacePersonItem)
 def update_person(
     person_id: int, payload: FacePersonUpdate,
-    department: str = Query(...), user: dict = Depends(require_admin),
+    department: str = Query(...), user: dict = Depends(require_config_manager),
 ):
     """管理员仅可修改已分配人脸识别功能的指定事业部白名单。"""
     require_feature_access(user, "recognize_face", department)

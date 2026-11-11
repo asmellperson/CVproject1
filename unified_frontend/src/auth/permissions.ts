@@ -38,7 +38,10 @@ export const FEATURE_BY_PAGE: Record<DetectionPageId, string> = {
   'human-detection': 'detect_human', 'logistics-single-person': 'detect_logistics_single_person',
   'phone-detection': 'detect_phone', 'agv-person-check': 'agv_person_check',
 }
-export type UserRole = 'admin' | 'viewer'
+export type UserRole = 'admin' | 'department_admin' | 'viewer'
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: '系统管理员', department_admin: '部门管理员', viewer: '普通用户',
+}
 export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management' | 'feature-management' | 'assistant'
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
@@ -61,7 +64,7 @@ export function isDepartment(value: unknown): value is DepartmentId {
 }
 
 export function getUserRole(user: AuthUser | null | undefined): UserRole | null {
-  return user?.role === 'admin' || user?.role === 'viewer' ? user.role : null
+  return user?.role === 'admin' || user?.role === 'department_admin' || user?.role === 'viewer' ? user.role : null
 }
 
 export function getUserDepartments(user: AuthUser | null | undefined): Department[] {
@@ -72,13 +75,20 @@ export function getUserDepartments(user: AuthUser | null | undefined): Departmen
 export function getAccessibleDepartments(user: AuthUser | null | undefined): DepartmentId[] {
   const departments = getUserDepartments(user)
   if (getUserRole(user) === 'admin') return [...DEPARTMENTS]
-  if (getUserRole(user) !== 'viewer') return []
+  if (getUserRole(user) !== 'viewer' && getUserRole(user) !== 'department_admin') return []
   return departments.filter(isDepartment)
 }
 
 export function resolveDepartment(user: AuthUser | null | undefined, requested: unknown): DepartmentId | null {
   const accessible = getAccessibleDepartments(user)
   return isDepartment(requested) && accessible.includes(requested) ? requested : null
+}
+
+export function canConfigureDepartment(user: AuthUser | null | undefined, department: unknown, feature?: string): boolean {
+  const role = getUserRole(user)
+  if (role === 'admin') return true
+  if (role !== 'department_admin' || !isDepartment(department) || !getAccessibleDepartments(user).includes(department)) return false
+  return !feature || user?.feature_access[department]?.includes(feature) === true
 }
 
 export function hasPageAccess(user: AuthUser | null | undefined, pageId: string, department?: DepartmentId) {
@@ -92,7 +102,7 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string,
   }
   if (getUserRole(user) === 'admin') return true
   if (pageId === 'user-management' || pageId === 'feature-management') return false
-  return getUserRole(user) === 'viewer' && getAccessibleDepartments(user).length > 0
+  return (getUserRole(user) === 'viewer' || getUserRole(user) === 'department_admin') && getAccessibleDepartments(user).length > 0
 }
 
 export function isDetectionPage(page: string): page is DetectionPageId {

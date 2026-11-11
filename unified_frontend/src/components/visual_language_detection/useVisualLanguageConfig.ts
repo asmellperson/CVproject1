@@ -1,4 +1,4 @@
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { useFeatureConfigDraft } from '@/components/detection/useFeatureConfigDraft'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
@@ -22,7 +22,7 @@ function buildConfig({ config, roiJson }: Draft) {
 }
 
 export function useVisualLanguageConfig(cameraKey: string, configVersion: number) {
-  const { isAdmin } = useAuth()
-  return { ...useFeatureConfigDraft({ cameraKey, configVersion, isAdmin,
-    read: getVisualLanguageConfig, write: saveVisualLanguageConfig, createDraft, buildConfig }), isAdmin }
+  const canConfigure = useDepartmentConfigAccess(undefined, 'visual_language_detection')
+  return { ...useFeatureConfigDraft({ cameraKey, configVersion, canConfigure,
+    read: getVisualLanguageConfig, write: saveVisualLanguageConfig, createDraft, buildConfig }), canConfigure }
 }

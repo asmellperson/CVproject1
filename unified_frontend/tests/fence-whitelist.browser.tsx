@@ -2,6 +2,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthContext, type AuthContextValue } from '../src/auth/auth-context'
+import { DetectionDepartmentContext } from '../src/components/detection/DetectionDepartmentContext'
+import { canConfigureDepartment, getAccessibleDepartments, hasPageAccess, type UserRole, type DepartmentId } from '../src/auth/permissions'
 import { FenceConfigView } from '../src/components/security_fence/FenceConfigView'
 import { NUMBER_FIELDS } from '../src/components/security_fence/api'
 import { facePersonPermissionsApi } from '../src/components/face_recognition/api'
@@ -61,10 +63,13 @@ async function until(predicate: () => unknown, label: string) {
   }
 }
 const pause = () => new Promise((resolve) => setTimeout(resolve, 50))
-const context = (isAdmin: boolean): AuthContextValue => ({ user: null, loading: false, isAdmin,
+const context = (role: boolean | UserRole, departments: DepartmentId[] = ['general_electric']): AuthContextValue => ({
+  user: { employee_id: 'test', name: '测试用户', role: typeof role === 'boolean' ? (role ? 'admin' : 'viewer') : role,
+    departments, feature_access: { general_electric: ['security_fence', 'detect_phone', 'recognize_face'] } },
+  loading: false, isAdmin: role === true || role === 'admin',
   login: async () => {}, changePassword: async () => {}, logout: async () => {}, refreshMe: async () => {}, handleUnauthorized: () => {} })
-const render = (isAdmin = true, key = 'workspace') => root.render(<StrictMode><AuthContext.Provider value={context(isAdmin)}>
-  <FenceConfigView key={key} department="general_electric" />
+const render = (role: boolean | UserRole = true, key = 'workspace', departments?: DepartmentId[]) => root.render(<StrictMode><AuthContext.Provider value={context(role, departments)}>
+  <DetectionDepartmentContext.Provider value="general_electric"><FenceConfigView key={key} department="general_electric" /></DetectionDepartmentContext.Provider>
 </AuthContext.Provider></StrictMode>)
 const toggle = () => container.querySelector('[role="switch"][aria-label$="允许通行"]') as HTMLButtonElement | null
 const tab = () => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((element) => element.textContent?.includes('围栏白名单'))!
@@ -116,6 +121,28 @@ async function run() {
   render(false)
   await until(() => toggle()?.disabled, '普通账号只读')
   successes.push('普通账号可以查看名单，允许状态开关只读')
+
+  render('department_admin')
+  await until(() => toggle() && !toggle()!.disabled, '部门管理员可编辑本部门白名单')
+  toggle()!.click()
+  await until(() => container.textContent?.includes('通行权限已保存'), '部门管理员保存回读')
+  successes.push('部门管理员沿用现有开关，保存本部门摄像头白名单')
+
+  render('department_admin', 'workspace', ['electronics_electrician'])
+  await until(() => toggle()?.disabled, '跨部门白名单只读')
+  const patches = requests.filter(({ method }) => method === 'PATCH').length
+  toggle()!.click(); await pause()
+  assert(requests.filter(({ method }) => method === 'PATCH').length === patches, '跨部门账号发送了修改请求')
+  successes.push('页面所选部门不能扩大部门管理员的授权')
+
+  const scopedUser = context('department_admin').user!
+  assert(getAccessibleDepartments(scopedUser).join() === 'general_electric', '部门管理员看到了其他部门入口')
+  assert(!hasPageAccess(scopedUser, 'user-management') && !hasPageAccess(scopedUser, 'feature-management'), '部门管理员获得了全局管理入口')
+  assert(canConfigureDepartment(scopedUser, 'general_electric', 'security_fence'), '本部门已开放功能不可编辑')
+  assert(!canConfigureDepartment(scopedUser, 'general_electric', 'detect_door'), '未开放功能可编辑')
+  assert(!canConfigureDepartment({ ...scopedUser, departments: ['all'] }, 'general_electric'), 'all 绕过了部门授权')
+  assert(!canConfigureDepartment(context(false).user, 'general_electric'), '普通用户获得了配置权限')
+  successes.push('角色、部门、功能权限取交集，账号及功能授权入口仍由系统管理员管理')
 
   await facePersonPermissionsApi.list('general_electric', { page: 1, page_size: 20 })
   await facePersonPermissionsApi.update('general_electric', 123, true)

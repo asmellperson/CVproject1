@@ -121,7 +121,7 @@ class AssistantTools:
     def catalog(self, *, write=False):
         self.check_cancel()
         user = self.load_user()
-        if write and user.get("role") != "admin":
+        if write and user.get("role") not in {"admin", "department_admin"}:
             raise HTTPException(403, "当前账号只能查询，配置修改需要管理员权限")
         return ConfigurationCatalog(user, self.department, self.orchestrator)
 

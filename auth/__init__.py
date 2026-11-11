@@ -8,7 +8,7 @@ API 由 AiVision 统一挂载，账号和审计数据使用 AiVision 的共享 M
 一、先分清几种权限
 
     登录身份：账号启用状态、密码和 JWT/Cookie 校验。
-    角色：admin 或 viewer；管理操作使用管理员权限依赖。
+    角色：admin、department_admin 或 viewer；业务配置同时核验角色、事业部和功能授权。
     事业部功能权限：按“事业部＋功能”组合判断，管理员也遵守功能分配。
     告警数据权限：由告警查询的事业部范围和事件规则决定，不能直接套用菜单过滤。
     访问审计权限：按平台负责人身份授权，通过 capability 告知前端，不等同于 admin。
@@ -17,7 +17,7 @@ API 由 AiVision 统一挂载，账号和审计数据使用 AiVision 的共享 M
 
     auth.py：密码验证、JWT 编解码、Cookie 设置和请求身份解析。
         get_current_user_from_request() 从请求获取并校验当前用户；
-        get_current_user()/require_admin() 供 FastAPI 路由依赖使用。
+        get_current_user()/require_admin()/require_config_manager() 供 FastAPI 路由依赖使用。
         读取 AUTH_SECRET 等环境配置，不把密钥写进源码。
     user_store.py：UserStore，封装用户查询、创建、修改、删除和密码哈希保存。
         在数据库事务内处理账号约束，区分校验错误、冲突和目标不存在。

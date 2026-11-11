@@ -12,8 +12,8 @@ import cv2
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from auth.auth import get_current_user, require_admin
-from auth.feature_permissions import feature_departments, require_feature_access
+from auth.auth import get_current_user, require_config_manager
+from auth.feature_permissions import feature_departments, require_feature_access, require_department_write_access
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
@@ -70,17 +70,17 @@ def camera_read_department(user: dict, requested_department: str) -> str:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if user.get("role") != "admin" and (
-        user.get("role") != "viewer" or department not in _camera_departments_for_user(user)
+        user.get("role") not in {"viewer", "department_admin"} or department not in _camera_departments_for_user(user)
     ):
         raise HTTPException(status_code=403, detail="camera department permission required")
     return department
 
 
 def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, Any]:
-    """按事业部分配过滤检测功能，仅管理员可读取摄像头地址。"""
+    """按事业部分配过滤功能，管理员在获准范围内可读取设备配置地址。"""
     response = dict(camera)
     # 不是管理员就不让看url
-    if user.get("role") != "admin":
+    if user.get("role") not in {"admin", "department_admin"}:
         response.pop("url", None)
     response["functions"] = {
         feature: enabled for feature, enabled in camera["functions"].items()
@@ -150,12 +150,13 @@ def list_cameras(
 @router.post("", status_code=status.HTTP_201_CREATED)      # HTTP给201  Created表示新的摄像头创建成功了
 def create_camera(
     payload: CameraCreateRequest,                         # 创建的摄像头数据
-    _user: dict = Depends(require_admin),                 # 只有管理员能创建
+    _user: dict = Depends(require_config_manager),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
     """
     新增摄像头
     """
+    require_department_write_access(_user, payload.department)
     try:
         return camera_config_manager.create_camera(payload.model_dump(exclude_none=True))
     except ValueError as exc:
@@ -176,28 +177,36 @@ def get_camera(
 def patch_camera(
     key: str,
     payload: CameraUpdateRequest,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_config_manager),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
     """局部修改某一台摄像头。"""
+    current = get_camera_for_user(camera_config_manager, key, _user)
+    require_department_write_access(_user, current["department"])
+    if _user["role"] != "admin" and "department" in payload.model_fields_set and payload.department != current["department"]:
+        raise HTTPException(403, "仅系统管理员可以变更摄像头所属事业部")
     try:
-        camera = camera_config_manager.update_camera(key, payload.model_dump(exclude_unset=True))
+        camera = camera_config_manager.update_camera(
+            key, payload.model_dump(exclude_unset=True), expected_department=current["department"],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
-    return camera
+    return camera_response_for_user(camera, _user)
 
 @router.delete("/{key}")
 def delete_camera(
     key: str,
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_config_manager),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, bool]:
     """
     删除摄像头的HTTP接口
     """
-    ok = camera_config_manager.delete_camera(key)
+    camera = get_camera_for_user(camera_config_manager, key, _user)
+    require_department_write_access(_user, camera["department"])
+    ok = camera_config_manager.delete_camera(key, expected_department=camera["department"])
     if not ok:
         raise HTTPException(status_code=404, detail="camera not found")
     return {"ok": True}

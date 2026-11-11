@@ -24,7 +24,7 @@ import {
   type AiVisionCamera,
   type AiVisionFeatureConfig,
 } from '@/lib/aivision'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 
 const AiVisionRoiEditor = lazy(() =>
   import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
@@ -108,7 +108,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
   const title = '人员违规逗留检测'
   const departmentLabel = DEPARTMENT_LABELS[department]
   const feature = 'detect_human'
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, 'detect_human')
   const [form, setForm] = useState(defaultForm)
   const [humanConfig, setHumanConfig] = useState<HumanConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -219,7 +219,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
       setMessage('保存失败：请先选择摄像头。')
       return
     }
-    if (!isAdmin) {
+    if (!canConfigure) {
       setMessage('当前账号为 viewer，只能查看配置。')
       return
     }
@@ -381,7 +381,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                 feature={feature}
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving}
+                disabled={!canConfigure || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   selectedCameraRef.current = cameraName
                   setForm((prev) => ({ ...prev, cameraName }))
@@ -393,14 +393,14 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !humanConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
                   title="人员违规逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!humanConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!humanConfig || !canConfigure || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -412,13 +412,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !humanConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪与人体过滤参数。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!humanConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!humanConfig || !canConfigure || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -563,13 +563,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
 
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!canConfigure || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
 
               </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !humanConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={['yolo_human']} />
@@ -579,13 +579,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !humanConfig || loading || saving}>
 
               <AlarmPushConfig
                 alarmInterval={form.alarmInterval}
                 onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={humanConfig?.alarm}
-                disabled={!humanConfig || !isAdmin || loading || saving || !form.cameraName}
+                disabled={!humanConfig || !canConfigure || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setHumanConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

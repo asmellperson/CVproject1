@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, Webhook } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
@@ -19,9 +19,9 @@ const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').th
 const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })))
 
 export function AgvPersonCheckSection({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
-  const { cameras, enabledCameras, cameraKey, form, loading, saving, message, updateForm, save, reload, selectCamera } = useAgvPersonCheckConfig(department, isAdmin)
-  const readOnly = !isAdmin || loading || saving || !form
+  const canConfigure = useDepartmentConfigAccess(department, 'agv_person_check')
+  const { cameras, enabledCameras, cameraKey, form, loading, saving, message, updateForm, save, reload, selectCamera } = useAgvPersonCheckConfig(department, canConfigure)
+  const readOnly = !canConfigure || loading || saving || !form
   const saveBar = <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={readOnly}
     onReload={() => void reload()} onSave={save} />
 
@@ -45,7 +45,7 @@ export function AgvPersonCheckSection({ department }: { department: DepartmentId
             {!form && <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{message}</p>}
             <TabsContent value="camera" className="mt-0 space-y-6">
               <FeatureCameraManager cameras={cameras} feature={AGV_FEATURE} department={department} currentCameraName={cameraKey}
-                disabled={!isAdmin || loading || saving} onSelectCamera={selectCamera} onCamerasChanged={reload} onConfigCopied={reload} />
+                disabled={!canConfigure || loading || saving} onSelectCamera={selectCamera} onCamerasChanged={reload} onConfigCopied={reload} />
             </TabsContent>
             <TabsContent value="params" className="mt-0 space-y-6">
               <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>

@@ -17,13 +17,13 @@ const AiVisionRoiEditor = lazy(() =>
 export function VisualLanguageConfiguration({ cameraKey, tab, state }: {
   cameraKey: string; tab: 'parameters' | 'prompt' | 'roi' | 'alarm'; state: ReturnType<typeof useVisualLanguageConfig>
 }) {
-  const { message, saving, disabled, save, isAdmin } = state
+  const { message, saving, disabled, save, canConfigure } = state
   if (!state.draft) return <p role="status" className="p-6 text-sm text-slate-500">{message || '正在读取配置…'}</p>
   const { config, roiJson } = state.draft
   const setConfig = (config: VisualLanguageConfig) => state.update((draft) => ({ ...draft, config }))
   const setRoiJson = (roiJson: string) => state.update((draft) => ({ ...draft, roiJson }))
   const valid = validVisualLanguageParameters(config)
-  const saveMessage = message || (isAdmin ? '配置仅作用于当前摄像头，保存后生效。' : '当前账号可查看配置，修改需要管理员权限。')
+  const saveMessage = message || (canConfigure ? '配置仅作用于当前摄像头，保存后生效。' : '当前账号可查看配置，修改需要管理员权限。')
   if (tab === 'roi') return <Suspense fallback={<p role="status" className="p-6 text-sm text-slate-500">正在加载 ROI 编辑器…</p>}>
     <AiVisionRoiEditor title="指令驱动智慧安防 ROI 绘制" cameraKey={cameraKey} roiJson={roiJson}
       disabled={disabled} saving={saving} message={saveMessage} onChange={setRoiJson} onSave={() => void save()} />

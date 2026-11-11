@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 
@@ -18,7 +18,7 @@ export type LogisticsChannelSectionProps = {
 }
 
 export function LogisticsChannelSection({ feature, department, title }: LogisticsChannelSectionProps) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, feature)
   const [cameraCount, setCameraCount] = useState<number | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraError, setCameraError] = useState('')
@@ -96,7 +96,7 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
             channels={channelQuery.channels}
             selectedChannelId={channelQuery.selectedChannelId}
             selectedChannelDetail={channelQuery.selectedChannelDetail}
-            isAdmin={isAdmin}
+            canConfigure={canConfigure}
             onSelectChannel={channelQuery.setSelectedChannelId}
             onChannelCreated={channelQuery.selectCreatedChannelLocally}
             onChannelDeleted={channelQuery.removeChannelLocally}

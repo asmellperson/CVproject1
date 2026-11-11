@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 
 const AiVisionRoiEditor = lazy(() =>
   import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
@@ -95,7 +95,7 @@ async function requestBlocksConfig(shmName: string, config?: BlocksConfig) {
 }
 
 export function IntrusionDetectionSection({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, 'blocks')
   const [form, setForm] = useState(defaultForm)
   const [blocks, setBlocks] = useState<BlocksConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -201,7 +201,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
       setMessage('保存失败：请先选择摄像头。')
       return
     }
-    if (!isAdmin) {
+    if (!canConfigure) {
       setMessage('当前账号为 viewer，只能查看配置。')
       return
     }
@@ -313,7 +313,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                 feature="blocks"
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving}
+                disabled={!canConfigure || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
@@ -324,7 +324,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
             </TabsContent>
 
             <TabsContent value="line" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !blocks || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !blocks || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载警戒线编辑器..." />}>
                 <AiVisionRoiEditor
@@ -332,7 +332,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                   cameraKey={form.cameraName}
                   mode="line"
                   roiJson={form.linePoints}
-                  disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!blocks || !canConfigure || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(linePoints) => setForm((prev) => ({ ...prev, linePoints }))}
@@ -344,13 +344,13 @@ export function IntrusionDetectionSection({ department }: { department: Departme
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !blocks || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !blocks || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的区域入侵检测参数。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!blocks || !canConfigure || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -393,7 +393,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                     <Select
                       value={form.alarmSide}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, alarmSide: value }))}
-                      disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
+                      disabled={!blocks || !canConfigure || loading || saving || !form.cameraName}
                     >
                       <SelectTrigger id="intrusion-side" className="w-full">
                         <SelectValue />
@@ -417,13 +417,13 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                 </div>
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!canConfigure || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
 
               </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !blocks || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !blocks || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={['yolo_human']} />
@@ -433,13 +433,13 @@ export function IntrusionDetectionSection({ department }: { department: Departme
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !blocks || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !blocks || loading || saving}>
 
               <AlarmPushConfig
                 alarmInterval={form.alarmInterval}
                 onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={blocks?.alarm}
-                disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
+                disabled={!blocks || !canConfigure || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setBlocks((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

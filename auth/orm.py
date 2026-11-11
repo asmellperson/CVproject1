@@ -25,7 +25,7 @@ class AuthUser(Base):
 
     employee_id = Column(String(64), primary_key=True)
     name = Column(String(128), nullable=False, unique=True)
-    role = Column(Enum("admin", "viewer"), nullable=False)
+    role = Column(Enum("admin", "viewer", "department_admin"), nullable=False)
     departments = Column(JSON, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
     password_hash = Column(String(255), nullable=False)

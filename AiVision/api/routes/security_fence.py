@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from auth.auth import get_current_user, require_admin
+from auth.auth import get_current_user, require_config_manager
 from auth.feature_permissions import require_feature_access
 from AiVision.api.deps import get_camera_config_manager, get_optional_orchestrator
 from AiVision.api.routes.cameras import get_camera_for_user
@@ -37,7 +37,7 @@ def persons(key: str, keyword: str | None = Query(None, max_length=255),
 
 @router.patch("/cameras/{key}/persons/{person_id}", response_model=FacePersonItem)
 def update_person(key: str, person_id: int, payload: FacePersonUpdate,
-                  user=Depends(require_admin), manager=Depends(get_camera_config_manager)):
+                  user=Depends(require_config_manager), manager=Depends(get_camera_config_manager)):
     """仅管理员可保存目标摄像头的围栏授权。"""
     camera = get_camera_for_user(manager, key, user)
     require_feature_access(user, FEATURE, camera["department"])

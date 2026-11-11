@@ -6,7 +6,7 @@ import { AGV_FEATURE, toAgvConfig, toAgvForm, type AgvConfig, type AgvForm } fro
 
 type Editor = { cameraKey: string; config: AgvConfig; form: AgvForm }
 
-export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boolean) {
+export function useAgvPersonCheckConfig(department: DepartmentId, canConfigure: boolean) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraKey, setCameraKey] = useState('')
   const [editor, setEditor] = useState<Editor | null>(null)
@@ -76,13 +76,13 @@ export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boole
   }, [loadCameras])
 
   const updateForm = (update: (form: AgvForm) => AgvForm) => {
-    if (!isAdmin || loading || busy.current) return
+    if (!canConfigure || loading || busy.current) return
     setEditor((current) => current ? { ...current, form: update(current.form) } : current)
     setMessage('配置已修改，确认后请保存。')
   }
 
   const save = async () => {
-    if (!isAdmin || !editor || loading || busy.current || editor.cameraKey !== selectedCamera.current) return
+    if (!canConfigure || !editor || loading || busy.current || editor.cameraKey !== selectedCamera.current) return
     let nextConfig: AgvConfig
     try {
       nextConfig = toAgvConfig(editor.form, editor.config)

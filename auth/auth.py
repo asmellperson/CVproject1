@@ -303,6 +303,13 @@ def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str,
     return user
 
 
+def require_config_manager(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    """业务配置写入资格；具体资源仍须校验事业部和功能授权。"""
+    if user.get("role") not in {"admin", "department_admin"}:
+        raise HTTPException(status_code=403, detail="配置修改需要管理员权限")
+    return user
+
+
 def verify_login(employee_id: str, password: str) -> dict[str, Any] | None:
     """登录时根据工号和密码判断这个用户能不能登录"""
 
@@ -442,6 +449,7 @@ __all__ = [
     "get_user_store",
     "list_auth_users",
     "require_admin",
+    "require_config_manager",
     "reset_auth_user_password",
     "set_auth_cookie",
     "token_from_request",

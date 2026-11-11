@@ -1,4 +1,4 @@
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { useFeatureConfigDraft } from '@/components/detection/useFeatureConfigDraft'
 import { getAiVisionFeatureConfig, saveAiVisionFeatureConfig } from '@/lib/aivision'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
@@ -21,6 +21,6 @@ function buildConfig(config: InspectionConfig) {
 }
 
 export function useInspectionConfig(cameraKey: string, configVersion: number) {
-  const { isAdmin } = useAuth()
-  return useFeatureConfigDraft({ cameraKey, configVersion, isAdmin, read, write, createDraft, buildConfig })
+  const canConfigure = useDepartmentConfigAccess(undefined, INSPECTION_FEATURE)
+  return useFeatureConfigDraft({ cameraKey, configVersion, canConfigure, read, write, createDraft, buildConfig })
 }

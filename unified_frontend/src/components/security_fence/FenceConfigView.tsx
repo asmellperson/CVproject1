@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, UserCheck } from 'lucide-react'
 import type { DepartmentId } from '@/auth/permissions'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
@@ -21,10 +21,10 @@ const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').th
 const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })))
 
 export function FenceConfigView({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
-  const state = useFenceConfig(department, isAdmin)
+  const canConfigure = useDepartmentConfigAccess(department, FENCE_FEATURE)
+  const state = useFenceConfig(department, canConfigure)
   const { draft, update, cameraKey, loading, saving, message } = state
-  const disabled = !isAdmin || loading || saving || !draft
+  const disabled = !canConfigure || loading || saving || !draft
   const save = () => { void state.save() }
   const saveBar = <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={disabled} onReload={() => state.reload(cameraKey)} onSave={save} />
   return <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-7" tabs={<>
@@ -37,7 +37,7 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
   </>}>
     <TabsContent value="camera" className="space-y-4">
       <FeatureCameraManager cameras={state.cameras} feature={FENCE_FEATURE} department={department} currentCameraName={cameraKey}
-        disabled={!isAdmin || loading || saving} onSelectCamera={state.selectCamera} onCamerasChanged={state.reload} onConfigCopied={state.reload} />
+        disabled={!canConfigure || loading || saving} onSelectCamera={state.selectCamera} onCamerasChanged={state.reload} onConfigCopied={state.reload} />
       <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{message}</p>
     </TabsContent>
     <TabsContent value="params" className="space-y-6"><FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>

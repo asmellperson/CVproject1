@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
+import { ROLE_LABELS, type UserRole } from '@/auth/permissions'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -119,7 +120,7 @@ export function AccessAuditSection() {
                     <TableCell className="font-mono">{item.employee_id}</TableCell>
                     <TableCell>
                       <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
-                        {item.role === 'admin' ? '管理员' : '普通用户'}
+                        {ROLE_LABELS[item.role as UserRole] ?? item.role}
                       </Badge>
                     </TableCell>
                     <TableCell>{departmentLabels[item.department || ''] || item.department || '未设置'}</TableCell>

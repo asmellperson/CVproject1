@@ -25,7 +25,8 @@ def access_scope(user: dict, department: str | None) -> dict:
 
 
 def scope_visible(previous: dict, current: dict) -> bool:
-    return (not (previous["role"] == "admin" and current["role"] != "admin")
+    ranks = {"viewer": 1, "department_admin": 2, "admin": 3}
+    return (ranks.get(previous["role"], 99) <= ranks.get(current["role"], 0)
             and set(previous["departments"]) <= set(current["departments"])
             and all(set(features) <= set(current["feature_access"].get(department, []))
                     for department, features in previous["feature_access"].items()))

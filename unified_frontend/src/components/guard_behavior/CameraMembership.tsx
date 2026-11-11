@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Link, Unlink } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
@@ -13,7 +13,7 @@ import type { GuardMember, GuardSite } from './types'
 export function CameraMembership({ site, members, busy, onChange }: {
   site: GuardSite; members: GuardMember[]; busy: boolean; onChange: (operation: () => Promise<unknown>) => Promise<void>
 }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(site.department, 'guard_behavior')
   const [inventory, setInventory] = useState<AiVisionCamera[]>([])
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
@@ -49,7 +49,7 @@ export function CameraMembership({ site, members, busy, onChange }: {
     <DetectionConfigCardHeader icon={Camera} tone="emerald" title={`摄像头 · 已启用 ${enabledMembers.length} 路`} description="只显示参与当前保安室检测的摄像头；停用后可从下拉框重新添加，原有 ROI 保留。" />
     <DetectionConfigCardContent className="space-y-4">
       {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
-      {isAdmin && <div className="flex flex-col gap-3 sm:flex-row">
+      {canConfigure && <div className="flex flex-col gap-3 sm:flex-row">
         <Select value={cameraToAdd ? selected : ''} disabled={busy || !available.length} onValueChange={setSelected}>
           <SelectTrigger className="flex-1" aria-label="添加已有摄像头"><SelectValue placeholder="选择已有摄像头加入当前保安室" /></SelectTrigger>
           <SelectContent>{available.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}{camera.enabled ? '' : '（物理设备已停用）'}</SelectItem>)}</SelectContent>
@@ -61,9 +61,9 @@ export function CameraMembership({ site, members, busy, onChange }: {
       {enabledMembers.map((member, index) => <div key={member.camera_id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
         <div><p className="font-semibold">{index + 1}. {member.name}</p><p className="mt-1 text-xs text-slate-500">{member.shm_name} · {member.physical_enabled ? '物理设备已启用' : '物理设备已停用'}</p></div>
         <div className="flex flex-wrap items-center gap-2">
-          <CameraZoomButton camera={{ shm_name: member.shm_name, name: member.name, department: site.department, enabled: member.physical_enabled }} feature="guard_behavior" disabled={!isAdmin || busy} />
-          <Button variant="outline" aria-label={`停用 ${member.name}`} disabled={!isAdmin || busy} onClick={() => void onChange(() => setCameraEnabled(site.id, member.camera_id, false))}>停用</Button>
-          {isAdmin && <><Button size="icon" variant="outline" aria-label={`上移 ${member.name}`} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button>
+          <CameraZoomButton camera={{ shm_name: member.shm_name, name: member.name, department: site.department, enabled: member.physical_enabled }} feature="guard_behavior" disabled={!canConfigure || busy} />
+          <Button variant="outline" aria-label={`停用 ${member.name}`} disabled={!canConfigure || busy} onClick={() => void onChange(() => setCameraEnabled(site.id, member.camera_id, false))}>停用</Button>
+          {canConfigure && <><Button size="icon" variant="outline" aria-label={`上移 ${member.name}`} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button>
             <Button size="icon" variant="outline" aria-label={`下移 ${member.name}`} disabled={busy || index === enabledMembers.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button>
             <Button variant="outline" disabled={busy} onClick={() => void onChange(() => removeCamera(site.id, member.camera_id))}><Unlink className="h-4 w-4" />解除绑定</Button></>}
         </div>

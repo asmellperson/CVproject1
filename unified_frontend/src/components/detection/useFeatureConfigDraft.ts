@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 type Options<Config, Draft> = {
   cameraKey: string
   configVersion: number
-  isAdmin: boolean
+  canConfigure: boolean
   read: (key: string) => Promise<Config>
   write: (key: string, config: Config) => Promise<Config>
   createDraft: (config: Config) => Draft
@@ -12,7 +12,7 @@ type Options<Config, Draft> = {
 
 /** 摄像头由页面统一选择，所有配置标签共用草稿和请求代次。 */
 export function useFeatureConfigDraft<Config, Draft>({
-  cameraKey, configVersion, isAdmin, read, write, createDraft, buildConfig,
+  cameraKey, configVersion, canConfigure, read, write, createDraft, buildConfig,
 }: Options<Config, Draft>) {
   const identity = JSON.stringify([cameraKey, configVersion])
   const selected = useRef(identity)
@@ -41,7 +41,7 @@ export function useFeatureConfigDraft<Config, Draft>({
   }, [cameraKey, configVersion, identity, read, createDraft])
 
   const active = state.identity === identity
-  const disabled = !isAdmin || !active || state.loading || saving || !state.draft
+  const disabled = !canConfigure || !active || state.loading || saving || !state.draft
   const update = (change: (draft: Draft) => Draft) => {
     if (disabled || mutation.current) return
     setState((previous) => previous.identity === identity && previous.draft

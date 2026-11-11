@@ -5,14 +5,27 @@ from fastapi import HTTPException
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 
+def accessible_departments(user: dict) -> list[str]:
+    """角色和明确部门授权共同决定范围，未知角色与 all 均不能获得部门权限。"""
+    if user.get("role") == "admin":
+        return list(DEPARTMENT_SPECS)
+    if user.get("role") not in {"viewer", "department_admin"}:
+        return []
+    return list(dict.fromkeys(value for value in user.get("departments", [])
+                              if isinstance(value, str) and value in DEPARTMENT_SPECS))
+
+
+def require_department_write_access(user: dict, department: str | None) -> None:
+    """部门管理员不能操作未归属资源或通过请求中的部门扩大授权。"""
+    if user.get("role") == "admin":
+        return
+    if user.get("role") != "department_admin" or department not in accessible_departments(user):
+        raise HTTPException(403, "无权修改当前事业部配置")
+
+
 def feature_departments(user: dict, feature: str) -> list[str]:
     """按事业部与功能的配对授权，避免多事业部账号串用权限。"""
-    if user["role"] == "admin":
-        departments = DEPARTMENT_SPECS
-    elif user["role"] == "viewer":
-        departments = user["departments"]
-    else:
-        return []
+    departments = accessible_departments(user)
     return [department for department in departments
             if feature in user["feature_access"].get(department, [])]
 

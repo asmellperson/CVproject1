@@ -178,7 +178,7 @@ def alarm_departments(user: dict, department: str | None = None) -> list[str] | 
     departments = None if user["role"] == "admin" else [
         value for value in user["departments"] if value in DEPARTMENT_SPECS
     ]
-    if departments is not None and (user["role"] != "viewer" or not departments):
+    if departments is not None and (user["role"] not in {"viewer", "department_admin"} or not departments):
         raise HTTPException(403, "alarm department permission required")
     if department is not None:
         try:

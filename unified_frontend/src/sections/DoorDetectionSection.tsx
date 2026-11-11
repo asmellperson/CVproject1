@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 
 const AiVisionRoiEditor = lazy(() =>
   import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
@@ -111,7 +111,7 @@ async function requestDoorConfig(shmName: string, config?: DoorConfig) {
 }
 
 export function DoorDetectionSection({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(department, 'detect_door')
   const [form, setForm] = useState(defaultForm)
   const [doorConfig, setDoorConfig] = useState<DoorConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -217,7 +217,7 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
       setMessage('保存失败：请先选择摄像头。')
       return
     }
-    if (!isAdmin) {
+    if (!canConfigure) {
       setMessage('当前账号为 viewer，只能查看配置。')
       return
     }
@@ -363,7 +363,7 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
                 feature="detect_door"
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving}
+                disabled={!canConfigure || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
@@ -374,14 +374,14 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !doorConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !doorConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
                   title="大门开关异常检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!doorConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!doorConfig || !canConfigure || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -393,13 +393,13 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !doorConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !doorConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的大门状态、确认与环境参数。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!doorConfig || !isAdmin || loading || saving || !form.cameraName}
+                  disabled={!doorConfig || !canConfigure || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -501,13 +501,13 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
 
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!canConfigure || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
 
               </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !doorConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !doorConfig || loading || saving}>
 
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={[]} />
@@ -517,13 +517,13 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
-              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !doorConfig || loading || saving}>
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !doorConfig || loading || saving}>
 
               <AlarmPushConfig
                 alarmInterval={form.alarmInterval}
                 onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={doorConfig?.alarm}
-                disabled={!doorConfig || !isAdmin || loading || saving || !form.cameraName}
+                disabled={!doorConfig || !canConfigure || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setDoorConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

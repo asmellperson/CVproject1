@@ -70,7 +70,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与福达AI判定 | `yolo_human`，另通过 HTTP 调用福达AI |
 | `features/agv_person_check/` | `agv_person_check` | HTTP 请求触发 ROI 多帧人体检测，任一有效帧有人即判定有人 | `yolo_human` |
 
-事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
+事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。所有角色均按“事业部＋功能”配对授权，系统管理员可配置全部事业部的功能分配，部门管理员只能维护授权事业部已开放功能的业务配置。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
 AGV 监控使用公共原始视频预览；JPEG 回退通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check&raw=true` 保留功能授权并读取原始帧，浏览器按保存的 `roi_pos` 覆盖 ROI；空 ROI 表示全画面检测，预览不叠加区域边框、填色或标签。待机和请求结束后继续更新画面，取图不触发采样推理。检测仍仅由 HTTP 请求触发，结果与回传状态通过独立状态接口展示；业务取证和功能标注接口保留原有职责。
 
@@ -899,7 +899,7 @@ SIP 喇叭间隔为 `0` 时不加设备层冷却，同台待播或在播请求�
 
 每台 SIP 喇叭的 `sip.volume_percent` 保存在设备 JSON 配置中，范围为 `0–200`，默认 `100`，`0` 表示静音。发送前将 A-law 解码为 PCM、按百分比缩放并饱和限幅，再编码发送；`100%` 直接使用预转码数据。处理不改变共享音频文件和播放时长，试播与真实报警使用相同设置。
 
-设备配置具有独立的 `department` 归属。管理员设备接口必须指定 `department`，未归属设备通过 `unassigned=true` 单独读取和分配；设备详情、状态、编辑、删除和试播均核对请求范围，编辑与删除在事务内再次复核。普通检测、物流通道、保安室以及外部安检的喇叭选项和绑定校验遵守同一归属规则。SIP 服务及音频素材库仍为平台共享资源。
+设备配置具有独立的 `department` 归属。设备接口必须指定 `department`，部门管理员仅能管理账号授权事业部的设备，不能变更设备归属；未归属设备由系统管理员通过 `unassigned=true` 单独读取和分配。设备详情、状态、编辑、删除和试播均核对请求范围，编辑与删除在事务内再次复核。普通检测、物流通道、保安室以及外部安检的喇叭选项和绑定校验遵守同一归属规则。SIP 服务与共享音频素材的上传、删除仅对系统管理员开放，部门管理员可读取已有音频目录供绑定和试播使用。
 
 `references.py` 收集普通功能、物流通道和保安室的全部喇叭引用，返回事业部、功能、资源名称及告警和检测启停状态。删除默认保留引用保护；管理员对已停用设备提交 `detach_bindings=true` 和清单的 `expected_revision` 后，在同一事务内关闭这些配置的喇叭告警、清空设备及音频绑定并删除设备，提交后定向刷新缓存与运行状态。清单或设备身份变化会返回 409 和最新引用快照。
 
@@ -1014,7 +1014,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | GET | `/api/visual-language-detection/cameras/{key}/events?department=...` | 事件时间线，支持 `limit` 和 `before_id` |
 | POST | `/api/visual-language-detection/cameras/{key}/questions?department=...` | 请求体 `{"question":"问题"}`，返回正文、耗时和采集时间 |
 
-以上接口复用 `camera_read_department`、`get_camera_for_user` 和现有账号角色；管理员可访问全部正式事业部，viewer 只能访问授权事业部。查看画面、结果、事件和提问均允许 viewer 使用；公共配置写接口只允许管理员。
+以上接口复用 `camera_read_department`、`get_camera_for_user` 和现有账号角色；系统管理员可访问全部正式事业部，部门管理员与 viewer 只能访问账号授权事业部。查看画面、结果、事件和提问均允许 viewer 使用；公共业务配置写接口允许系统管理员和具备相应事业部功能权限的部门管理员使用。
 
 ### 福达AI助手
 
@@ -1050,7 +1050,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 历史数据按最近 `ASSISTANT_HISTORY_TURNS` 轮和 `ASSISTANT_HISTORY_MAX_CHARS` 字符整体裁剪，不截断 JSON 或保留一个任务的部分目标。分类历史只含用户请求与后台状态，不接收历史助手正文；业务历史中的答复限长，审计只携带资源标识和状态。短期上下文最多保留 `128` 个会话、有效期 `1800` 秒，记录最近已读取目标、待澄清请求、`awaiting_input/completed/cancelled` 状态及每会话最多 `32` 条已核验的 `target_bindings`，不保存配置值和可复用版本；每次续办写入仍须重新读取并通过原版本检查。待办中的真实搜索候选仅在本轮完整名称明确选择且唯一匹配时参与身份核验。明确取消待办或任务执行中止时清除 `pending_task`，后续简短回复不能恢复该任务；取消不撤销已保存配置，新的明确操作仍须独立核验。每条绑定保留来源轮次与独立有效期，查询其他目标不会续期；只向模型传递本轮涉及的别名，内部计时数据不进入模型。原轮次因权限变化不可见时，对应上下文失效；进程重启清空短期上下文，数据库中最近的可见对话继续可用。缺少绑定时后台直接调用 `ask_user`，不额外调用业务模型猜测；目标澄清不会保留旧摄像头供数值回复续办，明确重新声明后旧绑定须重新核验。
 
-每个工具重新校验登录和最新权限，配置写入仅允许管理员。会话仅所属工号可访问，单部门会话不能操作其他部门或全局资源；权限收回后隐藏超出当前授权的历史对话。读取配置生成版本哈希，保存服务在资源事务锁内核对读取值，避免覆盖并发编辑。批量操作按资源独立提交，已经成功的操作不因后续失败而自动回滚，结果逐项记录；重复 HTTP 请求沿用原任务，不重复执行。平台重启会把未完成任务标记为中断，不自动重放写入。
+每个工具重新校验登录和最新权限，系统管理员可维护全部配置，部门管理员仅可维护授权事业部的业务配置；全局配置及功能授权仍仅允许系统管理员操作。会话仅所属工号可访问，单部门会话不能操作其他部门或全局资源；权限收回后隐藏超出当前授权的历史对话。读取配置生成版本哈希，保存服务在资源事务锁内核对读取值，避免覆盖并发编辑。批量操作按资源独立提交，已经成功的操作不因后续失败而自动回滚，结果逐项记录；重复 HTTP 请求沿用原任务，不重复执行。平台重启会把未完成任务标记为中断，不自动重放写入。
 
 `assistant/secrets.py` 在用户消息进入模型和数据库前保护 RTSP 和标记的账号密码。完整 RTSP 使用用户给定的地址；IP、账号、密码模式通过固定端口及路径默认值组装并编码凭据。只提供一厂名称时须进一步区分通用电气和新材院。摄像头建档复用 `CameraConfigManager`；普通功能及物流通道支持创建时启用，保安室使用创建后绑定。已有摄像头的连接凭据仍由原管理页面维护。
 
@@ -1111,11 +1111,13 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-平台注册十三项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警；所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
+平台注册十三项检测功能，事业部可访问的功能由系统管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。角色包括系统管理员 `admin`、部门管理员 `department_admin` 和普通用户 `viewer`。部门管理员与普通用户按账号授权事业部访问摄像头和告警，所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；部门管理员可维护本部门已开放功能的配置，普通用户业务配置只读。账号、角色、部门归属、功能分配、全局模型和系统设置只由系统管理员管理，访问审计额外检查用户 capability。
+
+`require_config_manager()` 只验证业务配置写入资格，路由还需校验请求事业部与摄像头、通道或保安室的真实归属。摄像头和普通功能的写入在事务内复核已授权归属；跨部门绑定、未归属资源及功能未开放的请求不能扩大权限。部门管理员可读取本部门设备地址以维护摄像头，普通用户响应隐藏该地址。角色或事业部授权变更会增加账号的 `auth_version`，旧 JWT 在下一次认证时失效，用户需重新登录。
 
 `departments/orm.py` 定义 `department_feature_access`，每个正式事业部一行，包含功能列表和 `revision`。`DepartmentService.save_feature_settings()` 校验完整事业部集合与正式功能名称，锁定各行并检查版本，再在同一事务中保存；冲突返回 409，不进行部分写入。数据库必须具有完整的七个事业部分配，缺失时明确报错，不提供全部开放的回退或启动时数据补齐。
 
-`auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
+`auth/feature_permissions.py` 提供 `accessible_departments()`、`require_department_write_access()`、`feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，部门管理员和普通用户只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
 `api/routes/external/` 下的安检、围栏与非法闯闸接口无需 API Key 或人员 Cookie/JWT，数据和图片地址可直接访问。业务请求校验正式事业部编码、平台当前功能分配和资源归属；图片可直接用于 `<img>`、缩略图或原图链接。安检配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，配置操作日志记录事业部与摄像头标识。平台管理接口继续使用人员登录和权限校验。
 
@@ -1124,6 +1126,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 `/api/runtime/health`、登录、登出和 `/api/external/...` 是公开接口；`/api/public/alarms/...` 的通知图片需签名及有效期校验，平台其余告警媒体仍需登录和授权。`AUTH_SECRET` 由运行环境提供，运维脚本从 `scripts/auth_secret` 注入。
 
 ### 10.3 数据迁移边界
+
+账号角色结构使用 `python -m AiVision.migrations.department_admin_20261111 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，向 `auth_users.role` 枚举末尾追加 `department_admin`，保留已有枚举顺序、账号、密码与授权。脚本读取 `AiVision/.env`，可重复执行；其他结构差异会明确拒绝，空库由正常启动创建。代码发布不代表现场数据库已执行升级。
 
 - 创建缺失表不代表自动修复所有旧表列结构；核验发现不兼容时应查看明确的迁移流程。
 - [migrations/](migrations/) 包含配置结构、物流功能和人员逗留合并等离线脚本。
@@ -1376,14 +1380,14 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/security-inspection/history` | 按事业部及可选摄像头查询最近 31 天的 session 与统计 |
 | GET | `/api/security-inspection/history/{session_id}/image.jpg` | 按事业部授权读取保留期内数据库证据 |
 | GET | `/api/security-inspection/status` | 处理器、队列与福达AI健康状态 |
-| GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局福达AI设置 |
+| GET / PUT | `/api/security-inspection/settings` | 系统管理员读取 / 保存全局福达AI设置 |
 | GET | `/api/overview` | 平台、事业部、能力和摄像头总览 |
 | GET | `/api/assistant/capabilities` | 当前账号的部门、功能及配置能力目录 |
 | GET / POST | `/api/assistant/sessions` | 当前账号、指定部门的会话列表 / 新建会话 |
 | GET | `/api/assistant/sessions/{id}` | 最近100轮可访问对话、任务和操作记录 |
 | POST | `/api/assistant/sessions/{id}/messages` | 用 UUID `request_id` 和 `text` 提交异步任务，返回 `202` |
 | POST | `/api/assistant/sessions/{id}/turns/{turn_id}/cancel` | 请求停止后续操作，已经保存的配置保留 |
-| GET / PUT | `/api/assistant/settings` | 管理员读取 / 保存助手福达AI连接及生成设置 |
+| GET / PUT | `/api/assistant/settings` | 系统管理员读取 / 保存助手福达AI连接及生成设置 |
 | POST | `/api/auth/login`、`/api/auth/logout`、`/api/auth/password` | 登录、退出和改密 |
 | GET | `/api/auth/me` | 当前用户 |
 | GET / POST | `/api/admin/users` | 用户列表 / 创建 |

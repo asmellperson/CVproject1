@@ -37,6 +37,9 @@ import { useAuth } from '@/auth/useAuth'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   getAccessibleAlarmEventTypes,
+  getAccessibleDepartments,
+  getUserRole,
+  canConfigureDepartment,
   hasPageAccess,
   isDepartment,
   type DepartmentId,
@@ -123,6 +126,7 @@ function getAlarmLocation(alarm: AlarmEvent) {
 
 export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
+  const canManageCameras = isAdmin || (getUserRole(user) === 'department_admin' && getAccessibleDepartments(user).length > 0)
   const [alarmOverview, setAlarmOverview] = useState<{ user: typeof user; data: OverviewState } | null>(null)
   const overview = alarmOverview?.user === user ? alarmOverview.data : defaultOverview
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
@@ -263,7 +267,8 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   }
 
   const handleSaveCamera = async () => {
-    if (!isAdmin) return
+    const scope = cameraDialogMode === 'edit' ? cameraToEdit?.department : cameraDepartment
+    if (!canConfigureDepartment(user, scope)) return
     const name = cameraName.trim()
     const url = cameraUrl.trim()
     const fps = Number(cameraFps)
@@ -314,7 +319,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   }
 
   const handleDeleteCamera = async () => {
-    if (!isAdmin || !cameraToDelete) return
+    if (!cameraToDelete || !canConfigureDepartment(user, cameraToDelete.department)) return
 
     const cameraKey = getAiVisionCameraKey(cameraToDelete)
     setCameraActionKey(cameraKey)
@@ -431,7 +436,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
 
                     </div>
                   </div>
-                  {isAdmin ? (
+                  {canManageCameras ? (
                     <Button size="sm" className="gap-2" onClick={openCreateCameraDialog} disabled={Boolean(cameraActionKey)}>
                       <Plus className="h-4 w-4" />
                       新增摄像头
@@ -463,7 +468,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                                   {camera.online ? ' · 在线' : ' · 离线'}
                                 </div>
                               </div>
-                              {isAdmin && camera.aivision_camera ? (
+                              {camera.aivision_camera && canConfigureDepartment(user, camera.aivision_camera.department) ? (
                                 <div className="flex shrink-0 items-center gap-2 opacity-100 transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                                   <Button
                                     variant="outline"

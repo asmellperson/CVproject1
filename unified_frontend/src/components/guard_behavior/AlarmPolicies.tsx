@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Bell } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { WechatAlarmSettings } from '@/components/AlarmPushConfig'
 import { HornAlarmBinding } from '@/components/horn/HornAlarmBinding'
 import { Card } from '@/components/ui/card'
@@ -38,7 +38,7 @@ function AlarmPolicyFields({ policy, disabled, onChange, onValidation }: {
 }
 
 export function AlarmPolicies({ policies, busy, onChange }: { policies: AlarmPolicy[]; busy: boolean; onChange: (operation: () => Promise<unknown>) => Promise<void> }) {
-  const { isAdmin } = useAuth()
+  const canConfigure = useDepartmentConfigAccess(undefined, 'guard_behavior')
   const [changes, setChanges] = useState<Changes>({})
   const [errors, setErrors] = useState<Partial<Record<GuardAlarmType, string | null>>>({})
   const onValidation = useCallback((type: GuardAlarmType, error: string | null) => {
@@ -50,7 +50,7 @@ export function AlarmPolicies({ policies, busy, onChange }: { policies: AlarmPol
     || [policy.horn_interval, policy.wechat_interval].some((interval) => interval != null && (!Number.isFinite(interval) || interval < 0))
     || errors[policy.violation_type])
   const save = async () => {
-    if (!isAdmin || busy || invalid || !pending.length) return
+    if (!canConfigure || busy || invalid || !pending.length) return
     await onChange(async () => {
       let saved = 0
       try {
@@ -69,10 +69,10 @@ export function AlarmPolicies({ policies, busy, onChange }: { policies: AlarmPol
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
       <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警推送" description="维护企业微信、喇叭和报警记录，四类报警分别生效。设备和音频在“喇叭设备”中管理。" />
       <DetectionConfigCardContent className="space-y-6">
-        {values.map((policy) => <AlarmPolicyFields key={policy.violation_type} policy={policy} disabled={!isAdmin || busy} onValidation={onValidation}
+        {values.map((policy) => <AlarmPolicyFields key={policy.violation_type} policy={policy} disabled={!canConfigure || busy} onValidation={onValidation}
           onChange={(type, value) => setChanges((previous) => ({ ...previous, [type]: { ...previous[type], ...value } }))} />)}
       </DetectionConfigCardContent>
     </Card>
-    <DetectionSaveBar message={invalid ? '请检查报警间隔及喇叭设备绑定。' : '修改后保存配置；各类报警的接收人、间隔和推送开关独立生效。'} saving={busy} disabled={!isAdmin || busy || !pending.length || invalid} onSave={() => void save()} />
+    <DetectionSaveBar message={invalid ? '请检查报警间隔及喇叭设备绑定。' : '修改后保存配置；各类报警的接收人、间隔和推送开关独立生效。'} saving={busy} disabled={!canConfigure || busy || !pending.length || invalid} onSave={() => void save()} />
   </>
 }

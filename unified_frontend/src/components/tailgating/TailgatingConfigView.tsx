@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, Waypoints } from 'lucide-react'
 import type { DepartmentId } from '@/auth/permissions'
-import { useAuth } from '@/auth/useAuth'
+import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
@@ -20,10 +20,10 @@ const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').th
 const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })))
 
 export function TailgatingConfigView({ department }: { department: DepartmentId }) {
-  const { isAdmin } = useAuth()
-  const state = useTailgatingConfig(department, isAdmin)
+  const canConfigure = useDepartmentConfigAccess(department, 'tailgating')
+  const state = useTailgatingConfig(department, canConfigure)
   const { draft, cameraKey, loading, saving, message, update } = state
-  const disabled = !isAdmin || loading || saving || !draft
+  const disabled = !canConfigure || loading || saving || !draft
   const save = () => { void state.save() }
   const saveBar = <DetectionSaveBar
     message={message}
@@ -50,7 +50,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
         feature={TAILGATING_FEATURE}
         department={department}
         currentCameraName={cameraKey}
-        disabled={!isAdmin || loading || saving}
+        disabled={!canConfigure || loading || saving}
         onSelectCamera={state.selectCamera}
         onCamerasChanged={state.reload}
         onConfigCopied={state.reload} />

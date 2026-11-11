@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/auth/useAuth'
+import { ROLE_LABELS } from '@/auth/permissions'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   createAdminUser,
@@ -170,15 +171,15 @@ export function UserManagementSection() {
         return
       }
     }
-    if (editorForm.role === 'viewer' && (
+    if (editorForm.role !== 'admin' && (
       departmentsUnavailable
       || editorForm.departments.some((name) => !departments.some((item) => item.value === name))
     )) {
       setError(departmentsError || '请选择已有事业部，等待事业部列表加载完成。')
       return
     }
-    if (editorForm.role === 'viewer' && editorForm.departments.length === 0) {
-      setError('普通用户至少需要选择一个事业部或公司。')
+    if (editorForm.role !== 'admin' && editorForm.departments.length === 0) {
+      setError('部门管理员和普通用户至少需要选择一个事业部或公司。')
       return
     }
     setBusy(true)
@@ -392,7 +393,7 @@ export function UserManagementSection() {
                             ? 'rounded-full border-violet-400/35 bg-violet-500/10 px-2.5 py-1 font-medium text-violet-600 dark:text-violet-300'
                             : 'rounded-full border-cyan-400/35 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-700 dark:text-cyan-300'}
                         >
-                          {item.role === 'admin' ? '管理员' : '普通用户'}
+                          {ROLE_LABELS[item.role]}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -520,7 +521,8 @@ export function UserManagementSection() {
                   onChange={(event) => setEditorForm((value) => ({ ...value, role: event.target.value as AdminUserRole }))}
                 >
                   <option value="viewer">普通用户</option>
-                  <option value="admin">管理员</option>
+                  <option value="department_admin">部门管理员</option>
+                  <option value="admin">系统管理员</option>
                 </select>
               </div>
               <div className="space-y-2">
@@ -590,7 +592,7 @@ export function UserManagementSection() {
             )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditorOpen(false)} disabled={busy}>取消</Button>
-              <Button type="submit" disabled={busy || (editorForm.role === 'viewer' && departmentsUnavailable)}>{busy ? '保存中...' : '保存'}</Button>
+              <Button type="submit" disabled={busy || (editorForm.role !== 'admin' && departmentsUnavailable)}>{busy ? '保存中...' : '保存'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

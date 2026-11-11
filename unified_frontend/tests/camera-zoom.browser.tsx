@@ -2,6 +2,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthContext, type AuthContextValue } from '../src/auth/auth-context'
+import { type UserRole, type DepartmentId } from '../src/auth/permissions'
 import { CameraZoomButton } from '../src/components/camera/CameraZoomButton'
 import { FeatureCameraManager } from '../src/components/FeatureCameraManager'
 import { CameraMembership } from '../src/components/guard_behavior/CameraMembership'
@@ -67,7 +68,10 @@ window.fetch = async (input, init) => {
   throw new Error(`意外请求：${method} ${url.pathname}`)
 }
 
-const context = (isAdmin: boolean): AuthContextValue => ({ user: null, loading: false, isAdmin,
+const context = (role: boolean | UserRole, departments: DepartmentId[] = ['general_electric']): AuthContextValue => ({
+  user: { employee_id: 'test', name: '测试用户', role: typeof role === 'boolean' ? (role ? 'admin' : 'viewer') : role,
+    departments, feature_access: { general_electric: ['security_fence', 'detect_phone', 'recognize_face'] } },
+  loading: false, isAdmin: role === true || role === 'admin',
   login: async () => {}, changePassword: async () => {}, logout: async () => {}, refreshMe: async () => {}, handleUnauthorized: () => {} })
 const render = (id = 1, feature = 'detect_phone', isAdmin = true, manager = false, disabled = false) => {
   root.render(<StrictMode><AuthContext.Provider value={context(isAdmin)}>
@@ -84,7 +88,7 @@ function renderMembers(kind: 'guard' | 'logistics') {
       id: 1, camera_id: 1, name: '测试相机1', shm_name: 'camera_1', department: 'general_electric',
       physical_enabled: true, member_enabled: true, sort_order: 0, created_at: '', updated_at: '',
     }]} /> : <LogisticsChannelConfigView feature="detect_logistics_single_person" department="general_electric"
-      channels={[channel]} selectedChannelId={11} selectedChannelDetail={channel} isAdmin
+      channels={[channel]} selectedChannelId={11} selectedChannelDetail={channel} canConfigure
       onSelectChannel={() => {}} onChannelCreated={() => {}} onChannelDeleted={() => {}} onChanged={() => {}} />}
   </AuthContext.Provider></StrictMode>)
 }

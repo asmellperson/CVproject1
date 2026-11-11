@@ -24,6 +24,6 @@ function buildConfig(draft: FenceDraft): FenceConfig {
   return { ...draft.config, value }
 }
 
-export function useFenceConfig(department: DepartmentId, isAdmin: boolean) {
-  return useCameraFeatureConfig({ feature: FENCE_FEATURE, department, isAdmin, createDraft, buildConfig })
+export function useFenceConfig(department: DepartmentId, canConfigure: boolean) {
+  return useCameraFeatureConfig({ feature: FENCE_FEATURE, department, canConfigure, createDraft, buildConfig })
 }

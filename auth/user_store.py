@@ -16,7 +16,7 @@ from AiVision.core.db import get_session
 from AiVision.departments.department_registry import require_department
 from auth.orm import AuthUser
 
-ALLOWED_ROLES = {"admin", "viewer"}
+ALLOWED_ROLES = {"admin", "department_admin", "viewer"}
 PASSWORD_HASH_ITERATIONS = 260_000
 
 
@@ -54,7 +54,7 @@ def _normalize_role_departments(
     # role和departments列表
     normalized_role = str(role or "").strip().lower()
     if normalized_role not in ALLOWED_ROLES:
-        raise UserValidationError("角色必须是 admin 或 viewer")
+        raise UserValidationError("角色必须是 admin、department_admin 或 viewer")
     if normalized_role == "admin":
         if departments is not None:
             if not isinstance(departments, list):
@@ -77,12 +77,12 @@ def _normalize_role_departments(
         try:
             normalized_department = require_department(raw_department)
         except ValueError as exc:
-            raise UserValidationError("普通用户必须选择有效事业部") from exc
+            raise UserValidationError("部门管理员和普通用户必须选择有效事业部") from exc
         # 去重
         if normalized_department not in normalized_departments:
             normalized_departments.append(normalized_department)
     if not normalized_departments:
-        raise UserValidationError("普通用户必须至少选择一个有效事业部")
+        raise UserValidationError("部门管理员和普通用户必须至少选择一个有效事业部")
     return normalized_role, normalized_departments
 
 
@@ -246,6 +246,9 @@ class UserStore:
                         <= 1
                     ):
                         raise UserConflictError("不能变更最后一个已启用管理员")
+                if row.role != role or row.departments != departments:
+                    # 角色或部门变更后使旧会话失效，避免页面保留过期管理入口。
+                    row.auth_version += 1
                 row.name, row.role, row.departments, row.enabled = (
                     name,
                     role,

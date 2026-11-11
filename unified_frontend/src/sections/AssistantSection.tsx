@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Bot, Settings } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
-import { DEPARTMENT_LABELS, getAccessibleDepartments, type DepartmentId } from '@/auth/permissions'
+import { DEPARTMENT_LABELS, getAccessibleDepartments, getUserRole, type DepartmentId } from '@/auth/permissions'
 import { AssistantChat } from '@/components/assistant/AssistantChat'
 import { AssistantSettingsDialog } from '@/components/assistant/AssistantSettingsDialog'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ export function AssistantSection() {
         {isAdmin && <Button variant="outline" className="gap-2" onClick={() => setSettingsOpen(true)}><Settings className="h-4 w-4" />模型设置</Button>}
       </div>
     </div>
-    <AssistantChat key={identity} department={scope} isAdmin={isAdmin} />
+    <AssistantChat key={identity} department={scope} canModify={isAdmin || getUserRole(user) === 'department_admin'} />
     {isAdmin && settingsOpen && <AssistantSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}
   </div>
 }

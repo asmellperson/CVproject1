@@ -1,7 +1,7 @@
 """镜头控制属于设备管理，仅对已登录管理员开放。"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from auth.auth import require_admin
+from auth.auth import require_config_manager
 from auth.feature_permissions import require_feature_access
 from AiVision.api.deps import get_camera_config_manager, get_camera_zoom_service
 from AiVision.cameras.zoom import CameraZoomError
@@ -29,7 +29,7 @@ def zoom_camera(key: str, feature: str, user: dict, manager, *, stopping: bool =
 def get_camera_zoom(
     key: str,
     feature: str = Query(..., min_length=1),
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     manager=Depends(get_camera_config_manager),
     service=Depends(get_camera_zoom_service),
 ):
@@ -42,7 +42,7 @@ def control_camera_zoom(
     key: str,
     payload: CameraZoomRequest,
     feature: str = Query(..., min_length=1),
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_config_manager),
     manager=Depends(get_camera_config_manager),
     service=Depends(get_camera_zoom_service),
 ):

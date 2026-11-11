@@ -71,7 +71,7 @@ type Props = {
   channels: LogisticsChannel[]
   selectedChannelId: number | null
   selectedChannelDetail: LogisticsChannelDetail | null
-  isAdmin: boolean
+  canConfigure: boolean
   onSelectChannel: (channelId: number) => void
   onChannelCreated: (channel: LogisticsChannelDetail) => void
   onChannelDeleted: (channelId: number) => void
@@ -96,7 +96,7 @@ export function LogisticsChannelConfigView({
   channels,
   selectedChannelId,
   selectedChannelDetail,
-  isAdmin,
+  canConfigure,
   onSelectChannel,
   onChannelCreated,
   onChannelDeleted,
@@ -190,7 +190,7 @@ export function LogisticsChannelConfigView({
   }, [channelIdsKey, feature, membershipRevision])
 
   useEffect(() => {
-    if (!isAdmin) {
+    if (!canConfigure) {
       setCameras([])
       return
     }
@@ -210,10 +210,10 @@ export function LogisticsChannelConfigView({
       active = false
       window.removeEventListener('aivision:cameras-changed', refresh)
     }
-  }, [department, isAdmin])
+  }, [department, canConfigure])
 
   useEffect(() => {
-    if (isAdmin || !selectedChannelDetail) return
+    if (canConfigure || !selectedChannelDetail) return
     const controller = new AbortController()
     Promise.all(selectedChannelDetail.members.map((member) => (
       getLogisticsCameraRoi(
@@ -240,7 +240,7 @@ export function LogisticsChannelConfigView({
         if (!controller.signal.aborted) setMessage(`通道摄像头读取失败：${messageOf(reason)}`)
       })
     return () => controller.abort()
-  }, [department, feature, isAdmin, selectedChannelDetail])
+  }, [department, feature, canConfigure, selectedChannelDetail])
 
   useEffect(() => {
     if (!selectedChannelDetail || selectedChannelDetail.id !== channelSelection.selectedChannelId) {
@@ -293,7 +293,7 @@ export function LogisticsChannelConfigView({
   }
 
   const run = async (action: () => Promise<unknown>, success: string, reloadMemberships = false) => {
-    if (!isAdmin || busy) return
+    if (!canConfigure || busy) return
     setBusy(true)
     try {
       await action()
@@ -311,7 +311,7 @@ export function LogisticsChannelConfigView({
 
   const createChannel = async () => {
     const name = createDialog.name.trim()
-    if (!isAdmin || createDialog.submitting || !name) return
+    if (!canConfigure || createDialog.submitting || !name) return
     dispatchCreateDialog({ type: 'submit' })
     try {
       const result = await createLogisticsChannel(feature, { name, department })
@@ -423,7 +423,7 @@ export function LogisticsChannelConfigView({
   }
 
   const createCameraAndBind = async (payload: LogisticsCameraCreateInput) => {
-    if (!isAdmin) throw new Error('只有管理员可以新建摄像头。')
+    if (!canConfigure) throw new Error('只有管理员可以新建摄像头。')
     const channelId = selectedChannelDetail?.id
     if (channelId === undefined) throw new Error('请先选择物流通道。')
     if (busy) throw new Error('正在处理其他操作，请稍后再试。')
@@ -503,7 +503,7 @@ export function LogisticsChannelConfigView({
 
   return (
     <div className="space-y-5">
-      {!isAdmin ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
+      {!canConfigure ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
 
       <DetectionConfigTabs defaultValue="channels" className="space-y-5"
         tabs={<>
@@ -522,7 +522,7 @@ export function LogisticsChannelConfigView({
               tone="blue"
               title="通道管理"
               description="选择需要配置的物流通道，或新增、删除通道。"
-              actions={isAdmin ? (
+              actions={canConfigure ? (
                 <Button onClick={() => dispatchCreateDialog({ type: 'open' })} disabled={busy}>
                   <Plus className="h-4 w-4" />添加通道
                 </Button>
@@ -546,7 +546,7 @@ export function LogisticsChannelConfigView({
                           <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
                           <Badge variant="outline">{memberCount ? `${memberCount.enabled}/${memberCount.total} 路` : '--/-- 路'}</Badge>
                           {selected ? <Badge variant="outline">当前通道</Badge> : null}
-                          {isAdmin ? (
+                          {canConfigure ? (
                             <>
                               <Switch
                                 checked={channel.enabled}
@@ -589,11 +589,11 @@ export function LogisticsChannelConfigView({
                       <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E8ECF5] bg-white p-3 transition hover:border-blue-200 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate font-mono text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
-                        {camera && <CameraZoomButton camera={camera} feature={feature} disabled={!isAdmin || busy} />}
-                        <Button size="sm" variant="outline" aria-label="停用" onClick={() => setMemberEnabled(member.camera_id, false)} disabled={!isAdmin || busy}>停用</Button>
-                        <Button size="sm" variant="outline" aria-label="上移" onClick={() => moveMember(member.camera_id, -1)} disabled={!isAdmin || busy || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
-                        <Button size="sm" variant="outline" aria-label="下移" onClick={() => moveMember(member.camera_id, 1)} disabled={!isAdmin || busy || index === enabledMembers.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
-                        <Button size="sm" variant="outline" className="text-rose-600" onClick={() => removeMember(member.camera_id)} disabled={!isAdmin || busy}><Trash2 className="h-4 w-4" />移除</Button>
+                        {camera && <CameraZoomButton camera={camera} feature={feature} disabled={!canConfigure || busy} />}
+                        <Button size="sm" variant="outline" aria-label="停用" onClick={() => setMemberEnabled(member.camera_id, false)} disabled={!canConfigure || busy}>停用</Button>
+                        <Button size="sm" variant="outline" aria-label="上移" onClick={() => moveMember(member.camera_id, -1)} disabled={!canConfigure || busy || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
+                        <Button size="sm" variant="outline" aria-label="下移" onClick={() => moveMember(member.camera_id, 1)} disabled={!canConfigure || busy || index === enabledMembers.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
+                        <Button size="sm" variant="outline" className="text-rose-600" onClick={() => removeMember(member.camera_id)} disabled={!canConfigure || busy}><Trash2 className="h-4 w-4" />移除</Button>
                       </div>
                     )
                   })}
@@ -610,12 +610,12 @@ export function LogisticsChannelConfigView({
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">从平台摄像头列表中选择并加入当前通道。</p>
                       </div>
                       <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
-                      <Select value={cameraToAdd ? existingCameraId : ''} onValueChange={setExistingCameraId} disabled={!isAdmin || busy || !existingCameraOptions.length}>
+                      <Select value={cameraToAdd ? existingCameraId : ''} onValueChange={setExistingCameraId} disabled={!canConfigure || busy || !existingCameraOptions.length}>
                         <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
                       <SelectContent showScrollButtons={false}>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
                       </Select>
-                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Switch checked={moveExisting} onCheckedChange={(checked) => { setMoveExisting(checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
-                      <Button onClick={addExisting} disabled={!isAdmin || busy || !cameraToAdd}>{moveExisting ? '移动至当前通道' : '添加到当前功能'}</Button>
+                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Switch checked={moveExisting} onCheckedChange={(checked) => { setMoveExisting(checked); setExistingCameraId('') }} disabled={!canConfigure || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
+                      <Button onClick={addExisting} disabled={!canConfigure || busy || !cameraToAdd}>{moveExisting ? '移动至当前通道' : '添加到当前功能'}</Button>
                       {members.length >= 9 && <p className="text-xs text-slate-500">已达到 9 路绑定上限，可重新启用已停用的成员；添加其他设备前请先移除成员。</p>}
                     </div>
                     <div className="flex flex-col justify-between gap-4 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -626,7 +626,7 @@ export function LogisticsChannelConfigView({
                       <Button
                         className="w-full"
                         onClick={() => setCameraDialogOpen(true)}
-                        disabled={!isAdmin || busy || !selectedChannelDetail || members.length >= 9}
+                        disabled={!canConfigure || busy || !selectedChannelDetail || members.length >= 9}
                       >
                         <Plus className="h-4 w-4" />新建摄像头并绑定
                       </Button>
@@ -641,7 +641,7 @@ export function LogisticsChannelConfigView({
                 <DetectionConfigCardHeader icon={Camera} tone="blue" title="逐路 ROI 摄像头" description="选择通道摄像头后，直接在下方现有画布中绘制 ROI。" />
                 <DetectionConfigCardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{enabledMembers.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></DetectionConfigCardContent>
               </Card>
-              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !selectedCamera || cameraRoi?.camera.id !== selectedCamera.camera_id} saving={busy} message={message} onChange={setRoiJson} onSave={saveCameraRoi} />
+              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!canConfigure || busy || !selectedCamera || cameraRoi?.camera.id !== selectedCamera.camera_id} saving={busy} message={message} onChange={setRoiJson} onSave={saveCameraRoi} />
             </TabsContent>
 
             <TabsContent value="params" className="mt-0 space-y-5">
@@ -650,30 +650,30 @@ export function LogisticsChannelConfigView({
                 <DetectionConfigCardContent className="grid gap-5 sm:grid-cols-2">
                   <div className="space-y-3 sm:col-span-2"><Label>生效星期</Label><div className="flex flex-wrap gap-4">
                     {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => <label key={day} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" disabled={!isAdmin || busy} checked={detectionConfigDraft.schedule.weekdays.includes(day)} onChange={(event) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: {
+                      <input type="checkbox" disabled={!canConfigure || busy} checked={detectionConfigDraft.schedule.weekdays.includes(day)} onChange={(event) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: {
                         ...detectionConfigDraft.schedule, weekdays: event.target.checked ? [...detectionConfigDraft.schedule.weekdays, day].sort() : detectionConfigDraft.schedule.weekdays.filter((value) => value !== day),
                       } })} />{label}
                     </label>)}
                   </div><p className="text-xs text-slate-500 dark:text-slate-400">未选择星期时不检测、不报警。时区：{detectionConfigDraft.schedule.timezone}。</p></div>
-                  <ConfigNumber label="每日开始时间" id="logistics-schedule-start" type="time" value={timeForInput(detectionConfigDraft.schedule.start)} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, start: timeForApi(value) } })} />
-                  <ConfigNumber label="每日结束时间" id="logistics-schedule-end" type="time" value={timeForInput(detectionConfigDraft.schedule.end)} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, end: timeForApi(value) } })} />
+                  <ConfigNumber label="每日开始时间" id="logistics-schedule-start" type="time" value={timeForInput(detectionConfigDraft.schedule.start)} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, start: timeForApi(value) } })} />
+                  <ConfigNumber label="每日结束时间" id="logistics-schedule-end" type="time" value={timeForInput(detectionConfigDraft.schedule.end)} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, end: timeForApi(value) } })} />
                 </DetectionConfigCardContent>
               </Card>
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
                 <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="同一通道的所有摄像头统一使用以下检测策略，ROI 按摄像头独立配置。" />
                 <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
-                  <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(detectionConfigDraft.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-channel-iou" value={String(detectionConfigDraft.model_iou_threshold)} min={0} max={1} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, model_iou_threshold: Number(value) })} />
-                  <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-channel-area" value={String(detectionConfigDraft.min_box_area)} min={0} step={1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_box_area: Number(value) })} />
-                  <ConfigNumber label="最小宽高比（宽/高）" id="logistics-channel-min-aspect" value={String(detectionConfigDraft.min_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_aspect_ratio: Number(value) })} />
-                  <ConfigNumber label="最大宽高比（宽/高）" id="logistics-channel-max-aspect" value={String(detectionConfigDraft.max_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, max_aspect_ratio: Number(value) })} />
-                  <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-channel-interval" value={String(detectionConfigDraft.cap_interval)} min={0} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, cap_interval: Number(value) })} />
-                  <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(detectionConfigDraft.empty_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(detectionConfigDraft.multi_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
+                  <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!canConfigure || busy} /></div>
+                  <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(detectionConfigDraft.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, confidence_threshold: Number(value) })} disabled={!canConfigure || busy} />
+                  <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-channel-iou" value={String(detectionConfigDraft.model_iou_threshold)} min={0} max={1} step={0.01} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, model_iou_threshold: Number(value) })} />
+                  <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-channel-area" value={String(detectionConfigDraft.min_box_area)} min={0} step={1} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_box_area: Number(value) })} />
+                  <ConfigNumber label="最小宽高比（宽/高）" id="logistics-channel-min-aspect" value={String(detectionConfigDraft.min_aspect_ratio)} min={0} step={0.1} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_aspect_ratio: Number(value) })} />
+                  <ConfigNumber label="最大宽高比（宽/高）" id="logistics-channel-max-aspect" value={String(detectionConfigDraft.max_aspect_ratio)} min={0} step={0.1} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, max_aspect_ratio: Number(value) })} />
+                  <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-channel-interval" value={String(detectionConfigDraft.cap_interval)} min={0} step={0.01} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, cap_interval: Number(value) })} />
+                  <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(detectionConfigDraft.empty_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, empty_grace_seconds: Number(value) })} disabled={!canConfigure || busy} />
+                  <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(detectionConfigDraft.multi_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, multi_grace_seconds: Number(value) })} disabled={!canConfigure || busy} />
                 </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存时段与参数" />
+              <DetectionSaveBar message={message} saving={busy} disabled={!canConfigure || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存时段与参数" />
             </TabsContent>
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
@@ -682,7 +682,7 @@ export function LogisticsChannelConfigView({
                 alarmInterval={String(alarmDraft.alarm_interval)}
                 onAlarmIntervalChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_interval: Number(value) })}
                 alarm={toFeatureAlarm(alarmDraft.alarm)}
-                disabled={!isAdmin || busy}
+                disabled={!canConfigure || busy}
                 saving={busy}
                 message={message}
                 onChange={(alarm) => setAlarmDraft({ ...alarmDraft, alarm: toLogisticsAlarm(alarm) })}
