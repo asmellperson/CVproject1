@@ -11,7 +11,7 @@ from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
 from .runtime import FenceRuntime, current_mode
-from .evidence import crop_alarm_snapshot
+from .evidence import build_alarm_snapshot
 from .inference import FenceInference, inference_ready
 from .preview import FencePreview, draw_fence_detections
 from .schema import FORBIDDEN_ALARM, UNAUTHORIZED_ALARM, STALE_SECONDS, FencePerson, FenceValue
@@ -355,9 +355,7 @@ class FenceConsumer(BaseFunctionConsumer):
         cfg, person = self.config_cache[camera_id], result[1]
         runtime = self.runtimes[camera_id]
         event = runtime.events[person["track_id"]]
-        snapshot, snapshot_region = crop_alarm_snapshot(
-            self.frame_cache[camera_id], person["bbox"], runtime.face_boxes.get(person["track_id"]),
-        )
+        snapshot, snapshot_region = build_alarm_snapshot(self.frame_cache[camera_id])
         subject_type, subject_id = "fence_event", f"{camera_id}:{event.key}"
         if person["person_id"] is None:
             # 无身份依据时不能把新轨迹视为新人；按当前可见违规人数共享冷却，保留多人分别报警。
