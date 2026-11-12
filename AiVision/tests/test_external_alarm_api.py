@@ -1,4 +1,4 @@
-"""人员逗留外部报警接口回归，使用临时数据库和图片，不启动现场检测。"""
+"""统一外部报警接口回归，使用临时数据库和图片，不启动现场检测。"""
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -8,7 +8,7 @@ import pytest
 
 OWN = "general_electric"
 OTHER = "research_institute"
-BASE = "/api/external/human-dwell"
+BASE = "/api/external/alarms"
 BIG_ID = 9007199254741001
 
 
@@ -17,7 +17,7 @@ def api(monkeypatch, tmp_path):
     for key, value in {
         "MYSQL_DB_URL": "127.0.0.1", "MYSQL_DB_USER": "external_test",
         "MYSQL_DB_PASSWORD": "external_test", "MYSQL_DB_NAME": "external_test",
-        "DATA_PATH": str(tmp_path), "AUTH_SECRET": "external-human-test-signing-key-0000",
+        "DATA_PATH": str(tmp_path), "AUTH_SECRET": "external-alarm-test-signing-key-0000",
     }.items():
         monkeypatch.setenv(key, value)
 
@@ -30,7 +30,7 @@ def api(monkeypatch, tmp_path):
     from AiVision.api.deps import get_department_service
     from AiVision.api.routes import alarms
     from AiVision.alarms.records.orm import AiAlarmEvent
-    from AiVision.features.person_dwell import service
+    from AiVision.alarms import external as service
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     AiAlarmEvent.__table__.create(engine)
@@ -48,6 +48,8 @@ def api(monkeypatch, tmp_path):
             (BIG_ID, "detect_human", 5, OWN, "camera_1", datetime(2026, 11, 12, 10), str(image_path)),
             (107, "detect_human", 5, OWN, "camera_4", datetime(2026, 11, 12, 11), str(tmp_path / "missing.png")),
             (109, "detect_human", 5, OWN, "camera_1", datetime(2026, 11, 12, 10), str(image_path)),
+            (110, "security_fence", 15, OWN, "camera_1", datetime(2026, 11, 12, 11), str(image_path)),
+            (111, "detect_phone", 3, OWN, "camera_1", datetime(2026, 11, 12, 12), str(image_path)),
         ]:
             session.add(AiAlarmEvent(
                 id=alarm_id, feature_name=feature, violation_type=kind, department=department,
@@ -61,11 +63,16 @@ def api(monkeypatch, tmp_path):
             id=108, feature_name="detect_human", violation_type=17, department=OWN,
             image_path=str(image_path), create_time=datetime(2026, 11, 12, 12),
         ))
+        session.execute(AiAlarmEvent.__table__.insert().values(
+            id=112, feature_name="", violation_type=5, department=OWN,
+            image_path=str(image_path), create_time=datetime(2026, 11, 12, 12),
+        ))
         session.commit()
 
     monkeypatch.setattr(service, "get_session", sessions)
     monkeypatch.setattr(alarms, "get_session", sessions)
-    access = {OWN: ["detect_human"], OTHER: ["detect_human"], "haoda_company": ["security_fence"]}
+    access = {OWN: ["detect_human", "security_fence", "tailgating"], OTHER: ["detect_human"],
+              "haoda_company": ["detect_phone"]}
     app = create_app()
     app.dependency_overrides[get_department_service] = lambda: SimpleNamespace(feature_access=lambda: access)
     # 不进入 lifespan，避免启动助手恢复流程或连接业务数据库。
@@ -78,7 +85,7 @@ def api(monkeypatch, tmp_path):
 
 
 def test_anonymous_history_returns_stable_alarm_fields(api):
-    response = api.client.get(f"{BASE}/history", params={"department": OWN})
+    response = api.client.get(BASE, params={"department": OWN, "violation_type": 5})
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     data = response.json()
@@ -91,7 +98,7 @@ def test_anonymous_history_returns_stable_alarm_fields(api):
     assert row["reason"] == "人员违规逗留检测 - 测试摄像头"
     assert row["camera_key"] == "camera_1" and row["camera_name"] == "测试摄像头"
     assert datetime.fromisoformat(row["created_at"]).tzinfo is not None
-    assert row["image_url"] == f"{BASE}/alarms/{BIG_ID}/image?department={OWN}"
+    assert row["image_url"] == f"{BASE}/{BIG_ID}/image?department={OWN}"
     assert "image_path" not in row and "video_path" not in row
     empty_image = next(item for item in data["items"] if item["id"] == "102")
     assert empty_image["reason"] == "已保存的原因" and empty_image["image_url"] is None
@@ -100,40 +107,99 @@ def test_anonymous_history_returns_stable_alarm_fields(api):
 def test_history_image_url_returns_actual_png_without_login(api):
     import cv2
 
-    row = api.client.get(f"{BASE}/history", params={"department": OWN}).json()["items"][1]
+    row = api.client.get(BASE, params={"department": OWN, "violation_type": 5}).json()["items"][1]
     response = api.client.get(row["image_url"])
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.headers["cache-control"] == "no-store"
     assert response.content == api.image_path.read_bytes()
     np.testing.assert_array_equal(cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR), api.image)
-    assert api.client.get(f"{BASE}/alarms/{BIG_ID}", params={"department": OWN}).json() == row
+    assert api.client.get(f"{BASE}/{BIG_ID}", params={"department": OWN}).json() == row
 
 
-@pytest.mark.parametrize("alarm_id", [103, 104, 105, 108, 999])
+def test_history_defaults_to_all_assigned_supported_alarm_types(api):
+    response = api.client.get(BASE, params={"department": OWN})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 8
+    assert [item["id"] for item in data["items"]] == [
+        "110", "107", "105", "104", str(BIG_ID), "109", "102", "101",
+    ]
+    assert {item["violation_type"] for item in data["items"]} == {5, 15, 16, 17}
+
+
+@pytest.mark.parametrize("kind,expected_ids", [
+    (5, ["107", str(BIG_ID), "109", "102", "101"]),
+    (15, ["110"]), (16, ["104"]), (17, ["105"]),
+])
+def test_numeric_type_selects_records_without_feature_name(api, kind, expected_ids):
+    response = api.client.get(BASE, params={"department": OWN, "violation_type": kind})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == len(expected_ids)
+    assert [item["id"] for item in data["items"]] == expected_ids
+    assert all(item["violation_type"] == kind for item in data["items"])
+
+
+def test_repeated_numeric_types_combine_human_and_fence_alarms(api):
+    params = [("department", OWN), ("violation_type", 5), ("violation_type", 15), ("violation_type", 16)]
+    response = api.client.get(BASE, params=params)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 7
+    assert [item["id"] for item in data["items"]] == [
+        "110", "107", "104", str(BIG_ID), "109", "102", "101",
+    ]
+
+
+@pytest.mark.parametrize("alarm_id,kind", [(101, 5), (110, 15), (104, 16), (105, 17)])
+def test_alarm_id_alone_selects_correct_detail_and_image(api, alarm_id, kind):
+    detail = api.client.get(f"{BASE}/{alarm_id}", params={"department": OWN})
+    assert detail.status_code == 200
+    row = detail.json()
+    assert row["id"] == str(alarm_id) and row["violation_type"] == kind
+    assert row["image_url"] == f"{BASE}/{alarm_id}/image?department={OWN}"
+    image = api.client.get(row["image_url"])
+    assert image.status_code == 200 and image.headers["content-type"] == "image/png"
+    assert image.content == api.image_path.read_bytes()
+
+
+def test_department_assignments_control_default_types_and_explicit_requests(api):
+    api.access[OTHER] = ["security_fence"]
+    response = api.client.get(BASE, params={"department": OTHER})
+    assert response.status_code == 200 and response.json() == {"total": 0, "items": []}
+    assert api.client.get(BASE, params={"department": OTHER, "violation_type": 5}).status_code == 403
+    assert api.client.get(BASE, params={"department": OTHER, "violation_type": 15}).status_code == 200
+    assert api.client.get(f"{BASE}/103", params={"department": OTHER}).status_code == 404
+    assert api.client.get(f"{BASE}/103/image", params={"department": OTHER}).status_code == 404
+    response = api.client.get(BASE, params=[("department", OTHER), ("violation_type", 5), ("violation_type", 15)])
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("alarm_id", [103, 108, 111, 112, 999])
 @pytest.mark.parametrize("suffix", ["", "/image"])
 def test_alarm_and_image_reject_other_department_feature_or_type(api, alarm_id, suffix):
-    response = api.client.get(f"{BASE}/alarms/{alarm_id}{suffix}", params={"department": OWN})
+    response = api.client.get(f"{BASE}/{alarm_id}{suffix}", params={"department": OWN})
     assert response.status_code == 404
 
 
 @pytest.mark.parametrize("alarm_id", [102, 107])
 def test_missing_image_reference_or_file_returns_404(api, alarm_id):
-    response = api.client.get(f"{BASE}/alarms/{alarm_id}/image", params={"department": OWN})
+    response = api.client.get(f"{BASE}/{alarm_id}/image", params={"department": OWN})
     assert response.status_code == 404 and response.json()["detail"] == "alarm image not found"
 
 
 def test_history_counts_before_pagination_and_filters_camera_and_time(api):
-    data = api.client.get(f"{BASE}/history", params={"department": OWN, "limit": 1, "offset": 1}).json()
+    data = api.client.get(BASE, params={"department": OWN, "violation_type": 5, "limit": 1, "offset": 1}).json()
     assert data["total"] == 5 and [item["id"] for item in data["items"]] == [str(BIG_ID)]
-    data = api.client.get(f"{BASE}/history", params={"department": OWN, "camera_key": "camera_1"}).json()
+    data = api.client.get(BASE, params={"department": OWN, "violation_type": 5, "camera_key": "camera_1"}).json()
     assert data["total"] == 3 and [item["id"] for item in data["items"]] == [str(BIG_ID), "109", "101"]
-    params = {"department": OWN,
+    params = {"department": OWN, "violation_type": 5,
               "start": datetime(2026, 11, 11, 9).astimezone(timezone.utc).isoformat(),
               "end": datetime(2026, 11, 12, 10).astimezone(timezone.utc).isoformat()}
-    data = api.client.get(f"{BASE}/history", params=params).json()
+    data = api.client.get(BASE, params=params).json()
     assert data["total"] == 1 and data["items"][0]["id"] == "102"
-    data = api.client.get(f"{BASE}/history", params={"department": OTHER}).json()
+    data = api.client.get(BASE, params={"department": OTHER}).json()
     assert data["total"] == 1 and data["items"][0]["id"] == "103"
 
 
@@ -142,9 +208,13 @@ def test_history_counts_before_pagination_and_filters_camera_and_time(api):
     ({"department": OWN, "limit": 501}, 422), ({"department": OWN, "offset": -1}, 422),
     ({"department": OWN, "start": "2026-11-12T10:00:00"}, 422),
     ({"department": OWN, "start": "2026-11-12T10:00:00+08:00", "end": "2026-11-11T10:00:00+08:00"}, 400),
+    ({"department": OWN, "violation_type": 3}, 400),
+    ({"department": OWN, "violation_type": 999}, 400),
+    ({"department": OWN, "violation_type": "invalid"}, 422),
+    ({"department": OTHER, "violation_type": 17}, 403),
 ])
 def test_invalid_history_scope_or_parameters_are_rejected(api, params, status):
-    assert api.client.get(f"{BASE}/history", params=params).status_code == status
+    assert api.client.get(BASE, params=params).status_code == status
 
 
 def test_department_catalog_and_revocation_apply_to_all_resources(api):
@@ -152,9 +222,9 @@ def test_department_catalog_and_revocation_apply_to_all_resources(api):
     assert response.status_code == 200
     assert {row["name"] for row in response.json()} == {OWN, OTHER}
     api.access[OWN] = []
-    for path in ("/history", "/alarms/101", "/alarms/101/image"):
+    for path in ("", "/101", "/101/image"):
         assert api.client.get(BASE + path, params={"department": OWN}).status_code == 403
-    assert api.client.post(f"{BASE}/history", json={"department": OTHER}).status_code == 405
+    assert api.client.post(BASE, json={"department": OTHER}).status_code == 405
 
 
 def test_platform_and_notification_image_authentication_remain_in_place(api):

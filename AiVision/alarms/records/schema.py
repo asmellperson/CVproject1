@@ -100,3 +100,24 @@ class AlarmListResponse(BaseModel):
 
 
     items: list[AlarmEventResponse] = Field(default_factory=list)
+
+
+class ExternalAlarmResponse(BaseModel):
+    """外部报警统一字段；功能名仅用于返回说明，不作为请求条件。"""
+
+    id: str
+    feature_name: str
+    violation_type: int
+    event_type: str
+    event_label: str
+    camera_key: str | None
+    camera_name: str
+    department: str
+    reason: str
+    created_at: str
+    image_url: str | None
+
+
+class ExternalAlarmListResponse(BaseModel):
+    total: int
+    items: list[ExternalAlarmResponse]
