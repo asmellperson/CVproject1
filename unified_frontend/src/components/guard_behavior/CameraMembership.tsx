@@ -4,7 +4,8 @@ import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { CameraSelectContent } from '@/components/camera/CameraSelectContent'
+import { Select, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader } from '@/components/detection/DetectionConfigUi'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 import { addCamera, removeCamera, reorderCameras, setCameraEnabled } from './api'
@@ -52,7 +53,7 @@ export function CameraMembership({ site, members, busy, onChange }: {
       {canConfigure && <div className="flex flex-col gap-3 sm:flex-row">
         <Select value={cameraToAdd ? selected : ''} disabled={busy || !available.length} onValueChange={setSelected}>
           <SelectTrigger className="flex-1" aria-label="添加已有摄像头"><SelectValue placeholder="选择已有摄像头加入当前保安室" /></SelectTrigger>
-          <SelectContent>{available.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}{camera.enabled ? '' : '（物理设备已停用）'}</SelectItem>)}</SelectContent>
+          <CameraSelectContent>{available.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}{camera.enabled ? '' : '（物理设备已停用）'}</SelectItem>)}</CameraSelectContent>
         </Select>
         <Button disabled={busy || !cameraToAdd} onClick={addSelected}><Link className="h-4 w-4" />添加到当前功能</Button>
       </div>}

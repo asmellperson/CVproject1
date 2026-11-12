@@ -11,6 +11,7 @@ import { ArrowDown, ArrowUp, Bell, Camera, Clock, Crosshair, Layers3, Plus, Slid
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
 import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
+import { CameraSelectContent } from '@/components/camera/CameraSelectContent'
 import {
   DETECTION_CONFIG_CARD_CLASS,
   DetectionConfigCardContent,
@@ -612,7 +613,7 @@ export function LogisticsChannelConfigView({
                       <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
                       <Select value={cameraToAdd ? existingCameraId : ''} onValueChange={setExistingCameraId} disabled={!canConfigure || busy || !existingCameraOptions.length}>
                         <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
-                      <SelectContent showScrollButtons={false}>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
+                      <CameraSelectContent>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</CameraSelectContent>
                       </Select>
                       <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Switch checked={moveExisting} onCheckedChange={(checked) => { setMoveExisting(checked); setExistingCameraId('') }} disabled={!canConfigure || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
                       <Button onClick={addExisting} disabled={!canConfigure || busy || !cameraToAdd}>{moveExisting ? '移动至当前通道' : '添加到当前功能'}</Button>

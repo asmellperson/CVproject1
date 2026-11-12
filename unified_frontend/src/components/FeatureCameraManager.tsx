@@ -22,6 +22,7 @@ import {
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { LogisticsCameraCreateDialog } from '@/components/logistics_single_person/LogisticsCameraCreateDialog'
 import { CameraZoomButton } from '@/components/camera/CameraZoomButton'
+import { CameraSelectContent } from '@/components/camera/CameraSelectContent'
 import type { LogisticsCameraCreateInput } from '@/components/logistics_single_person/logisticsCameraCreateState'
 
 type FeatureCameraManagerProps = {
@@ -227,7 +228,7 @@ export function FeatureCameraManager({
               <SelectTrigger className="min-h-11 w-full min-w-0 flex-1 bg-white sm:min-h-9" aria-label="添加已有摄像头">
                 <SelectValue placeholder={availableCameras.length ? '选择已有摄像头' : '暂无可添加的摄像头'} />
               </SelectTrigger>
-              <SelectContent>{availableCameras.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
+              <CameraSelectContent>{availableCameras.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</CameraSelectContent>
             </Select>
             <Button className="h-11 sm:h-9" disabled={readOnly || !cameraToAdd} onClick={() => { if (cameraToAdd) void handleToggle(cameraToAdd, true) }}><Plus className="h-4 w-4" />添加到当前功能</Button>
           </div>
