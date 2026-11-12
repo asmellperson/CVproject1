@@ -5,14 +5,14 @@
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import HumanConsumer
 from .orm import HumanConfigORM
-from .schema import HumanConfigSchema
+from .schema import ALARM_TYPE, FEATURE, HumanConfigSchema
 
 SPEC = FeatureSpec(
-    name="detect_human",
+    name=FEATURE,
     display_name="人员违规逗留检测",
     consumer_cls=HumanConsumer,
     orm_class=HumanConfigORM,
     config_schema=HumanConfigSchema,
     required_models=("yolo_human",),
-    alarm_types=(5,),
+    alarm_types=(ALARM_TYPE,),
 )

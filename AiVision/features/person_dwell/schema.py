@@ -6,6 +6,9 @@ from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 from AiVision.features._shared import defaults
 from AiVision.features._shared.roi import NormalizedRoi
 
+FEATURE = "detect_human"
+ALARM_TYPE = 5
+
 class HumanValueSchema(BaseModel):
     """约束检测、跟踪和停留计时参数，拒绝非有限数值与未知字段。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
@@ -39,3 +42,24 @@ class HumanConfigSchema(BaseModel):
     enable: bool = False
     value: HumanValueSchema = Field(default_factory=HumanValueSchema)
     alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)
+
+
+class HumanDwellAlarm(BaseModel):
+    """外部人员逗留报警字段，不暴露服务器图片或录像路径。"""
+
+    id: str
+    feature_name: str
+    violation_type: int
+    event_type: str
+    event_label: str
+    camera_key: str | None
+    camera_name: str
+    department: str
+    reason: str
+    created_at: str
+    image_url: str | None
+
+
+class HumanDwellHistory(BaseModel):
+    total: int
+    items: list[HumanDwellAlarm]

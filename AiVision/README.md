@@ -1450,6 +1450,19 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 报警查询读取 `ai_violation_image`，限定 `feature_name='tailgating'`、`violation_type=17`。结构化通行数据位于 `event_metadata.tailgating`，包含事件 ID、轨迹编号、方向和共同出现时长；图片默认保留 31 天。接口只读，配置仍由平台管理员维护。数据库查询 SQL 和完整调用示例见[非法闯闸对接文档](../docs/tailgating-external-api.md)。
 
+### 12.8 人员逗留外部对接
+
+前缀为 `/api/external/human-dwell`，无需 API Key 或账号登录。除 `/departments` 外均要求单个 `department`，并校验该事业部已分配 `detect_human` 功能。
+
+| 方法 | 相对路径 | 用途 |
+| --- | --- | --- |
+| GET | `/departments` | 当前已分配人员逗留功能的事业部 |
+| GET | `/history` | 报警总数和分页记录，支持摄像头及带时区的时间范围筛选 |
+| GET | `/alarms/{alarm_id}` | 报警详情、正式类型名称和图片地址 |
+| GET | `/alarms/{alarm_id}/image` | 无需登录即可显示的 PNG 原图 |
+
+`features/person_dwell/service.py` 共用 `ai_violation_image`，列表、详情与图片均限定 `feature_name='detect_human'`、`violation_type=5` 及所选事业部。响应不暴露磁盘路径，报警 ID 为字符串，`image_url` 指向同一报警的外部图片入口；已有记录未保存原因时，按正式类型及摄像头名称展示。时间边界按服务器本地时间比较，分页总数不受页大小影响。接口不依赖检测进程运行，不修改平台或通知图片的鉴权方式。字段、数据库查询与接入示例见[人员逗留对接说明](../docs/human-dwell-external-api.md)。
+
 ## 13. 人脸库同步与特征生成
 
 目录：[features/face_recognition/library/](features/face_recognition/library/)。海康协议适配位于 [connectors/hikvision/](connectors/hikvision/)。
