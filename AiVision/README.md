@@ -1353,6 +1353,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/logistics-channels/{feature}/{channel_id}/alarms` | 通道告警 |
 | GET | `/api/logistics-channels/{feature}/{channel_id}/statistics` | 通道统计 |
 
+状态响应始终包含 `alarm_suppressed`，按通道启用状态和检测时段标明是否抑制报警。尚无运行快照时返回 `reason=unknown`、`alarm=false`；Consumer 因停用或时段限制停止检测时返回 `reason=inactive`、`alarm_suppressed=true`。
+
 ### 12.4 保安行为、安检与平台管理
 
 保安室接口前缀为 `/api/guard-behavior/sites`：

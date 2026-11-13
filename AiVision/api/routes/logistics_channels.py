@@ -19,6 +19,7 @@ from AiVision.core.db import get_session
 from AiVision.features.logistics_channel.constants import (
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
+from AiVision.features.logistics_channel.schedule import LogisticsSchedule, is_scheduled_time
 from AiVision.features.logistics_channel.schema import (
     LogisticsChannelAlarmListResponse,                  # 物流通道报警数据模型
     LogisticsCameraInventoryResponse,                   # 用户有权看到的物流摄像头汇总
@@ -372,7 +373,7 @@ def get_channel_status(
     service=Depends(get_logistics_channel_service),
     orchestrator=Depends(get_current_orchestrator),
 ) -> LogisticsChannelRuntimeStatusResponse:
-    """获取某个物流通道当前真正的实时运行这台"""
+    """获取物流通道实时状态，尚无快照时仍返回完整的状态结构。"""
     channel = _require_channel_access(service, feature, channel_id, user)
     value = orchestrator.get_logistics_channel_status(feature, channel_id)
     if value is not None:
@@ -384,6 +385,9 @@ def get_channel_status(
         "department": channel["department"],
         "reason": "unknown",
         "alarm": False,
+        "alarm_suppressed": not channel["enabled"] or not is_scheduled_time(
+            LogisticsSchedule.model_validate(channel["config"]["schedule"])
+        ),
         "camera_ids": [member["camera_id"] for member in channel.get("members", [])],
         "camera_counts": {},
         "camera_states": {},

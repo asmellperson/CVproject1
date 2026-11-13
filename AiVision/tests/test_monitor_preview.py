@@ -1,5 +1,6 @@
 """原始预览保留授权，当前检测结果与报警证据相互独立。"""
 from queue import Queue
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 import time
@@ -167,3 +168,67 @@ def test_status_expiration_and_lifecycle(modules, age, online, enabled):
         assert 0 < snapshot["valid_for_seconds"] <= 2
     else:
         assert snapshot["count"] is None and not snapshot["alarm"] and snapshot["details"] == []
+
+
+@pytest.mark.parametrize("phase,enabled,hour,weekdays,suppressed", [
+    ("initial", True, 12, [4], False),
+    ("initial", False, 12, [4], True),
+    ("initial", True, 21, [4], True),
+    ("evaluated", True, 12, [4], False),
+    ("gated", False, 12, [4], True),
+    ("gated", True, 7, [4], True),
+    ("gated", True, 21, [4], True),
+    ("gated", True, 12, [], True),
+    ("gated", True, 12, [0], True),
+])
+def test_logistics_status_without_results_and_outside_schedule(
+    modules, monkeypatch, phase, enabled, hour, weekdays, suppressed,
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from auth.auth import get_current_user
+    from AiVision.api import deps
+    from AiVision.api.routes import logistics_channels
+    from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.features.logistics_channel.schema import LogisticsChannelDetailResponse
+    from AiVision.features.logistics_channel.schedule import is_scheduled_time
+
+    feature = "detect_logistics_single_person"
+    now = datetime.fromisoformat(f"2026-11-13T{hour:02d}:00:00+08:00")
+    channel = LogisticsChannelDetailResponse.model_validate({
+        "id": 5, "name": "通道5", "feature_name": feature, "department": "general_electric",
+        "enabled": enabled, "sort_order": 0, "config": {"schedule": {"weekdays": weekdays}},
+        "members": [{"id": 1, "channel_id": 5, "camera_id": 11, "enabled": True, "sort_order": 0}],
+    }).model_dump()
+    service = Mock()
+    service.get_channel.return_value = channel
+    service.list_channels.return_value = {"items": [channel]}
+    runtime = LogisticsChannelRuntime(
+        channel_service=service, dispatcher=Mock(), camera_provider=lambda key: {"name": "相机11"},
+        wall_time_provider=lambda: now, clock_provider=lambda: now.timestamp(), start_background=False,
+    )
+    if phase == "evaluated":
+        runtime.evaluate(feature, 5)
+    elif phase == "gated":
+        # Consumer 的时段检查会覆盖汇总状态，轮询必须能直接读取该状态。
+        runtime.evaluate(feature, 5)
+        assert not runtime.camera_should_run(feature, 11)
+
+    orchestrator = object.__new__(modules[3])
+    orchestrator.logistics_channel_runtime = runtime
+    monkeypatch.setattr(logistics_channels, "is_scheduled_time", lambda schedule: is_scheduled_time(schedule, now))
+    app = FastAPI()
+    app.include_router(logistics_channels.router)
+    app.dependency_overrides[get_current_user] = lambda: user([feature])
+    app.dependency_overrides[deps.get_logistics_channel_service] = lambda: service
+    app.dependency_overrides[deps.get_current_orchestrator] = lambda: orchestrator
+    with TestClient(app) as client:
+        response = client.get(f"/api/logistics-channels/{feature}/5/status")
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["reason"] == ("inactive" if phase == "gated" else "unknown")
+    assert value["alarm"] is False
+    assert value["alarm_suppressed"] is suppressed
+    assert value["channel_id"] == 5 and value["department"] == "general_electric"
+    assert value["duration_seconds"] == (0.0 if phase == "evaluated" else None)
+    assert value["threshold_seconds"] is None

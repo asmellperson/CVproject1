@@ -855,6 +855,7 @@ class LogisticsChannelRuntime:
             "department": channel.department,
             "reason": reason,
             "alarm": False,
+            "alarm_suppressed": True,
         }
         return reset
 
