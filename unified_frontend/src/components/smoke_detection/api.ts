@@ -34,7 +34,7 @@ export type SmokeShieldState = {
 }
 
 function smokePath(cameraKey: string, resource: string, department: DepartmentId) {
-  return `/aivision/smoke/${encodeURIComponent(cameraKey)}/${resource}?department=${encodeURIComponent(department)}`
+  return `/smoke/${encodeURIComponent(cameraKey)}/${resource}?department=${encodeURIComponent(department)}`
 }
 
 async function request<T>(path: string, method: 'GET' | 'PUT', body?: unknown, signal?: AbortSignal): Promise<T> {

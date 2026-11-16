@@ -5,6 +5,7 @@ import { CameraLivePreview } from '../src/components/monitor/CameraLivePreview'
 import { CurrentDetectionCard } from '../src/components/monitor/CurrentDetectionCard'
 import { useDetectionStatus } from '../src/components/monitor/useDetectionStatus'
 import { useSmokeStatus } from '../src/components/smoke_detection/useSmokeStatus'
+import { readSmokeParameters, saveSmokeParameters, readSmokeShields, saveSmokeShields, smokePictureUrl, readSmokeStatus } from '../src/components/smoke_detection/api'
 import { previewRegions, regionDirection } from '../src/components/monitor/previewRegions'
 import { LogisticsChannelMonitorView } from '../src/components/logistics_single_person/LogisticsChannelMonitorView'
 import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../src/components/logistics_single_person/api'
@@ -18,6 +19,7 @@ const resultElement = document.getElementById('result')!
 const root = createRoot(previewElement)
 const statusRoot = createRoot(statusElement)
 const requests: URL[] = []
+const smokeRequests: { url: URL; init?: RequestInit }[] = []
 const successes: string[] = []
 let statusRequests = 0
 let connection = { connected: false, message: '' }
@@ -46,9 +48,27 @@ const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) 
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   requests.push(url)
-  if (url.pathname.startsWith('/api/aivision/smoke/') && url.pathname.endsWith('/status')) {
+  // 与后端注册路径一致；多余的旧前缀必须返回404，不能落入通用状态桩而掩盖错误。
+  if (url.pathname.startsWith('/api/aivision/smoke/')) return json({ detail: 'Not Found' }, 404)
+  const smoke = /^\/api\/smoke\/([^/]+)\/(parameters|shields|picture|status)$/.exec(url.pathname)
+  if (smoke) {
+    smokeRequests.push({ url, init })
     assert(url.searchParams.get('department') === 'general_electric', '烟雾状态请求缺少事业部范围')
-    const camera_key = url.pathname.split('/')[4]
+    const method = init?.method ?? 'GET'
+    const resource = smoke[2]
+    if (!['GET', 'PUT'].includes(method) || (['picture', 'status'].includes(resource) && method !== 'GET')) return json({ detail: 'Method Not Allowed' }, 405)
+    if (resource === 'parameters') {
+      const values = method === 'PUT' ? JSON.parse(String(init?.body)).values : { sensitivity: 52 }
+      return json({ supported: true, message: '', channel_id: 1, global_enabled: true,
+        parameters: [{ key: 'sensitivity', label: '烟雾灵敏度', kind: 'integer', value: values.sensitivity, minimum: 1, maximum: 100 }] })
+    }
+    if (resource === 'shields') {
+      const value = method === 'PUT' ? JSON.parse(String(init?.body)) : { enabled: false, regions: [] }
+      return json({ supported: true, writable: true, message: '', channel_id: 1,
+        coordinate_width: 1000, coordinate_height: 1000, max_regions: 4, min_points: 4, max_points: 4, ...value })
+    }
+    if (resource === 'picture') return new Response('device-picture', { headers: { 'Content-Type': 'image/jpeg' } })
+    const camera_key = decodeURIComponent(smoke[1])
     const response = (alarm_state: 'active' | 'inactive' | 'unknown') => json({
       camera_key, feature: 'smoke_detection', online: true, count: null,
       connection_state: 'connected', alarm_state, alarm: alarm_state === 'unknown' ? null : alarm_state === 'active',
@@ -62,6 +82,7 @@ window.fetch = async (input, init) => {
     })
     return response(smokeMode)
   }
+  if (url.pathname.startsWith('/api/smoke/')) return json({ detail: 'Not Found' }, 404)
   if (url.pathname === '/api/departments') return json([{ name: 'general_electric', display_name: '通用电气事业部' }])
   const logisticsRoi = /^\/api\/logistics-channels\/detect_logistics_single_person\/(\d+)\/cameras\/(\d+)\/roi$/.exec(url.pathname)
   if (logisticsRoi) {
@@ -156,6 +177,43 @@ function renderLogistics(channelId: number) {
 }
 
 async function run() {
+  const cameraKey = 'camera_1?烟雾'
+  const encodedCamera = encodeURIComponent(cameraKey)
+  const controller = new AbortController()
+  const expectSmokeRequest = (resource: string, method: string) => {
+    const request = smokeRequests[smokeRequests.length - 1]
+    assert(request.url.pathname === `/api/smoke/${encodedCamera}/${resource}`, `${resource}没有使用后端原生路由或摄像头标识未编码`)
+    assert(request.url.searchParams.get('department') === 'general_electric' && request.url.searchParams.size === 1, `${resource}事业部查询参数不正确`)
+    assert(request.init?.method === method && request.init.credentials === 'include', `${resource}请求方法或登录凭据传递不正确`)
+    return request
+  }
+  const parameters = await readSmokeParameters(cameraKey, 'general_electric', controller.signal)
+  assert(parameters.parameters[0].value === 52, '设备实际参数未返回调用方')
+  assert(expectSmokeRequest('parameters', 'GET').init?.signal === controller.signal, '参数读取未传递取消信号')
+  successes.push('烟雾参数读取使用真实后端路由，保留事业部、登录凭据和取消信号')
+  const savedParameters = await saveSmokeParameters(cameraKey, 'general_electric', { sensitivity: 75 })
+  const parametersWrite = expectSmokeRequest('parameters', 'PUT')
+  assert(JSON.parse(String(parametersWrite.init?.body)).values.sensitivity === 75 && savedParameters.parameters[0].value === 75, '参数保存请求体或回读结果不正确')
+  assert(new Headers(parametersWrite.init?.headers).get('Content-Type') === 'application/json', '设备参数写入没有声明JSON格式')
+  successes.push('烟雾参数写入使用PUT与values请求体，并保留设备回读结果')
+  const shields = await readSmokeShields(cameraKey, 'general_electric', controller.signal)
+  assert(shields.supported && shields.writable && shields.coordinate_height === 1000, '屏蔽区能力响应未返回调用方')
+  assert(expectSmokeRequest('shields', 'GET').init?.signal === controller.signal, '屏蔽区读取未传递取消信号')
+  successes.push('烟雾屏蔽区读取使用真实后端路由并返回设备能力')
+  const region = { id: 1, enabled: true, name: '屏蔽区一', points: [{ x: 0.1, y: 0.1 }, { x: 0.8, y: 0.1 }, { x: 0.8, y: 0.8 }, { x: 0.1, y: 0.8 }] }
+  const savedShields = await saveSmokeShields(cameraKey, 'general_electric', { enabled: true, regions: [region] })
+  const shieldsWrite = expectSmokeRequest('shields', 'PUT')
+  assert(JSON.stringify(JSON.parse(String(shieldsWrite.init?.body))) === JSON.stringify({ enabled: true, regions: [region] }) && savedShields.regions[0].name === region.name, '屏蔽区保存请求体或回读结果不正确')
+  successes.push('烟雾屏蔽区写入使用PUT并完整传递使能、区域和归一化坐标')
+  const picture = new URL(smokePictureUrl(cameraKey, 'general_electric'), location.origin)
+  assert(picture.pathname === `/api/smoke/${encodedCamera}/picture` && picture.searchParams.get('department') === 'general_electric', '设备抓图地址未使用原生路由与事业部范围')
+  assert((await fetch(`/api/aivision/smoke/${encodedCamera}/picture?department=general_electric`)).status === 404, '多余前缀被测试桩当作合法接口')
+  assert((await fetch(`/api/smoke/${encodedCamera}/unregistered/status?department=general_electric`)).status === 404, '不存在的烟雾路由落入了通用状态桩')
+  successes.push('设备抓图地址与后端原生路径一致，错误的额外前缀返回404')
+  const initialStatus = await readSmokeStatus(cameraKey, 'general_electric', controller.signal)
+  assert(initialStatus.camera_key === cameraKey && initialStatus.alarm_state === 'unknown' && initialStatus.alarm === null, '状态读取未保留原始摄像头标识或未知语义')
+  assert(expectSmokeRequest('status', 'GET').init?.signal === controller.signal, '烟雾状态请求未传递取消信号')
+  successes.push('烟雾状态使用真实后端路由，摄像头标识正确编码且未知状态不变成正常')
   render('camera_1')
   await until(() => previewElement.querySelector('svg[aria-label="检测区域"]'), '原始图片与 ROI')
   let svg = previewElement.querySelector('svg[aria-label="检测区域"]') as SVGSVGElement
