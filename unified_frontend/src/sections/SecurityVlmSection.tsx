@@ -60,7 +60,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
   const displayed = singleView ? (current && current.functions[INSPECTION_FEATURE] ? [current] : enabled.slice(0, 1)) : enabled
   const presentation = inspectionStatusPresentation(status, error)
   return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3 sm:space-y-6">
-    <DetectionPageHeader title="安检流程规范检测" subtitle="实时查看安检画面、流程判定与工位配置。"
+    <DetectionPageHeader title="安检流程规范检测"
       departmentLabel={DEPARTMENT_LABELS[department]} monitorValue="dashboard"
       runtimeControl={<Badge variant={presentation.error ? 'destructive' : 'secondary'}>{presentation.label}</Badge>} />
     {presentation.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{presentation.error}</p>}
@@ -81,7 +81,6 @@ function InspectionPage({ department }: { department: DepartmentId }) {
               <StatCard title="VLM 队列" value={status?.queue ?? 0} icon={<Clock3 className="h-5 w-5 text-slate-600" />} />
             </div>
             {status?.vlm.last_success && <p className="text-xs text-slate-500 dark:text-slate-400">最近判定成功：{new Date(status.vlm.last_success).toLocaleString('zh-CN')}</p>}
-            <details className="text-xs text-slate-500 dark:text-slate-400"><summary className="min-h-11 cursor-pointer py-3">统计口径</summary><p className="pb-2 leading-5">安检总数为合规与不合规次数之和；判定失败和取消会话仅保留在历史中，不计入总数与合规率。</p></details>
           </section>
           <section className="order-1 min-w-0 space-y-3 lg:order-2 lg:border-t lg:pt-6 dark:lg:border-slate-800 2xl:space-y-4 2xl:pt-8">
             <div className="space-y-1.5">

@@ -42,8 +42,8 @@ export function FaceRecognitionMonitorView({
       <ResizableMonitorLayout id="face-recognition" summary={
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="人脸识别实时状态">
           <StatCard label="摄像头状态" value={online ? '在线' : '离线'} detail={camera?.name || '未选择摄像头'} icon={Video} tone={online ? 'emerald' : 'rose'} ping={online} />
-          <StatCard label="启用摄像头" value={`${featureCameras.length} 路`} detail="已启用人脸身份识别" icon={Camera} tone="indigo" />
-          <StatCard label="当前检测人脸" value={ready ? `${detections.length} 人` : '—'} detail={ready ? '当前有效识别结果' : '等待有效检测结果'} icon={Users} tone="indigo" />
+          <StatCard label="启用摄像头" value={`${featureCameras.length} 路`} icon={Camera} tone="indigo" />
+          <StatCard label="当前检测人脸" value={ready ? `${detections.length} 人` : '—'} icon={Users} tone="indigo" />
           <StatCard label="通行权限状态" value={alarm ? '未授权人员报警' : detections.length ? '允许通行' : '等待识别'} detail={`允许 ${allowed} / 未授权 ${unauthorized} / 未知 ${unknown}`} icon={ScanFace} tone={alarm ? 'rose' : 'emerald'} ping={alarm} />
         </section>
       }>

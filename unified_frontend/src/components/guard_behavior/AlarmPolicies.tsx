@@ -25,8 +25,8 @@ function AlarmPolicyFields({ policy, disabled, onChange, onValidation }: {
     <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-white shadow-sm"><Bell className="h-4 w-4" /></span><h3 className="text-base font-bold text-amber-800 dark:text-amber-300">{LABELS[policy.violation_type]}</h3></div>
     <div className="grid items-start gap-5 md:grid-cols-2">
       <div className="space-y-2"><Label htmlFor={`guard-alarm-${policy.violation_type}`}>报警记录间隔（秒）</Label><Input id={`guard-alarm-${policy.violation_type}`} type="number" min={.1} step="any" disabled={disabled} value={Number.isFinite(policy.alarm_interval) ? policy.alarm_interval : ''}
-        onChange={(event) => change({ alarm_interval: event.target.value === '' ? NaN : Number(event.target.value) })} /><p className="text-xs text-slate-500 dark:text-slate-400">控制报警记录频率；喇叭和企业微信分别设置间隔。</p></div>
-      <label className="flex min-h-16 items-center justify-between gap-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-950/40"><span><span className="block text-sm font-medium">写入报警记录</span><span className="text-xs text-slate-500">保存到报警记录，便于后续查看。</span></span><Switch aria-label={`${LABELS[policy.violation_type]}写入报警记录`} checked={policy.sql_enable} disabled={disabled} onCheckedChange={(sql_enable) => change({ sql_enable })} /></label>
+        onChange={(event) => change({ alarm_interval: event.target.value === '' ? NaN : Number(event.target.value) })} /></div>
+      <label className="flex min-h-16 items-center justify-between gap-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-950/40"><span className="text-sm font-medium">写入报警记录</span><Switch aria-label={`${LABELS[policy.violation_type]}写入报警记录`} checked={policy.sql_enable} disabled={disabled} onCheckedChange={(sql_enable) => change({ sql_enable })} /></label>
     </div>
     <div className="space-y-4 rounded-xl border border-orange-100 bg-orange-50/50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
       <WechatAlarmSettings disabled={disabled} value={{ enable: policy.wechat_enable, interval: policy.wechat_interval ?? policy.alarm_interval, parm: { user: policy.wechat_user } }}
@@ -67,12 +67,12 @@ export function AlarmPolicies({ policies, busy, onChange }: { policies: AlarmPol
   }
   return <>
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警推送" description="维护企业微信、喇叭和报警记录，四类报警分别生效。设备和音频在“喇叭设备”中管理。" />
+      <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警推送" />
       <DetectionConfigCardContent className="space-y-6">
         {values.map((policy) => <AlarmPolicyFields key={policy.violation_type} policy={policy} disabled={!canConfigure || busy} onValidation={onValidation}
           onChange={(type, value) => setChanges((previous) => ({ ...previous, [type]: { ...previous[type], ...value } }))} />)}
       </DetectionConfigCardContent>
     </Card>
-    <DetectionSaveBar message={invalid ? '请检查报警间隔及喇叭设备绑定。' : '修改后保存配置；各类报警的接收人、间隔和推送开关独立生效。'} saving={busy} disabled={!canConfigure || busy || !pending.length || invalid} onSave={() => void save()} />
+    <DetectionSaveBar message={invalid ? '请检查报警间隔及喇叭设备绑定。' : ''} saving={busy} disabled={!canConfigure || busy || !pending.length || invalid} onSave={() => void save()} />
   </>
 }

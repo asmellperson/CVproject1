@@ -47,7 +47,7 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
     setConfigVersion((version) => version + 1)
   }
   return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-    <DetectionPageHeader title="指令驱动智慧安防" subtitle="通过自然语言定义监控任务，持续理解视频场景，并在目标事件发生时自动触发告警。" departmentLabel={DEPARTMENT_LABELS[department]} />
+    <DetectionPageHeader title="指令驱动智慧安防" departmentLabel={DEPARTMENT_LABELS[department]} />
     <TabsContent value="monitor">
       <AiVisionMonitor title="指令驱动智慧安防" feature={VISUAL_LANGUAGE_FEATURE} department={department} presentation="visual-language" />
     </TabsContent>

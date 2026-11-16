@@ -34,25 +34,23 @@ export function TailgatingMonitorView({ department, cameras, selectedCamera, loa
         <StatCard
           label="功能摄像头"
           value={String(featureCameras.length)}
-          detail="当前事业部"
           icon={Camera}
           tone="indigo" />
         <StatCard
           label="ROI 内人数"
           value={status?.count == null ? '—' : String(status.count)}
-          detail={status ? STATES[status.state] : '等待检测结果'}
+          detail={status ? STATES[status.state] : undefined}
           icon={UsersRound}
           tone="emerald" />
         <StatCard
           label="通行判定"
           value={status?.state !== 'ready' ? '等待有效结果' : status.alarm ? '非法闯闸' : '未发现尾随'}
-          detail="共同出现且同向过线"
           icon={ShieldAlert}
           tone={status?.alarm ? 'rose' : 'slate'} />
         <StatCard
           label="实际检测间隔"
           value={status?.sample_interval_seconds == null ? '—' : `${status.sample_interval_seconds.toFixed(2)} 秒`}
-          detail={status?.updated_at ? new Date(status.updated_at).toLocaleTimeString() : '等待更新'}
+          detail={status?.updated_at ? new Date(status.updated_at).toLocaleTimeString() : undefined}
           icon={Activity}
           tone="amber" />
       </section>
@@ -70,7 +68,7 @@ export function TailgatingMonitorView({ department, cameras, selectedCamera, loa
               <Badge variant="destructive">同向通行异常</Badge>
               <p className="mt-2 text-sm">人员 #{event.track_ids.join('、#')} 共同出现 {event.overlap_seconds.toFixed(2)} 秒</p>
             </div>)}
-            {!status?.events.length && <p className="text-sm text-slate-500 dark:text-slate-400">分别跟踪人员，仅在共同出现与同向过线同时成立时报警。</p>}
+            {!status?.events.length && <p className="text-sm text-slate-500 dark:text-slate-400">暂无事件</p>}
             {(status?.error || result?.error) && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{status?.error || result?.error}</p>}
           </CardContent>
         </Card>

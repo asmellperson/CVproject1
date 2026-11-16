@@ -338,7 +338,6 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
           title="大门开关异常检测"
-          subtitle="大门状态异常监控面板"
           departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
@@ -396,7 +395,7 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !doorConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的大门状态、确认与环境参数。" />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!doorConfig || !canConfigure || loading || saving || !form.cameraName}

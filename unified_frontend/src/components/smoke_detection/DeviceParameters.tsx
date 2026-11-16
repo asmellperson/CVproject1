@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, SlidersHorizontal } from 'lucide-react'
 import type { DepartmentId } from '@/auth/permissions'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { Card } from '@/components/ui/card'
@@ -74,25 +74,31 @@ export function DeviceParameters({ cameraKey, department, disabled }: {
   const readOnly = disabled || loading || saving
   return <div className="space-y-5">
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="摄像头烟雾参数" description="显示设备实际支持的参数；保存后直接写入摄像头。" />
+      <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="设备参数" />
       <DetectionConfigCardContent className="space-y-5">
-        {state?.global_enabled === false && <p className="text-sm text-amber-700 dark:text-amber-300">设备烟火总开关当前关闭，请核对摄像头端的功能启用状态。</p>}
-        {state?.warnings.map((warning) => <p key={warning} role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p>)}
-        {state?.parameters.map((field) => <div key={field.key} className="space-y-2">
-          {field.kind === 'boolean'
-            ? <label className="flex min-h-12 items-center justify-between gap-4"><span className="text-sm">{field.label}</span><Switch aria-label={field.label} checked={draft[field.key] === true} disabled={readOnly}
-              onCheckedChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} /></label>
-            : field.kind === 'enum'
+        {state?.global_enabled === false && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">设备烟火检测已关闭。</p>}
+        {state?.warnings.map((warning) => <div key={warning} role="alert" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{warning}</span>
+        </div>)}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {state?.parameters.filter((field) => field.kind === 'boolean').map((field) => <label key={field.key} className="flex min-h-14 items-center justify-between gap-4 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <span className="text-sm font-medium">{field.label}</span><Switch aria-label={field.label} checked={draft[field.key] === true} disabled={readOnly}
+              onCheckedChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} />
+          </label>)}
+        </div>
+        <div className="grid gap-5 md:grid-cols-2">
+        {state?.parameters.filter((field) => field.kind !== 'boolean').map((field) => <div key={field.key} className="space-y-2">
+          {field.kind === 'enum'
               ? <><Label htmlFor={`smoke-device-${field.key}`}>{field.label}</Label><Select value={String(draft[field.key] ?? '')} disabled={readOnly}
                 onValueChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}>
-                <SelectTrigger id={`smoke-device-${field.key}`}><SelectValue placeholder="选择设备支持的选项" /></SelectTrigger>
+                <SelectTrigger id={`smoke-device-${field.key}`} className="w-full"><SelectValue placeholder="选择设备支持的选项" /></SelectTrigger>
                 <SelectContent>{field.choices.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent>
               </Select></>
               : <><Label htmlFor={`smoke-device-${field.key}`}>{field.label}</Label><Input id={`smoke-device-${field.key}`} type="number" step={1}
               min={field.minimum ?? undefined} max={field.maximum ?? undefined} value={String(draft[field.key] ?? '')} disabled={readOnly}
               onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} /></>}
-          {field.key === 'device_alarm_interval' && <p className="text-xs text-slate-500 dark:text-slate-400">摄像头自身的烟雾报警间隔；平台推送间隔在报警推送中设置。</p>}
         </div>)}
+        </div>
         {!loading && state && !state.parameters.length && <p className="text-sm text-slate-500 dark:text-slate-400">{state.message || '设备没有返回可调整的烟雾参数。'}</p>}
       </DetectionConfigCardContent>
     </Card>

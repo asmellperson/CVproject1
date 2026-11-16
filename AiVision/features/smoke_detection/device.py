@@ -283,7 +283,7 @@ class SmokeDeviceClient:
             return result
         strategy = _descendant(current, ("AlarmStrategy", "strategyType"))
         if strategy is not None and (strategy.text or "").strip() == "appointFire":
-            result.warnings.append("当前设备报警策略为仅火点报警，烟雾报警不会上传；请按需选择仅烟雾报警或烟雾/火点任一报警。")
+            result.warnings.append("当前策略仅上传火点报警，烟雾报警不会上传。")
         result.global_enabled = _boolean(text(current, "smokeFireEnabled"))
         global_cap = child(capabilities, "smokeFireEnabled")
         if global_cap is not None and result.global_enabled is not None:

@@ -37,10 +37,10 @@ export function FenceMonitorView({
     <div className="space-y-5">
       <ResizableMonitorLayout id="security-fence" summary={
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="警戒围栏实时状态">
-          <StatCard label="检测状态" value={status ? STATES[status.state] : '等待检测'} detail={status?.error || result?.error || '读取当前检测结果'} icon={Activity} tone={status?.state === 'ready' ? 'emerald' : 'amber'} />
-          <StatCard label="当前规则" value={status ? status.mode === 'forbidden' ? '禁止任何人出现' : '仅允许白名单' : '—'} detail={status?.timezone || '按每日时段执行'} icon={ShieldAlert} tone="indigo" />
-          <StatCard label="区域人数" value={status?.count == null ? '—' : String(status.count)} detail={status?.alarm ? '区域内存在违规人员' : status?.state === 'ready' ? '当前未触发报警' : '尚无有效判定'} icon={UsersRound} tone={status?.alarm ? 'rose' : 'slate'} />
-          <StatCard label="待核验人数" value={status?.pending_count == null ? '—' : String(status.pending_count)} detail="看不清人脸不会按超时报警" icon={UserCheck} tone="amber" />
+          <StatCard label="检测状态" value={status ? STATES[status.state] : '等待检测'} detail={status?.error || result?.error} icon={Activity} tone={status?.state === 'ready' ? 'emerald' : 'amber'} />
+          <StatCard label="当前规则" value={status ? status.mode === 'forbidden' ? '禁止任何人出现' : '仅允许白名单' : '—'} detail={status?.timezone} icon={ShieldAlert} tone="indigo" />
+          <StatCard label="区域人数" value={status?.count == null ? '—' : String(status.count)} icon={UsersRound} tone={status?.alarm ? 'rose' : 'slate'} />
+          <StatCard label="待核验人数" value={status?.pending_count == null ? '—' : String(status.pending_count)} icon={UserCheck} tone="amber" />
         </section>
       }>
         <div className="space-y-5">

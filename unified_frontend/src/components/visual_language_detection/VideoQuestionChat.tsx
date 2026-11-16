@@ -31,14 +31,12 @@ export function VideoQuestionChat({ selectedCamera, frameConnected, answer, ques
   return <Card className="gap-0 overflow-hidden rounded-2xl dark:border-slate-800 dark:bg-slate-900">
     <CardHeader className="border-b border-slate-100 pb-5 dark:border-slate-800">
       <CardTitle className="flex items-center gap-2 text-base"><MessageSquareText className="h-5 w-5 text-blue-600 dark:text-blue-400" />向当前视频提问</CardTitle>
-      <p className="text-xs text-slate-500 dark:text-slate-400">围绕当前视频连续提问，查看本次问答记录</p>
     </CardHeader>
     <CardContent className="p-0">
       <div ref={messagesRef} role="log" aria-label="视频问答记录" aria-live="polite" className="h-[26rem] space-y-6 overflow-y-auto bg-slate-50/70 p-4 dark:bg-slate-950/30 sm:p-5">
         {!exchanges.length && <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
           <span className="rounded-2xl bg-blue-50 p-4 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><MessageSquareText className="h-7 w-7" /></span>
           <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{selectedCamera ? '从当前画面开始一段对话' : '请先选择摄像头'}</p>
-          <p className="max-w-60 text-xs leading-6 text-slate-500 dark:text-slate-400">可以询问画面中的人物、动作，或刚刚发生的事情。</p>
         </div>}
         {exchanges.map((exchange, index) => <div key={index} className="space-y-4">
           <div className="flex justify-end gap-2">
@@ -74,8 +72,8 @@ export function VideoQuestionChat({ selectedCamera, frameConnected, answer, ques
         <Textarea id="visual-language-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={2000} rows={3}
           className="resize-none rounded-xl bg-slate-50 dark:bg-slate-950/50" placeholder="例如：刚才这个人在做什么？" disabled={!selectedCamera || asking} />
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-500 dark:text-slate-400">{!selectedCamera ? '请先选择摄像头' : !frameConnected ? '等待实时画面连接' : '结合当前视频画面回答'}</p>
-          <Button type="submit" className="shrink-0 gap-2 rounded-xl" disabled={!selectedCamera || !frameConnected || !question.trim() || asking}><Send className="h-4 w-4" />{asking ? '回答中…' : '发送问题'}</Button>
+          {(!selectedCamera || !frameConnected) && <p className="text-xs text-slate-500 dark:text-slate-400">{!selectedCamera ? '请选择摄像头' : '画面未连接'}</p>}
+          <Button type="submit" className="ml-auto shrink-0 gap-2 rounded-xl" disabled={!selectedCamera || !frameConnected || !question.trim() || asking}><Send className="h-4 w-4" />{asking ? '回答中…' : '发送问题'}</Button>
         </div>
       </form>
     </CardContent>

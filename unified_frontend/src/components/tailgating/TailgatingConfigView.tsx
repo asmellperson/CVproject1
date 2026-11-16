@@ -62,8 +62,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
           <DetectionConfigCardHeader
             icon={SlidersHorizontal}
             tone="emerald"
-            title="非法闯闸判定"
-            description="两名人员在 ROI 内共同出现达到确认时间，并沿相同方向通过过闸判定线，才触发报警。" />
+            title="非法闯闸判定" />
           <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tailgating-camera">摄像头</Label>
@@ -104,7 +103,6 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
                   onChange={(event) => update((current) => ({ ...current, numbers: { ...current.numbers, [key]: event.target.value } }))} />
               </div>)}
             </>}
-            <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">请先保存 ROI 和过闸判定线，再在监控画面核对方向标记。共同出现结束后，关联窗口用于等待双方完成过线；采样间隔过大或推理失败时重新建立通行状态。</p>
           </DetectionConfigCardContent>
         </Card>{saveBar}
       </FeatureConfigGate>
@@ -145,7 +143,6 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
           onSave={save}
           onAlarmIntervalChange={(alarm_interval) => update((current) => ({ ...current, numbers: { ...current.numbers, alarm_interval } }))}
           onChange={(alarm) => update((current) => ({ ...current, config: { ...current.config, alarm: normalizeFeatureAlarmConfig(alarm) } }))} />}
-        <p className="text-sm text-slate-500 dark:text-slate-400">同组人员的一次通行只记录一次，多人同行合并为同组事件；独立通行事件分别报警。截图、视频、喇叭和企业微信沿用平台统一报警配置。</p>
       </FeatureConfigGate>
     </TabsContent>
   </DetectionConfigTabs>

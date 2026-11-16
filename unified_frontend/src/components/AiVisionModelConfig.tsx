@@ -110,7 +110,6 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
         icon={Box}
         tone="violet"
         title="模型配置"
-        description="查看固定模型的真实运行状态，保存本机路径后自动重载。"
         actions={(
           <Button variant="outline" className="gap-2 rounded-xl" onClick={refreshModels} disabled={loading || savingName !== null}>
             <RefreshCw className="h-4 w-4" />

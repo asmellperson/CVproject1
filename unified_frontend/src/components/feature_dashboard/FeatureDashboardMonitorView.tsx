@@ -4,7 +4,6 @@ import {
   BellRing,
   Camera,
   Clock3,
-  Info,
   Settings2,
   Video,
 } from 'lucide-react'
@@ -36,7 +35,7 @@ export function StatCard({
 }: {
   label: string
   value: string
-  detail: string
+  detail?: string
   icon: LucideIcon
   tone: 'emerald' | 'indigo' | 'amber' | 'rose' | 'slate'
   ping?: boolean
@@ -60,9 +59,9 @@ export function StatCard({
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
         </span>
       )}
-      <p className="pr-3 text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-4 sm:pr-0">{label}</p>
+      <p className="pr-3 text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-3 sm:pr-0">{label}</p>
       <p className="mt-1 break-words text-lg font-bold leading-snug text-slate-950 dark:text-slate-100 sm:text-[22px]">{value}</p>
-      <p className="mt-1.5 break-words text-xs leading-5 text-slate-500 dark:text-slate-400" title={detail}>{detail}</p>
+      {detail && <p className="mt-1.5 break-words text-xs leading-5 text-slate-500 dark:text-slate-400" title={detail}>{detail}</p>}
     </article>
   )
 }
@@ -90,43 +89,6 @@ function formatValue(value: unknown, suffix = '') {
   if (value === null || value === undefined || value === '') return '--'
   if (Array.isArray(value)) return JSON.stringify(value)
   return `${String(value)}${suffix}`
-}
-
-function ruleRows(feature: FeatureDashboardKey, value: Record<string, unknown> | null) {
-  if (feature === 'agv_person_check') {
-    return [
-      ['触发方式', '收到 HTTP 请求后检测，返回结果后停止'],
-      ['判定规则', '任一帧有人即判有人，全部采样帧无人才能判无人'],
-      ['人体置信度', formatValue(value?.confidence_threshold)],
-      ['检测时长上限', formatValue(value?.request_timeout_seconds, ' 秒')],
-    ]
-  }
-  if (feature === 'blocks') {
-    return [
-      ['监测区域', '红色警戒线（alarm_line）'],
-      ['判定规则', `目标跨越警戒线进入${formatBusinessMetric(feature, value)}`],
-      ['检测阈值', formatValue(value?.threshold)],
-    ]
-  }
-  if (feature === 'detect_face') {
-    return [
-      ['监测区域', '青色区域（face_roi）'],
-      ['置信阈值', formatValue(value?.FACE_SCORE_THR)],
-      ['逗留时间（秒）', formatValue(value?.MAX_TIME)],
-    ]
-  }
-  if (feature === 'detect_phone') {
-    return [
-      ['监测区域', '青色区域（phone_roi）'],
-      ['手机置信度', formatValue(value?.CONF_THRESHOLD)],
-      ['人体关联', formatValue(value?.REQUIRE_PERSON_ASSOCIATION)],
-    ]
-  }
-  return [
-    ['监测区域', '青色区域（door_roi）'],
-    ['变化阈值', formatValue(value?.threshold)],
-    ['首次告警', formatValue(value?.first_alarm, ' 秒')],
-  ]
 }
 
 function formatClock(value: string | undefined) {
@@ -175,26 +137,20 @@ export function FeatureDashboardMonitorView({
   const cameraKey = selectedCameraInfo ? getAiVisionCameraKey(selectedCameraInfo) : selectedCamera
   const cameraName = selectedCameraInfo?.name || '未选择摄像头'
   const fps = selectedCameraInfo?.fps
-  const rows = ruleRows(feature, featureValue)
   const result = useDetectionStatus(selectedCamera, feature, feature !== 'agv_person_check')
 
   return (
     <div className="space-y-5">
       <ResizableMonitorLayout id={`feature-dashboard-${feature}`} status={feature === 'agv_person_check' && <AgvRequestStatusCard key={`${selectedCameraInfo?.department}:${cameraKey}`} cameraKey={cameraKey} />} summary={
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="摄像头状态" value={frameConnected ? '在线' : '离线'} detail={frameConnected ? `${cameraKey || 'cam'} · 实时画面已连接` : '等待实时画面'} icon={Video} tone={frameConnected ? 'emerald' : 'rose'} ping={frameConnected} />
-          <StatCard label="启用摄像头" value={`${cameras.length} 路`} detail={`已启用${profile.videoTitle}`} icon={Camera} tone="indigo" />
-          <StatCard label={profile.metricLabel} value={formatBusinessMetric(feature, featureValue)} detail="读取当前摄像头现有配置" icon={Settings2} tone="amber" />
-          <StatCard label={`今日${profile.eventLabel}`} value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(alarms[0]?.created_at)}` : '今日暂无报警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
+          <StatCard label="摄像头状态" value={frameConnected ? '在线' : '离线'} icon={Video} tone={frameConnected ? 'emerald' : 'rose'} ping={frameConnected} />
+          <StatCard label="启用摄像头" value={`${cameras.length} 路`} icon={Camera} tone="indigo" />
+          <StatCard label={profile.metricLabel} value={formatBusinessMetric(feature, featureValue)} icon={Settings2} tone="amber" />
+          <StatCard label={`今日${profile.eventLabel}`} value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(alarms[0]?.created_at)}` : undefined} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
         </section>
       }>
         <div className="space-y-5">
           {feature !== 'agv_person_check' && <CurrentDetectionCard feature={feature} status={result?.status} error={result?.error} />}
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5 text-sm">{rows.map(([label, value]) => <div key={label} className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">{label}</span><span className="break-words text-slate-700 dark:text-slate-300">{value}</span></div>)}</CardContent>
-          </Card>
-
           <Card className={CARD_CLASS}>
             <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center justify-between text-base font-bold text-slate-950 dark:text-slate-100"><span>最近报警</span><Activity className="h-4 w-4 text-slate-300 dark:text-slate-600" /></CardTitle></CardHeader>
             <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">

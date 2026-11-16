@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   BellRing,
   Camera,
-  Info,
   RefreshCw,
   Users,
   Video,
@@ -32,7 +31,7 @@ function StatCard({
 }: {
   label: string
   value: string
-  detail: string
+  detail?: string
   icon: LucideIcon
   tone: 'emerald' | 'indigo' | 'amber' | 'rose' | 'slate'
   ping?: boolean
@@ -58,7 +57,7 @@ function StatCard({
       )}
       <p className="mt-4 text-xs font-medium text-slate-400">{label}</p>
       <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100">{value}</p>
-      <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>
+      {detail && <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>}
     </article>
   )
 }
@@ -100,7 +99,6 @@ export function LogisticsSinglePersonMonitorView({
   message,
   frameConnected,
   frameContent,
-  featureValue,
   status,
   events,
   todayAlarmCount,
@@ -114,8 +112,6 @@ export function LogisticsSinglePersonMonitorView({
   const cameraKey = selectedCameraInfo ? getAiVisionCameraKey(selectedCameraInfo) : selectedCamera
   const cameraName = selectedCameraInfo?.name || '未选择摄像头'
   const fps = selectedCameraInfo?.fps
-  const emptyGrace = Number(featureValue?.empty_grace_seconds ?? 2)
-  const multiGrace = Number(featureValue?.multi_grace_seconds ?? 1)
 
   return (
     <div className="space-y-5">
@@ -123,7 +119,7 @@ export function LogisticsSinglePersonMonitorView({
         <StatCard
           label="摄像头状态"
           value={frameConnected ? '在线' : '离线'}
-          detail={frameConnected ? `${cameraKey || 'cam'} · 实时画面已连接` : '等待实时画面'}
+          detail={frameConnected ? cameraName : undefined}
           icon={Video}
           tone={frameConnected ? 'emerald' : 'rose'}
           ping={frameConnected}
@@ -138,14 +134,12 @@ export function LogisticsSinglePersonMonitorView({
         <StatCard
           label="摄像头数量"
           value={`${cameras.length} 路`}
-          detail="已启用物流单人检测"
           icon={Camera}
           tone="indigo"
         />
         <StatCard
           label="今日告警次数"
           value={`${todayAlarmCount} 次`}
-          detail={todayAlarmCount > 0 ? '无人或多人异常记录' : '今日暂无人数告警'}
           icon={BellRing}
           tone={todayAlarmCount > 0 ? 'rose' : 'emerald'}
         />
@@ -181,23 +175,6 @@ export function LogisticsSinglePersonMonitorView({
                 <RefreshCw className="h-4 w-4" />
                 {loading ? '读取中' : '刷新状态'}
               </Button>
-            </CardContent>
-          </Card>
-
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
-                  <Info className="h-4 w-4" />
-                </span>
-                判定说明
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-5 pb-5 text-sm">
-              <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2.5 text-emerald-700"><span>ROI 内 1 人</span><strong>人数正常</strong></div>
-              <div className="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2.5 text-rose-700"><span>ROI 内 0 人</span><strong>无人异常</strong></div>
-              <div className="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2.5 text-rose-700"><span>ROI 内 ≥ 2 人</span><strong>多人异常</strong></div>
-              <p className="text-xs leading-5 text-slate-400">无人持续 {emptyGrace} 秒、多人持续 {multiGrace} 秒后，按现有规则产生正式报警。</p>
             </CardContent>
           </Card>
 

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { FileAudio, Pencil, Play, Plus, Radio, RefreshCw, Trash2, Volume2 } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
 import { useDepartmentConfigAccess } from '@/auth/useDepartmentConfigAccess'
-import { DEPARTMENT_LABELS } from '@/auth/permissions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -40,7 +39,6 @@ export function HornDeviceManager() {
   return <>
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
       <DetectionConfigCardHeader icon={Volume2} tone="violet" title="喇叭设备"
-        description={department ? `${DEPARTMENT_LABELS[department]} · 设备按事业部共用，检测功能的喇叭绑定在“报警推送”中设置。` : '请先进入具体事业部的检测页面'}
         actions={canConfigure && department && tab === 'devices' ? <>
           <Button variant="outline" onClick={devices.refresh} disabled={devices.busy || devices.loading} aria-label="刷新喇叭列表">
             <RefreshCw className={`h-4 w-4 ${devices.loading ? 'animate-spin' : ''}`} />刷新

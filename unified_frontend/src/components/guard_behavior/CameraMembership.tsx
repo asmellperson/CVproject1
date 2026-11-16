@@ -47,7 +47,7 @@ export function CameraMembership({ site, members, busy, onChange }: {
     void onChange(() => reorderCameras(site.id, ids))
   }
   return <Card className={DETECTION_CONFIG_CARD_CLASS}>
-    <DetectionConfigCardHeader icon={Camera} tone="emerald" title={`摄像头 · 已启用 ${enabledMembers.length} 路`} description="只显示参与当前保安室检测的摄像头；停用后可从下拉框重新添加，原有 ROI 保留。" />
+    <DetectionConfigCardHeader icon={Camera} tone="emerald" title={`摄像头 · 已启用 ${enabledMembers.length} 路`} />
     <DetectionConfigCardContent className="space-y-4">
       {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
       {canConfigure && <div className="flex flex-col gap-3 sm:flex-row">
@@ -57,8 +57,8 @@ export function CameraMembership({ site, members, busy, onChange }: {
         </Select>
         <Button disabled={busy || !cameraToAdd} onClick={addSelected}><Link className="h-4 w-4" />添加到当前功能</Button>
       </div>}
-      {!enabledMembers.length && <p className="text-sm text-slate-500">尚未启用摄像头，请从上方下拉框添加。</p>}
-      {members.length >= 9 && <p className="text-sm text-slate-500">当前保安室已绑定 9 路摄像头，可重新启用已停用的成员；添加其他设备前请先解除绑定。</p>}
+      {!enabledMembers.length && <p className="text-sm text-slate-500">暂无已启用摄像头</p>}
+      {members.length >= 9 && <p className="text-sm text-slate-500">已达到 9 路摄像头绑定上限。</p>}
       {enabledMembers.map((member, index) => <div key={member.camera_id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
         <div><p className="font-semibold">{index + 1}. {member.name}</p><p className="mt-1 text-xs text-slate-500">{member.shm_name} · {member.physical_enabled ? '物理设备已启用' : '物理设备已停用'}</p></div>
         <div className="flex flex-wrap items-center gap-2">

@@ -35,7 +35,7 @@ export function LogisticsCameraCreateDialog({
   onClose,
   onSubmit,
   title = '新建摄像头并绑定',
-  description = '填写摄像头信息，保存后将直接加入当前物流通道。',
+  description,
   submitLabel = '新建并绑定',
 }: Props) {
   const [draft, setDraft] = useState(initialLogisticsCameraDraft)
@@ -68,7 +68,7 @@ export function LogisticsCameraCreateDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription className={description ? undefined : 'sr-only'}>{description || '摄像头连接信息'}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">

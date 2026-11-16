@@ -430,7 +430,7 @@ async function run() {
   successes.push('摄像头切换取消旧状态读取，晚到的设备报警不能覆盖新摄像头解除状态')
   smokeMode = 'unknown'
   for (const scenario of [
-    { connection_state: 'connected', label: '尚未收到烟雾报警事件', message: '设备报警接口已连接，等待烟雾事件' },
+    { connection_state: 'connected', label: '待上报', message: '设备报警接口已连接，等待烟雾事件' },
     { connection_state: 'error', label: '报警接收异常', message: '设备报警连接未收到数据' },
     { connection_state: 'disconnected', label: '报警连接已断开', message: '设备报警连接长时间未收到心跳或事件' },
     { connection_state: 'connecting', label: '正在连接设备', message: '正在连接摄像头报警接口' },
@@ -438,11 +438,16 @@ async function run() {
   ]) {
     smokeStatusOverride = { ...scenario, valid_for_seconds: 10 }
     renderSmokeMonitor(`smoke_monitor_${scenario.connection_state}`)
-    await until(() => statusElement.textContent?.includes(scenario.label) && statusElement.textContent.includes(scenario.message), `烟雾监控状态：${scenario.connection_state}`)
+    await until(() => statusElement.textContent?.includes(scenario.label), `烟雾监控状态：${scenario.connection_state}`)
     assert(!statusElement.textContent?.includes('等待设备状态'), '明确连接状态仍被模糊为等待设备状态')
-    assert(statusElement.textContent?.split(scenario.message).length === 2, '设备具体状态消息重复展示')
+    if (['error', 'disconnected'].includes(scenario.connection_state)) {
+      assert(statusElement.textContent?.split(scenario.message).length === 2, '设备具体故障消息缺失或重复展示')
+    }
     if (scenario.connection_state === 'connected') {
-      assert(statusElement.textContent?.includes('当前烟雾状态尚未确认') && !statusElement.textContent.includes('无烟雾'), '未收到事件时被展示成设备已确认正常')
+      assert(!/无烟雾|烟雾状态正常|报警解除|摄像头已上报解除/.test(statusElement.textContent ?? ''), '未知烟雾状态被展示成设备已确认正常或解除')
+      for (const removed of ['当前烟雾状态尚未确认', '由摄像头检测并上报', '接收摄像头自身的烟雾报警，并按配置推送企业微信和喇叭']) {
+        assert(!statusElement.textContent?.includes(removed), '烟雾监控仍展示已精简的重复说明')
+      }
       assert(!statusElement.querySelector('[role="alert"]'), '连接成功等待事件被错误标记为故障')
     }
     if (scenario.connection_state === 'error') assert(statusElement.querySelectorAll('[role="alert"]').length === 1, '具体故障外又叠加了重复通用错误')
@@ -460,7 +465,7 @@ async function run() {
   assert(statusElement.querySelectorAll('[role="alert"]').length === 1, '状态读取失败提示重复')
   successes.push('烟雾状态接口失败显示具体错误，清除旧结果且不重复提示')
   smokeStatusHttpError = false
-  const strategyWarning = '当前设备报警策略为仅火点报警，烟雾报警不会上传；请按需选择仅烟雾报警或烟雾/火点任一报警'
+  const strategyWarning = '当前策略仅上传火点报警，烟雾报警不会上传。'
   smokeParameterOverride = {
     supported: true, message: '已读取摄像头当前参数', channel_id: 2, global_enabled: null, warnings: [strategyWarning],
     parameters: [
@@ -478,7 +483,8 @@ async function run() {
   assert(document.getElementById('smoke-device-alarm_strategy')?.textContent?.includes('仅火点报警'), '设备实际报警策略未正确显示')
   const intervalInput = document.getElementById('smoke-device-device_alarm_interval') as HTMLInputElement
   assert(intervalInput.type === 'number' && intervalInput.min === '1' && intervalInput.max === '300', '设备报警间隔未使用真机范围')
-  assert(statusElement.textContent?.includes('平台推送间隔在报警推送中设置'), '未区分设备报警间隔与平台推送间隔')
+  assert(Array.from(intervalInput.labels ?? []).some((label) => label.textContent?.includes('设备烟雾报警间隔')), '设备报警间隔缺少清楚的字段标签')
+  assert(!statusElement.textContent?.includes('平台推送间隔在报警推送中设置'), '参数页仍展示已精简的间隔解释')
   assert(smokeRequests.filter((request) => request.url.pathname.endsWith('/parameters') && request.init?.method === 'PUT').length === parameterWritesBefore, '仅打开参数页就修改了设备配置')
   successes.push('烟雾参数展示设备报警策略、真实范围和仅火点上传警告，读取不会自动改设备')
   const chooseParameter = async (id: string, label: string) => {

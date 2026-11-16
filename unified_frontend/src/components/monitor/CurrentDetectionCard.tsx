@@ -32,7 +32,7 @@ export function CurrentDetectionCard({ feature, status, error }: { feature: stri
           </div>
         </div>)}
       </>}
-      <p className="text-xs text-slate-500 dark:text-slate-400">{status?.updated_at ? `采样于 ${new Date(status.updated_at).toLocaleTimeString('zh-CN', { hour12: false })}` : '尚无有效采样'} · 结果随检测采样更新</p>
+      {status?.updated_at && <p className="text-xs text-slate-500 dark:text-slate-400">采样于 {new Date(status.updated_at).toLocaleTimeString('zh-CN', { hour12: false })}</p>}
     </CardContent>
   </Card>
 }

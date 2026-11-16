@@ -10,7 +10,6 @@ export function TailgatingSection({ department }: { department: DepartmentId }) 
     <Tabs defaultValue="monitor" className="space-y-5">
       <DetectionPageHeader
         title="非法闯闸检测"
-        subtitle="同向过线与区域共同出现联合判定"
         departmentLabel={DEPARTMENT_LABELS[department]} />
       <TabsContent value="monitor" className="mt-0 space-y-5">
         <AiVisionMonitor

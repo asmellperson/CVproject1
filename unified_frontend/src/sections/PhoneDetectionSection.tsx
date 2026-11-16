@@ -343,7 +343,6 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
           title="手机使用检测"
-          subtitle="手机使用识别监控面板"
           departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
@@ -401,7 +400,7 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !phoneConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的手机检测、人员关联与确认参数。" />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!phoneConfig || !canConfigure || loading || saving || !form.cameraName}

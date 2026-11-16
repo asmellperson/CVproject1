@@ -19,8 +19,7 @@ export function AgvDetectionParameters({ form, disabled, onChange, cameras, came
 }) {
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数"
-        description="任意一帧检测到人即判定有人；只有全部采样帧无人，才判定无人。" />
+      <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
       <DetectionConfigCardContent className="space-y-5">
         <div className="space-y-2">
           <Label htmlFor="agv-camera">摄像头</Label>
@@ -38,9 +37,6 @@ export function AgvDetectionParameters({ form, disabled, onChange, cameras, came
                   onChange={(event) => onChange((current) => ({ ...current, parameters: { ...current.parameters, [key]: event.target.value } }))} />
               </div>)}
             </div>
-            <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-              检测时长为请求超时上限，检测到人或完成采样后会提前结束。采样只计不同的新帧，断流或推理失败不判为无人。
-            </p>
           </DetectionFormSection>
           <DetectionFormSection title="推理与画面有效性">
             <div className="grid gap-5 md:grid-cols-3">
@@ -61,8 +57,7 @@ export function AgvHttpConfig({ form, disabled, onChange }: Props) {
   const updateHttp = (patch: Partial<AgvForm['http']>) => onChange((current) => ({ ...current, http: { ...current.http, ...patch } }))
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Webhook} tone="violet" title="HTTP 通信配置"
-        description="同步模式直接返回检测结果；回调模式先接受请求，检测完成后发送 HTTP 回调。" />
+      <DetectionConfigCardHeader icon={Webhook} tone="violet" title="HTTP 通信配置" />
       <DetectionConfigCardContent>
         <fieldset disabled={disabled} className="space-y-6">
           <div className="grid gap-5 md:grid-cols-2">
@@ -91,10 +86,7 @@ export function AgvHttpConfig({ form, disabled, onChange }: Props) {
                 onChange={(event) => updateHttp({ timeout_seconds: event.target.value })} />
             </div>
           </div>
-          <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-            回调 URL、HTTP 方法、Headers 和回调超时仅在 HTTP 回调模式生效。GET 与 POST 均发送 JSON Body。未填写完整通信参数时，检测请求会被拒绝。
-          </p>
-          <DetectionFormSection title="有人 / 无人返回值" hint="接收检测请求前必填">
+          <DetectionFormSection title="有人 / 无人返回值">
             <div className="grid gap-5 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="agv-present-value">有人返回值（JSON 值）</Label>
@@ -107,21 +99,16 @@ export function AgvHttpConfig({ form, disabled, onChange }: Props) {
                   onChange={(event) => updateHttp({ absent_value: event.target.value })} />
               </div>
             </div>
-            <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">支持数字、布尔值和带双引号的文本；数字 1 与文本 "1" 会按不同类型发送。</p>
           </DetectionFormSection>
           <div className="space-y-2">
             <Label htmlFor="agv-headers">Headers（JSON 对象）</Label>
-            <Textarea id="agv-headers" rows={4} spellCheck={false} className="font-mono text-sm" value={form.http.headers}
+            <Textarea id="agv-headers" rows={4} spellCheck={false} className="font-mono text-sm" value={form.http.headers} placeholder={'{"Header-Name":"value"}；无自定义 Header 时填写 {}'}
               onChange={(event) => updateHttp({ headers: event.target.value })} />
-            <p className="text-xs text-slate-500 dark:text-slate-400">Header 名称和值均需使用字符串，无自定义 Header 时填写 {'{}'}。</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="agv-body-template">JSON Body 模板</Label>
-            <Textarea id="agv-body-template" rows={7} spellCheck={false} className="font-mono text-sm" value={form.http.body_template}
+            <Textarea id="agv-body-template" rows={7} spellCheck={false} className="font-mono text-sm" value={form.http.body_template} placeholder={'{"result":"${result}","camera":"${camera_key}","request_id":"${request_id}"}'}
               onChange={(event) => updateHttp({ body_template: event.target.value })} />
-            <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-              {'同步响应与回调共用此模板。必须包含 "${result}"，可使用 "${camera_key}"、"${request_id}"；占位符须作为完整的 JSON 值，替换时保留返回值类型。'}
-            </p>
           </div>
         </fieldset>
       </DetectionConfigCardContent>

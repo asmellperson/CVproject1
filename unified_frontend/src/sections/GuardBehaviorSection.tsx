@@ -12,7 +12,7 @@ function DepartmentGuardBehavior({ department }: { department: DepartmentId }) {
   const { sites, site, selectedId, setSelectedId, loading, error, reload } = useGuardSites(department)
   return <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
     <Tabs defaultValue="monitor" className="space-y-5">
-      <DetectionPageHeader title="保安行为规范检测" subtitle="行为分析监控面板" departmentLabel={DEPARTMENT_LABELS[department]} />
+      <DetectionPageHeader title="保安行为规范检测" departmentLabel={DEPARTMENT_LABELS[department]} />
       {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
       <TabsContent value="monitor" className="mt-0 space-y-5">
         <GuardMonitorView key={site?.id ?? 'empty'} site={site} sites={sites} loadingSites={loading}

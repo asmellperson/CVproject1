@@ -23,7 +23,7 @@ export function SmokeConfigView({ department }: { department: DepartmentId }) {
   const { draft, cameraKey, loading, saving, message, update } = state
   const disabled = !canConfigure || loading || saving || !draft
   const deviceKey = `${department}:${cameraKey}:${JSON.stringify(draft?.config.value)}`
-  return <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-6" tabs={<>
+  return <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-5" tabs={<>
     <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
     <DetectionConfigTab value="connection" icon={Plug}>设备连接</DetectionConfigTab>
     <DetectionConfigTab value="parameters" icon={SlidersHorizontal}>设备参数</DetectionConfigTab>
@@ -38,21 +38,20 @@ export function SmokeConfigView({ department }: { department: DepartmentId }) {
     <TabsContent value="connection" className="space-y-5">
       <FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>
         <Card className={DETECTION_CONFIG_CARD_CLASS}>
-          <DetectionConfigCardHeader icon={Plug} tone="blue" title="烟雾设备连接" description="配置摄像头事件接收与参数管理使用的连接。" />
+          <DetectionConfigCardHeader icon={Plug} tone="blue" title="设备连接" />
           <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
             <div className="space-y-2"><Label htmlFor="smoke-camera">摄像头</Label><Select value={cameraKey} onValueChange={state.selectCamera} disabled={loading || saving}>
-              <SelectTrigger id="smoke-camera"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
+              <SelectTrigger id="smoke-camera" className="w-full"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
               <SelectContent>{state.enabledCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
             </Select></div>
             {draft && <><div className="space-y-2"><Label htmlFor="smoke-scheme">设备协议</Label>
               <Select value={draft.config.value.device_scheme} disabled={disabled} onValueChange={(device_scheme: 'http' | 'https') => update((current) => ({ ...current, config: { ...current.config, value: { ...current.config.value, device_scheme } } }))}>
-                <SelectTrigger id="smoke-scheme"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="http">HTTP</SelectItem><SelectItem value="https">HTTPS</SelectItem></SelectContent>
+                <SelectTrigger id="smoke-scheme" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="http">HTTP</SelectItem><SelectItem value="https">HTTPS</SelectItem></SelectContent>
               </Select></div>
               {CONNECTION_FIELDS.map(([key, label, min, max]) => <div key={key} className="space-y-2"><Label htmlFor={`smoke-${key}`}>{label}</Label>
                 <Input id={`smoke-${key}`} type="number" min={min} max={max} step={1} value={draft.numbers[key]} disabled={disabled}
                   onChange={(event) => update((current) => ({ ...current, numbers: { ...current.numbers, [key]: event.target.value } }))} /></div>)}
             </>}
-            <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">设备地址和账号沿用当前摄像头的连接配置。修改端口或通道后，先保存连接，再读取设备参数。报警事件通道与设备参数通道需按摄像头实际配置填写。</p>
           </DetectionConfigCardContent>
         </Card>
         <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={disabled} onReload={() => { void state.reload(cameraKey) }} onSave={() => { void state.save() }} />

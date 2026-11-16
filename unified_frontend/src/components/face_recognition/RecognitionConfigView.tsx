@@ -51,7 +51,7 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
       <TabsContent value="params" className="space-y-6">
         <FeatureConfigGate cameraKey={state.cameraKey} disabled={!state.canSave}>
         <Card className={DETECTION_CONFIG_CARD_CLASS}>
-          <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="识别参数" description="对画面中的每张人脸分别比对；低于相似度阈值时显示未知人员。" />
+          <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="识别参数" />
           <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
             <div className="space-y-2"><Label htmlFor="identity-config-camera">摄像头</Label>
               <Select value={state.cameraKey} onValueChange={state.selectCamera} disabled={state.loading || state.saving || !state.enabledCameras.length}>

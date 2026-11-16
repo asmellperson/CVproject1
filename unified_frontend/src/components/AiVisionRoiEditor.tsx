@@ -256,7 +256,7 @@ export function AiVisionRoiEditor({
         icon={MousePointer2}
         tone="rose"
         title={title}
-        description={description ?? `在实际摄像头画面上绘制${mode === 'line' ? lineLabel : '区域'}；保存后会随码流分辨率自动适配。`}
+        description={description}
         actions={(
           <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
             <RefreshCw className="h-4 w-4" />
@@ -325,7 +325,7 @@ export function AiVisionRoiEditor({
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div className="min-w-0 text-sm text-slate-600">
-            <div>{message || (mode === 'line' ? `${lineLabel}修改后点击保存配置生效。` : `${regionLabel}修改后点击保存配置生效。`)}</div>
+            {message && <div>{message}</div>}
             <div className="mt-1 font-mono text-xs text-slate-500">
               {mode === 'line'
                 ? points.length === 2

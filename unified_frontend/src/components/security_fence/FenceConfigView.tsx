@@ -42,7 +42,7 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
     </TabsContent>
     <TabsContent value="params" className="space-y-6"><FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>
       <Card className={DETECTION_CONFIG_CARD_CLASS}>
-        <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="每日警戒规则" description="禁入时段内任何人出现均报警；其余时间仅允许白名单。起止相同表示全天禁止，结束早于开始表示跨午夜。" />
+        <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="每日警戒规则" />
         <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="fence-camera">摄像头</Label><Select value={cameraKey} onValueChange={state.selectCamera} disabled={loading || saving}>
             <SelectTrigger id="fence-camera"><SelectValue placeholder="选择摄像头" /></SelectTrigger><SelectContent>{state.enabledCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
@@ -57,7 +57,6 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
                 onChange={(event) => update((current) => ({ ...current, numbers: { ...current.numbers, [key]: event.target.value } }))} />
             </div>)}
           </>}
-          <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">库内身份按人脸匹配结果确认；尺寸、清晰度、偏转和未匹配阈值用于确认库外未知人员。身份确认帧数在连续可靠的轨迹内累计，单次无人脸不清零；跟踪中断或多人身份关联不明时重新核验。没有有效身份依据时保持待核验，不按超时报警。</p>
         </DetectionConfigCardContent>
       </Card>{saveBar}
     </FeatureConfigGate></TabsContent>
@@ -81,7 +80,6 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
       {draft && <AlarmPushConfig key={cameraKey} alarm={draft.config.alarm} alarmInterval={draft.numbers.alarm_interval} disabled={disabled} saving={saving} message={message} onSave={save}
         onAlarmIntervalChange={(alarm_interval) => update((current) => ({ ...current, numbers: { ...current.numbers, alarm_interval } }))}
         onChange={(alarm) => update((current) => ({ ...current, config: { ...current.config, alarm: normalizeFeatureAlarmConfig(alarm) } }))} />}
-      <p className="text-sm text-slate-500 dark:text-slate-400">报警记录与企业微信分别按当前摄像头限频，换人、重新识别和规则切换不会重置间隔；同一次持续异常各记录或推送一次。喇叭独立按自己的间隔播放。禁入时段先记录，身份确认后补全姓名与工号。</p>
     </FeatureConfigGate></TabsContent>
   </DetectionConfigTabs>
 }

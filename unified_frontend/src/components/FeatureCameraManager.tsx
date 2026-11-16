@@ -214,14 +214,15 @@ export function FeatureCameraManager({
         icon={Camera}
         tone="blue"
         title="摄像头"
-        description="管理已启用当前检测功能的摄像头、展示顺序和功能配置。"
+        actions={<Button className="h-11 gap-2 sm:h-10" onClick={() => setCreateDialogOpen(true)} disabled={readOnly}>
+          <Plus className="h-4 w-4" />新建摄像头
+        </Button>}
       />
       <DetectionConfigCardContent className="space-y-4">
         {operationError ? <div role="alert" className="break-words rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{operationError}</div> : null}
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">添加已有摄像头到当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">选择当前事业部尚未启用本功能的摄像头，添加后即可配置检测参数。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">添加已有摄像头</div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Select value={cameraToAdd ? existingCamera : ''} onValueChange={setExistingCamera} disabled={readOnly || availableCameras.length === 0}>
@@ -236,8 +237,7 @@ export function FeatureCameraManager({
 
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">已启用当前功能的摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">停用后从列表移除，原有配置保留，可通过上方下拉框重新添加。顺序仅对当前功能生效。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">已启用摄像头</div>
           </div>
           {enabledCameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">尚未添加摄像头到当前功能</div> : enabledCameras.map((camera, index) => {
             const active = camera.shm_name === currentCameraName
@@ -247,8 +247,6 @@ export function FeatureCameraManager({
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
                   <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-h-11 min-w-0 flex-1 text-left sm:min-h-0" aria-pressed={active}>
                     <div className="break-words text-sm font-semibold sm:truncate">{camera.name}</div>
-                    <div className="break-all font-mono text-xs text-slate-500 sm:truncate">{camera.shm_name}</div>
-                    {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
                   </button>
                 </div>
                 <div className="flex flex-col items-start gap-2 sm:contents">
@@ -267,23 +265,7 @@ export function FeatureCameraManager({
 
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新建摄像头并加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">新摄像头归属当前页面对应的事业部或公司，并在保存后启用当前检测功能。</div>
-          </div>
-          <Button
-            className="h-11 w-full gap-2 sm:h-9 sm:w-auto"
-            onClick={() => setCreateDialogOpen(true)}
-            disabled={readOnly}
-          >
-            <Plus className="h-4 w-4" />
-            新建摄像头并加入
-          </Button>
-        </div>
-
-        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
-          <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制当前功能配置</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">将一个摄像头的当前功能配置复制到另一个摄像头。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制功能配置</div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <Select
@@ -291,7 +273,7 @@ export function FeatureCameraManager({
               onValueChange={setCopySourceCamera}
               disabled={readOnly || enabledCameras.length === 0}
             >
-              <SelectTrigger className="min-w-0 bg-white">
+              <SelectTrigger className="w-full min-w-0 bg-white">
                 <SelectValue placeholder={enabledCameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
               </SelectTrigger>
               <SelectContent>
@@ -307,7 +289,7 @@ export function FeatureCameraManager({
               onValueChange={setCopyTargetCamera}
               disabled={readOnly || enabledCameras.length < 2}
             >
-              <SelectTrigger className="min-w-0 bg-white">
+              <SelectTrigger className="w-full min-w-0 bg-white">
                 <SelectValue placeholder={enabledCameras.length < 2 ? '暂无目标摄像头' : '目标摄像头'} />
               </SelectTrigger>
               <SelectContent>
@@ -334,7 +316,7 @@ export function FeatureCameraManager({
       {createDialogOpen ? (
         <LogisticsCameraCreateDialog
           title="新建摄像头并加入当前功能"
-          description="填写摄像头信息，保存后将直接启用当前检测功能。"
+          description=""
           submitLabel="新建并加入"
           onClose={() => setCreateDialogOpen(false)}
           onSubmit={handleCreateCamera}

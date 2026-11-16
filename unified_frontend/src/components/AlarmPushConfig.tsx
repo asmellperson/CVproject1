@@ -42,7 +42,6 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
       >
         <span>
           <span className="block font-medium text-slate-900">启用企业微信推送</span>
-          <span className="block text-xs text-slate-500">按独立推送间隔发送；没有本次报警记录时发送文字通知</span>
         </span>
         <Switch
           id={`${fieldId}-wechat-enable`}
@@ -57,7 +56,7 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
         <Input id={`${fieldId}-wechat-interval`} type="number" min={0} step="any"
           value={Number.isFinite(value.interval) ? value.interval : ''} disabled={disabled || !value.enable}
           onChange={(event) => onChange({ ...value, interval: event.target.value === '' ? NaN : Number(event.target.value) })} />
-        <Label htmlFor={`${fieldId}-wechat-user`}>接收报警的用户</Label>
+        <Label htmlFor={`${fieldId}-wechat-user`}>企业微信成员账号</Label>
         <Input
           id={`${fieldId}-wechat-user`}
           className="font-mono"
@@ -66,7 +65,6 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
           placeholder="多个用户用 | 分隔，如 zhangsan|lisi"
           disabled={disabled || !value.enable}
         />
-        <p className="text-xs text-orange-700">填写企业微信成员账号；修改后点击“保存配置”生效。</p>
       </div>
     </>
   )
@@ -86,7 +84,6 @@ export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmInterval
           icon={Bell}
           tone="amber"
           title="报警推送"
-          description="维护当前检测配置的企业微信推送与喇叭告警。"
         />
         <DetectionConfigCardContent className="space-y-4">
           {alarmInterval !== undefined && onAlarmIntervalChange ? <div className="space-y-2">
@@ -106,7 +103,7 @@ export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmInterval
           {intervalError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{intervalError}</p> : null}
         </DetectionConfigCardContent>
       </Card>
-      {onSave ? <DetectionSaveBar message={message || '喇叭、企业微信和报警记录分别计时；修改后保存配置生效。'} saving={saving} disabled={disabled || Boolean(hornError || intervalError)} onSave={() => { if (!hornError && !intervalError) onSave() }} /> : null}
+      {onSave ? <DetectionSaveBar message={message} saving={saving} disabled={disabled || Boolean(hornError || intervalError)} onSave={() => { if (!hornError && !intervalError) onSave() }} /> : null}
     </>
   )
 }

@@ -503,15 +503,19 @@ EXTENDED_CURRENT = PARAMETER_CURRENT.replace('</SmokeDetection>', '''
     '</FireDetection>', '<AlarmStrategy><strategyType>appointFire</strategyType></AlarmStrategy></FireDetection>')
 
 
-def test_extended_parameters_show_actual_choices_ranges_and_fire_only_warning():
-    client, session, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(EXTENDED_CURRENT)])
+@pytest.mark.parametrize('strategy,has_warning', [('appointFire', True), ('any', False), ('appointSmoke', False)])
+def test_extended_parameters_show_actual_choices_ranges_and_fire_only_warning(strategy, has_warning):
+    current = EXTENDED_CURRENT.replace('appointFire', strategy)
+    client, session, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(current)])
     state = client.read_parameters()
     fields = {item.key: item for item in state.parameters}
-    assert fields['alarm_strategy'].value == 'appointFire'
+    assert fields['alarm_strategy'].value == strategy
     assert [choice.value for choice in fields['alarm_strategy'].choices] == ['any', 'multiSystem', 'appointFire', 'appointSmoke']
     assert (fields['device_alarm_interval'].minimum, fields['device_alarm_interval'].maximum) == (1, 300)
     assert fields['image_quality'].value == 'best' and fields['high_sensitivity_enabled'].value is True
-    assert len(state.warnings) == 1 and '烟雾报警不会上传' in state.warnings[0]
+    assert bool(state.warnings) is has_warning
+    if has_warning:
+        assert state.warnings == ['当前策略仅上传火点报警，烟雾报警不会上传。']
     assert all(call.args[0] == 'GET' for call in session.request.call_args_list)
 
 

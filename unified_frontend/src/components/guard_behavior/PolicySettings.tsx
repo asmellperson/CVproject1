@@ -25,7 +25,7 @@ export function PolicySettings({ policy, members, busy, onChange }: {
   const invalid = hasInvalidPolicyNumber(value) || (value.vehicle_inspection_enabled && (!selected || !selected.member_enabled))
   return <>
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Shield} tone="violet" title="检测参数" description="调整离岗、手机使用、趴睡和车辆检查规则；报警间隔在报警推送中设置。" />
+      <DetectionConfigCardHeader icon={Shield} tone="violet" title="检测参数" />
       <DetectionConfigCardContent className="space-y-6">
         {POLICY_GROUPS.map((group, index) => {
           const renderField = (field: typeof group.fields[number]) => <PolicySliderField key={field.key} field={field} value={value[field.key]} tone={group.tone} disabled={disabled}
@@ -51,7 +51,7 @@ export function PolicySettings({ policy, members, busy, onChange }: {
         })}
       </DetectionConfigCardContent>
     </Card>
-    <DetectionSaveBar message={invalid ? '请检查参数范围及车辆摄像头选择。' : '检测策略与 ROI 分别保存。'} saving={busy} disabled={disabled || invalid || !Object.keys(changes).length}
+    <DetectionSaveBar message={invalid ? '请检查参数范围及车辆摄像头选择。' : ''} saving={busy} disabled={disabled || invalid || !Object.keys(changes).length}
       onSave={() => void onChange(async () => { await updatePolicy(policy.site_id, changes); setChanges({}) })} />
   </>
 }

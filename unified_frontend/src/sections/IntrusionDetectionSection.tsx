@@ -288,7 +288,6 @@ export function IntrusionDetectionSection({ department }: { department: Departme
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
           title="区域入侵检测"
-          subtitle="警戒区域实时监控面板"
           departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
@@ -347,7 +346,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !blocks || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的区域入侵检测参数。" />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!blocks || !canConfigure || loading || saving || !form.cameraName}

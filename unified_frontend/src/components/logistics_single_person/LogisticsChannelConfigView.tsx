@@ -522,7 +522,6 @@ export function LogisticsChannelConfigView({
               icon={Layers3}
               tone="blue"
               title="通道管理"
-              description="选择需要配置的物流通道，或新增、删除通道。"
               actions={canConfigure ? (
                 <Button onClick={() => dispatchCreateDialog({ type: 'open' })} disabled={busy}>
                   <Plus className="h-4 w-4" />添加通道
@@ -582,7 +581,7 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="members" className="mt-0 space-y-5">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={Camera} tone="blue" title="摄像头" description="只显示当前通道已启用的摄像头；停用后可从下方下拉框重新添加，原有 ROI 保留。" actions={<Badge variant="outline">已启用 {enabledMembers.length} 路 · 已绑定 {members.length}/9 路</Badge>} />
+                <DetectionConfigCardHeader icon={Camera} tone="blue" title="摄像头" actions={<Badge variant="outline">已启用 {enabledMembers.length} 路 · 已绑定 {members.length}/9 路</Badge>} />
                 <DetectionConfigCardContent className="space-y-3">
                   {enabledMembers.length === 0 ? <p className="text-sm text-slate-500">当前通道没有已启用的摄像头，不会触发无人告警。</p> : enabledMembers.map((member, index) => {
                     const camera = cameraById.get(member.camera_id)
@@ -602,13 +601,12 @@ export function LogisticsChannelConfigView({
               </Card>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={Plus} tone="blue" title="绑定摄像头" description="选择已有摄像头，或新建摄像头并直接绑定至当前物流通道。" />
+                <DetectionConfigCardHeader icon={Plus} tone="blue" title="绑定摄像头" />
                 <DetectionConfigCardContent>
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="space-y-3 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
                       <div>
                         <h3 className="text-sm font-semibold">添加已有摄像头到当前功能</h3>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">从平台摄像头列表中选择并加入当前通道。</p>
                       </div>
                       <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
                       <Select value={cameraToAdd ? existingCameraId : ''} onValueChange={setExistingCameraId} disabled={!canConfigure || busy || !existingCameraOptions.length}>
@@ -622,7 +620,6 @@ export function LogisticsChannelConfigView({
                     <div className="flex flex-col justify-between gap-4 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
                       <div>
                         <h3 className="text-sm font-semibold">新建摄像头并绑定</h3>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">填写摄像头名称、FPS 和 RTSP 地址后加入当前通道。</p>
                       </div>
                       <Button
                         className="w-full"
@@ -639,7 +636,7 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="roi" className="mt-0 space-y-5">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={Camera} tone="blue" title="逐路 ROI 摄像头" description="选择通道摄像头后，直接在下方现有画布中绘制 ROI。" />
+                <DetectionConfigCardHeader icon={Camera} tone="blue" title="逐路 ROI 摄像头" />
                 <DetectionConfigCardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{enabledMembers.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></DetectionConfigCardContent>
               </Card>
               <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!canConfigure || busy || !selectedCamera || cameraRoi?.camera.id !== selectedCamera.camera_id} saving={busy} message={message} onChange={setRoiJson} onSave={saveCameraRoi} />
@@ -647,7 +644,7 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="params" className="mt-0 space-y-5">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={Clock} tone="blue" title="检测与报警时段" description="在选定星期和每日时段内进行人员检测并触发异常报警；时段外停止检测和报警，实时画面仍可查看。" />
+                <DetectionConfigCardHeader icon={Clock} tone="blue" title="检测与报警时段" />
                 <DetectionConfigCardContent className="grid gap-5 sm:grid-cols-2">
                   <div className="space-y-3 sm:col-span-2"><Label>生效星期</Label><div className="flex flex-wrap gap-4">
                     {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => <label key={day} className="flex items-center gap-2 text-sm">
@@ -655,13 +652,14 @@ export function LogisticsChannelConfigView({
                         ...detectionConfigDraft.schedule, weekdays: event.target.checked ? [...detectionConfigDraft.schedule.weekdays, day].sort() : detectionConfigDraft.schedule.weekdays.filter((value) => value !== day),
                       } })} />{label}
                     </label>)}
-                  </div><p className="text-xs text-slate-500 dark:text-slate-400">未选择星期时不检测、不报警。时区：{detectionConfigDraft.schedule.timezone}。</p></div>
+                  </div><p className="text-xs text-slate-500 dark:text-slate-400">时区：{detectionConfigDraft.schedule.timezone}</p>
+                    {!detectionConfigDraft.schedule.weekdays.length && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">未选择检测日期，将不检测、不报警。</p>}</div>
                   <ConfigNumber label="每日开始时间" id="logistics-schedule-start" type="time" value={timeForInput(detectionConfigDraft.schedule.start)} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, start: timeForApi(value) } })} />
                   <ConfigNumber label="每日结束时间" id="logistics-schedule-end" type="time" value={timeForInput(detectionConfigDraft.schedule.end)} disabled={!canConfigure || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, end: timeForApi(value) } })} />
                 </DetectionConfigCardContent>
               </Card>
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="同一通道的所有摄像头统一使用以下检测策略，ROI 按摄像头独立配置。" />
+                <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
                 <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!canConfigure || busy} /></div>
                   <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(detectionConfigDraft.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, confidence_threshold: Number(value) })} disabled={!canConfigure || busy} />

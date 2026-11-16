@@ -5,7 +5,7 @@ import { TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 type DetectionPageHeaderProps = {
   title: string
-  subtitle: string
+  subtitle?: string
   departmentLabel: string
   runtimeControl?: ReactNode
   monitorValue?: string
@@ -33,7 +33,7 @@ export function DetectionPageHeader({
           <span>{title}</span>
           <span className="hidden bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent sm:inline">监控与配置</span>
         </h1>
-        <p className="mt-1 text-xs leading-5 text-[#6B7699] dark:text-slate-400 sm:text-base">{subtitle}</p>
+        {subtitle && <p className="mt-1 text-xs leading-5 text-[#6B7699] dark:text-slate-400 sm:text-base">{subtitle}</p>}
       </div>
 
       <div className="flex w-full flex-col gap-3 sm:items-stretch xl:w-auto xl:flex-row xl:items-center">

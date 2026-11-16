@@ -29,10 +29,10 @@ export function VisualLanguageMonitorView({ department, cameras, selectedCamera,
   return <div className="space-y-5">
     <ResizableMonitorLayout id="visual-language" summary={
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="摄像头状态" value={!selectedCamera ? '未选择' : frameConnected ? '在线' : '离线'} detail={frameConnected ? `${cameraName} · 实时画面已连接` : '等待实时画面'} icon={Video} tone={frameConnected ? 'emerald' : 'slate'} ping={frameConnected} />
-        <StatCard label="启用摄像头" value={`${cameras.length} 路`} detail="已启用指令驱动智慧安防" icon={Camera} tone="indigo" />
-        <StatCard label="最近推理耗时" value={status?.latency_seconds == null ? '—' : `${status.latency_seconds.toFixed(2)} 秒`} detail="当前摄像头最近一次推理" icon={Timer} tone="amber" />
-        <StatCard label="最近结果时间" value={latestResultAt ? latestResultAt.toLocaleTimeString('zh-CN', { hour12: false }) : '—'} detail={latestResultAt ? latestResultAt.toLocaleDateString('zh-CN') : '等待视觉理解结果'} icon={Clock3} tone="indigo" />
+        <StatCard label="摄像头状态" value={!selectedCamera ? '未选择' : frameConnected ? '在线' : '离线'} detail={frameConnected ? cameraName : undefined} icon={Video} tone={frameConnected ? 'emerald' : 'slate'} ping={frameConnected} />
+        <StatCard label="启用摄像头" value={`${cameras.length} 路`} icon={Camera} tone="indigo" />
+        <StatCard label="最近推理耗时" value={status?.latency_seconds == null ? '—' : `${status.latency_seconds.toFixed(2)} 秒`} icon={Timer} tone="amber" />
+        <StatCard label="最近结果时间" value={latestResultAt ? latestResultAt.toLocaleTimeString('zh-CN', { hour12: false }) : '—'} detail={latestResultAt ? latestResultAt.toLocaleDateString('zh-CN') : undefined} icon={Clock3} tone="indigo" />
       </section>
     }>
       <div className="min-w-0 space-y-5">
@@ -54,7 +54,7 @@ export function VisualLanguageMonitorView({ department, cameras, selectedCamera,
         <Card className="dark:border-slate-800 dark:bg-slate-900">
           <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="text-base">事件时间线</CardTitle></CardHeader>
           <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5"><div className="max-h-[32rem] space-y-4 overflow-y-auto">
-            {!events.length && <p className="text-sm text-slate-500">{selectedCamera ? '暂无事件，等待视频理解结果。' : '请先选择摄像头。'}</p>}
+            {!events.length && <p className="text-sm text-slate-500">{selectedCamera ? '暂无事件' : '请选择摄像头'}</p>}
             {events.map((event) => <article key={event.id} className="border-l-2 border-blue-200 pl-4 dark:border-blue-900">
               <div className="flex flex-wrap gap-2 text-xs text-slate-500"><time>{new Date(event.captured_at).toLocaleString('zh-CN')}</time><span>{event.kind === 'question' ? '视频问答' : event.kind === 'error' ? '处理异常' : '视觉理解'}</span></div>
               {event.question && <p className="mt-2 text-sm font-semibold">{event.question}</p>}

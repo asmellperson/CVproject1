@@ -47,8 +47,8 @@ export function GuardMonitorView({ site, sites = [], loadingSites = false, onSel
     {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
     <ResizableMonitorLayout id="guard-behavior" summary={<section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <GuardMonitorStatCard label="摄像头状态" value={videoLabel} detail={`${online} / ${members.length} 路视频在线`} icon={Video} tone={online > 0 ? 'emerald' : 'amber'} ping={members.length > 0 && online === members.length} />
-      <GuardMonitorStatCard label="在岗人数" value={guards === null ? '—' : `${guards} 人`} detail={members.length > 1 ? '取有效画面最大人数，跨摄像头不累加' : `识别置信度 ${confidenceText(guardConfidence)}`} icon={Users} tone={guards ? 'emerald' : 'amber'} />
-      <GuardMonitorStatCard label="检测帧率" value={fps === null ? '—' : `${fps.toFixed(1)} FPS`} detail="有效摄像头的平均处理帧率" icon={Gauge} tone="indigo" />
+      <GuardMonitorStatCard label="在岗人数" value={guards === null ? '—' : `${guards} 人`} detail={members.length > 1 ? undefined : `识别置信度 ${confidenceText(guardConfidence)}`} icon={Users} tone={guards ? 'emerald' : 'amber'} />
+      <GuardMonitorStatCard label="检测帧率" value={fps === null ? '—' : `${fps.toFixed(1)} FPS`} icon={Gauge} tone="indigo" />
       <GuardMonitorStatCard label="异常行为" value={abnormalCount === null ? '—' : `${abnormalCount} 项`} detail={siteLabel} icon={ShieldCheck} tone={abnormalCount ? 'rose' : status?.status === 'healthy' ? 'emerald' : 'amber'} />
     </section>}>
       <div className="space-y-3 sm:space-y-5">

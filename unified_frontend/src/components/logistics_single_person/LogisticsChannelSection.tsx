@@ -65,7 +65,6 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
           title={title.replace(/监控与配置$/, '')}
-          subtitle="物流通道单人检测监控面板"
           departmentLabel={DEPARTMENT_LABELS[department]}
         />
         <TabsContent value="monitor" className="mt-0">

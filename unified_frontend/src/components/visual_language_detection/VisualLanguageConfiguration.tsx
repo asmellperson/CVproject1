@@ -23,7 +23,7 @@ export function VisualLanguageConfiguration({ cameraKey, tab, state }: {
   const setConfig = (config: VisualLanguageConfig) => state.update((draft) => ({ ...draft, config }))
   const setRoiJson = (roiJson: string) => state.update((draft) => ({ ...draft, roiJson }))
   const valid = validVisualLanguageParameters(config)
-  const saveMessage = message || (canConfigure ? '配置仅作用于当前摄像头，保存后生效。' : '当前账号可查看配置，修改需要管理员权限。')
+  const saveMessage = message || (canConfigure ? '' : '当前账号仅可查看配置。')
   if (tab === 'roi') return <Suspense fallback={<p role="status" className="p-6 text-sm text-slate-500">正在加载 ROI 编辑器…</p>}>
     <AiVisionRoiEditor title="指令驱动智慧安防 ROI 绘制" cameraKey={cameraKey} roiJson={roiJson}
       disabled={disabled} saving={saving} message={saveMessage} onChange={setRoiJson} onSave={() => void save()} />
@@ -36,8 +36,7 @@ export function VisualLanguageConfiguration({ cameraKey, tab, state }: {
   return <div className="space-y-5">
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
       <DetectionConfigCardHeader icon={tab === 'parameters' ? Settings2 : MessageSquareText} tone="blue"
-        title={tab === 'parameters' ? '推理参数' : '监控指令'}
-        description={tab === 'parameters' ? '配置按摄像头独立保存，保存后自动用于后续视频理解。' : '描述需要关注的目标事件，并要求仅在事件发生时输出结果，其他时间保持静默；观察结果按报警推送配置触发告警。'} />
+        title={tab === 'parameters' ? '推理参数' : '监控指令'} />
       <DetectionConfigCardContent>
         {tab === 'parameters' ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {VISUAL_LANGUAGE_PARAMETERS.map(([key, label, min, max, step]) => <div key={key} className="space-y-2">

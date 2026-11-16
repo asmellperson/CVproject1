@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   BellRing,
   Clock3,
-  Info,
   Timer,
   Users,
   Video,
@@ -65,7 +64,6 @@ export function HumanDwellMonitorView({
   message,
   frameConnected,
   frameContent,
-  featureValue,
   status,
   error,
   events,
@@ -79,8 +77,6 @@ export function HumanDwellMonitorView({
   const alarm = Boolean(status?.alarm)
   const runtimeThreshold = status?.threshold_seconds ?? null
   const runtimeThresholdText = runtimeThreshold === null ? '--' : String(Math.round(runtimeThreshold))
-  const configuredThreshold = Number(featureValue?.MAX_TIME ?? 10)
-  const configuredThresholdText = Number.isFinite(configuredThreshold) ? Math.round(configuredThreshold) : 10
   const cameraKey = selectedCameraInfo ? getAiVisionCameraKey(selectedCameraInfo) : selectedCamera
   const cameraName = selectedCameraInfo?.name || '未选择摄像头'
   const fps = selectedCameraInfo?.fps
@@ -91,27 +87,18 @@ export function HumanDwellMonitorView({
     <div className="space-y-5">
       <ResizableMonitorLayout id="human-dwell" summary={
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="摄像头状态" value={frameConnected ? '在线' : '离线'} detail={frameConnected ? `${cameraKey || 'cam'} · 实时画面已连接` : '等待实时画面'} icon={Video} tone={frameConnected ? 'emerald' : 'rose'} ping={frameConnected} />
-          <StatCard label="区域当前人数" value={`${countText} 人`} detail="蓝色区域内实时统计" icon={Users} tone={alarm ? 'rose' : count !== null && count > 0 ? 'indigo' : 'slate'} />
-          <StatCard label="逗留阈值" value={runtimeThreshold === null ? '--' : `${runtimeThresholdText} 秒`} detail="超时自动触发告警" icon={Timer} tone="amber" />
-          <StatCard label="今日逗留告警次数" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : '今日暂无逗留告警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
+          <StatCard label="摄像头状态" value={frameConnected ? '在线' : '离线'} icon={Video} tone={frameConnected ? 'emerald' : 'rose'} ping={frameConnected} />
+          <StatCard label="区域当前人数" value={`${countText} 人`} icon={Users} tone={alarm ? 'rose' : count !== null && count > 0 ? 'indigo' : 'slate'} />
+          <StatCard label="逗留阈值" value={runtimeThreshold === null ? '--' : `${runtimeThresholdText} 秒`} icon={Timer} tone="amber" />
+          <StatCard label="今日逗留告警次数" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : undefined} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
         </section>
       }>
         <div className="space-y-5">
           <CurrentDetectionCard feature="detect_human" status={status} error={error} />
           <Card className={CARD_CLASS}>
-            <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5 text-sm">
-              <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">监测区域</span><span className="text-slate-700">画面中的青色 ROI 边框</span></div>
-              <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">判定规则</span><span className="text-slate-700">人员进入区域并停留超过 {configuredThresholdText} 秒</span></div>
-              <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">告警方式</span><span className="text-slate-700">平台实时推送 + 报警记录入库</span></div>
-            </CardContent>
-          </Card>
-
-          <Card className={CARD_CLASS}>
             <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3"><CardTitle className="flex items-center justify-between text-base font-bold text-slate-950 dark:text-slate-100"><span>实时事件</span><Activity className="h-4 w-4 text-slate-300 dark:text-slate-600" /></CardTitle></CardHeader>
             <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
-              {events.length ? <div className="relative space-y-4 pl-5 before:absolute before:bottom-1 before:left-[5px] before:top-1 before:w-px before:bg-slate-200">{events.map((event) => <div key={event.id} className="relative"><span className={cn('absolute -left-5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white', event.tone === 'danger' ? 'bg-rose-500' : 'bg-slate-300')} /><p className={cn('text-sm font-medium', event.tone === 'danger' ? 'text-rose-600' : 'text-slate-600')}>{event.label}</p><p className="mt-1 font-mono text-[11px] text-slate-400">{formatClock(event.occurredAt)}</p></div>)}</div> : <p className="text-sm text-slate-400">等待区域逗留事件</p>}
+              {events.length ? <div className="relative space-y-4 pl-5 before:absolute before:bottom-1 before:left-[5px] before:top-1 before:w-px before:bg-slate-200">{events.map((event) => <div key={event.id} className="relative"><span className={cn('absolute -left-5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white', event.tone === 'danger' ? 'bg-rose-500' : 'bg-slate-300')} /><p className={cn('text-sm font-medium', event.tone === 'danger' ? 'text-rose-600' : 'text-slate-600')}>{event.label}</p><p className="mt-1 font-mono text-[11px] text-slate-400">{formatClock(event.occurredAt)}</p></div>)}</div> : <p className="text-sm text-slate-400">暂无事件</p>}
             </CardContent>
           </Card>
         </div>

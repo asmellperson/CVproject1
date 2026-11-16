@@ -109,7 +109,7 @@ export function DetectionSaveBar({
   reloadLabel = '重新读取',
   saveLabel = '保存配置',
 }: {
-  message: ReactNode
+  message?: ReactNode
   loading?: boolean
   saving?: boolean
   disabled?: boolean
@@ -120,14 +120,14 @@ export function DetectionSaveBar({
 }) {
   return (
     <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-20 mt-5 flex flex-col gap-2 rounded-2xl border border-[#E2E7F2]/90 bg-white/90 px-3 py-3 shadow-[0_14px_34px_rgba(28,48,88,0.13)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
-      <div className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#6B7699] dark:text-slate-300 sm:text-sm">
+      {message ? <div className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#6B7699] dark:text-slate-300 sm:text-sm">
         <span className="relative flex h-2.5 w-2.5 shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
         </span>
         <span className="min-w-0 break-words">{message}</span>
-      </div>
-      <div className="flex w-full shrink-0 gap-2 sm:w-auto">
+      </div> : null}
+      <div className="flex w-full shrink-0 gap-2 sm:ml-auto sm:w-auto">
         {onReload ? (
           <Button type="button" variant="outline" className="h-11 flex-1 gap-2 rounded-xl sm:flex-none" onClick={onReload} disabled={loading || saving}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />

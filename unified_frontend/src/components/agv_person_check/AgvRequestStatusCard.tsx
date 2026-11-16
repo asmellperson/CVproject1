@@ -94,9 +94,7 @@ export function AgvRequestStatusCard({ cameraKey }: { cameraKey: string }) {
             <p className="text-slate-400">开始于 {formatTime(active.started_at)}</p>
           </div>
         )}
-        {status?.latest_result ? <LatestResult result={status.latest_result} /> : !result?.error && (
-          <p className="text-xs text-slate-400">暂无已完成请求；收到 AGV 请求后显示检测结果。</p>
-        )}
+        {status?.latest_result && <LatestResult result={status.latest_result} />}
       </CardContent>
     </Card>
   )

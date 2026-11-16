@@ -11,8 +11,8 @@ import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfi
 import type { FacePerson, PersonPermissionsApi } from './api'
 import { useFacePersons } from './useRecognitionConfig'
 
-export function FacePersonPermissions<Scope extends string>({ scope, permissions, title = '人员权限', description }: {
-  scope: Scope; permissions: PersonPermissionsApi<Scope>; title?: string; description?: string
+export function FacePersonPermissions<Scope extends string>({ scope, permissions, title = '人员权限' }: {
+  scope: Scope; permissions: PersonPermissionsApi<Scope>; title?: string
 }) {
   const state = useFacePersons(scope, permissions)
   const [keyword, setKeyword] = useState('')
@@ -20,7 +20,7 @@ export function FacePersonPermissions<Scope extends string>({ scope, permissions
   const pages = state.result ? Math.max(1, Math.ceil(state.result.total / state.result.page_size)) : 1
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title={title} description={description ?? (state.canConfigure ? '管理当前事业部的通行白名单，同事业部的摄像头共用；未添加的人员默认不允许通行。' : '查看当前事业部的通行白名单；仅管理员可以修改允许状态。')} />
+      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title={title} />
       <DetectionConfigCardContent className="space-y-4">
         <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => {
           event.preventDefault()

@@ -309,7 +309,6 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
           title="人脸逗留检测"
-          subtitle="当前可见目标逗留超时后保持告警状态，通知按告警间隔冷却"
           departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
@@ -367,7 +366,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!canConfigure || !faceConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="检测人脸并按连续轨迹计算逗留时间。" />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!faceConfig || !canConfigure || loading || saving || !form.cameraName}
@@ -435,7 +434,6 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                     <Label htmlFor="face-cap-interval">静止画面处理间隔（秒，&gt;0）</Label>
                     <Input id="face-cap-interval" type="number" min="0" step="0.01"
                       value={form.capInterval} onChange={(event) => setForm((prev) => ({ ...prev, capInterval: event.target.value }))} />
-                    <p className="text-xs text-slate-500">画面变化时也会触发检测；实际频率受推理耗时影响。丢失次数按跟踪更新累计。</p>
                   </div>
 
                 </div>

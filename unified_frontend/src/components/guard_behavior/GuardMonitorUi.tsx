@@ -21,7 +21,7 @@ export function GuardMonitorStatCard({
 }: {
   label: string
   value: string
-  detail: string
+  detail?: string
   icon: LucideIcon
   tone: StatTone
   ping?: boolean
@@ -41,7 +41,7 @@ export function GuardMonitorStatCard({
       )}
       <p className="pr-3 text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-4">{label}</p>
       <p className="mt-1 text-xl font-bold leading-tight text-slate-950 dark:text-slate-100 sm:text-[22px]">{value}</p>
-      <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>
+      {detail && <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>}
     </article>
   )
 }

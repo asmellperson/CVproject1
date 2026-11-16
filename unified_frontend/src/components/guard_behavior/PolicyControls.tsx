@@ -22,7 +22,7 @@ export function PolicyRuleGroup({ title, icon: Icon, tone, children }: { title: 
 
 export function PolicyAdvancedFields({ tone, children }: { tone: PolicyTone; children: ReactNode }) {
   return <div className={cn('space-y-4 rounded-xl border border-dashed p-4 md:col-span-2', tones[tone].advanced)}>
-    <div><h4 className={cn('text-sm font-semibold', tones[tone].title)}>高级参数</h4><p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">用于精细调整识别效果，通常无需修改。</p></div>
+    <h4 className={cn('text-sm font-semibold', tones[tone].title)}>高级参数</h4>
     <div className="grid gap-5 md:grid-cols-2">{children}</div>
   </div>
 }
@@ -33,8 +33,8 @@ export function PolicySliderField({ field, value, tone, disabled, onChange }: { 
   const sliderMax = Math.max(field.sliderMax, safeValue)
   return <div className="space-y-3">
     <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0"><Label htmlFor={`guard-policy-${field.key}`} className="text-sm font-bold text-[#1a2e55] dark:text-slate-100">{field.label}</Label><p id={`guard-policy-hint-${field.key}`} className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{field.description}</p></div>
-      <Input id={`guard-policy-${field.key}`} aria-describedby={`guard-policy-hint-${field.key}`} type="number" value={Number.isFinite(value) ? value : ''} min={field.min} max={field.max} step={field.integer ? 1 : 'any'} disabled={disabled}
+      <div className="min-w-0"><Label htmlFor={`guard-policy-${field.key}`} className="text-sm font-bold text-[#1a2e55] dark:text-slate-100">{field.label}</Label></div>
+      <Input id={`guard-policy-${field.key}`} type="number" value={Number.isFinite(value) ? value : ''} min={field.min} max={field.max} step={field.integer ? 1 : 'any'} disabled={disabled}
         className={cn('!h-8 !w-24 shrink-0 !rounded-md !border !px-2 text-right text-xs font-bold shadow-sm', tones[tone].badge)}
         onChange={(event) => onChange(event.target.value === '' ? NaN : Number(event.target.value))} />
     </div>

@@ -35,7 +35,7 @@ export function InspectionModelConfig() {
   if (!isAdmin) return <p className="p-6 text-sm text-slate-500 dark:text-slate-400">全平台模型设置仅管理员可查看和修改。</p>
   return <div className="space-y-6">
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Settings2} tone="blue" title="福达AI判定设置" description="全平台共用，保存后作用于所有部门和摄像头。" />
+      <DetectionConfigCardHeader icon={Settings2} tone="blue" title="福达AI判定设置" />
       <DetectionConfigCardContent>
         {settings ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {(['base_url', 'model'] as const).map((key) => <div key={key} className="space-y-2"><Label htmlFor={`vlm-${key}`}>{key === 'base_url' ? '模型接口地址' : '模型名称'}</Label>
@@ -46,7 +46,7 @@ export function InspectionModelConfig() {
         </div> : <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{message || '正在读取模型设置…'}</p>}
       </DetectionConfigCardContent>
     </Card>
-    <DetectionSaveBar message={message || '模型设置单独保存。'} saving={saving} disabled={invalid || saving}
+    <DetectionSaveBar message={message} saving={saving} disabled={invalid || saving}
       onSave={() => void save()} saveLabel="保存模型设置" />
   </div>
 }

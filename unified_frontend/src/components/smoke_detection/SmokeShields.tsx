@@ -75,7 +75,6 @@ export function SmokeShields({ cameraKey, department, disabled }: {
     }
   }
   return <div className="space-y-5">
-    <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">烟雾屏蔽区内不检测烟雾。画面来自设备实际支持的烟雾屏蔽区通道；请核对画面后绘制，保存将直接修改摄像头。</p>
     {state?.supported && <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <label className="flex items-center justify-between gap-4"><span className="text-sm">启用设备烟雾区域屏蔽</span><Switch aria-label="启用设备烟雾区域屏蔽" checked={state.enabled} disabled={readOnly}
         onCheckedChange={(enabled) => setState((current) => current ? { ...current, enabled } : current)} /></label>
@@ -99,7 +98,7 @@ export function SmokeShields({ cameraKey, department, disabled }: {
     </div>}
     {state && region && <AiVisionRoiEditor key={`${cameraKey}:${region.id}`} title="烟雾屏蔽区域绘制" regionLabel="屏蔽区"
       cameraKey={cameraKey} frameUrl={smokePictureUrl(cameraKey, department)}
-      description="绘制范围内不检测烟雾；坐标按设备实际能力转换。" emptyRoiLabel="请绘制当前屏蔽区域，或移除空区域。"
+      emptyRoiLabel="尚未绘制屏蔽区"
       minRoiArea={1} minPoints={state.min_points} maxPoints={state.max_points} allowFullFrame={false} showSaveButton={false}
       onValidityChange={setEditorValid}
       roiJson={JSON.stringify(region.points.map((point) => [point.x, point.y]))} disabled={readOnly} saving={saving} message={message}

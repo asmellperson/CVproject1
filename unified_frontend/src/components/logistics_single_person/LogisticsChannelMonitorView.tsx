@@ -45,7 +45,7 @@ function StatCard({
 }: {
   label: string
   value: string
-  detail: string
+  detail?: string
   icon: LucideIcon
   tone?: StatTone
 }) {
@@ -64,7 +64,7 @@ function StatCard({
       </span>
       <p className="text-xs font-medium text-slate-500 dark:text-slate-400 sm:mt-4">{label}</p>
       <p className="mt-1 break-words text-xl font-bold leading-tight text-slate-950 dark:text-slate-100 sm:truncate sm:text-[22px]" title={value}>{value}</p>
-      <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>
+      {detail && <p className="mt-1.5 text-[11px] leading-4 text-slate-500 dark:text-slate-400 sm:truncate sm:text-xs" title={detail}>{detail}</p>}
     </article>
   )
 }
@@ -168,9 +168,9 @@ export function LogisticsChannelMonitorView({
       {selectedChannel ? (
           <ResizableMonitorLayout id={`logistics-channel-${feature}`} summary={<section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard label="通道状态" value={presentation.label} detail={selectedChannel.enabled ? selectedChannel.name : '通道已停用'} icon={Video} tone={presentation.tone} />
-            <StatCard label="摄像头状态" value={status ? `${onlineCount} 在线 / ${offlineCount} 离线` : '--'} detail={`已配置 ${memberCount} 路，最多 9 路`} icon={Camera} tone={status && offlineCount === 0 ? 'emerald' : offlineCount > 0 ? 'amber' : 'slate'} />
-            <StatCard label="各路人数" value={routeCounts} detail="按启用成员顺序展示" icon={Users} tone={reason === 'multiple' ? 'rose' : 'indigo'} />
-            <StatCard label="今日通道告警" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : '今日暂无通道告警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
+            <StatCard label="摄像头状态" value={status ? `${onlineCount} 在线 / ${offlineCount} 离线` : '--'} detail={`已配置 ${memberCount} 路`} icon={Camera} tone={status && offlineCount === 0 ? 'emerald' : offlineCount > 0 ? 'amber' : 'slate'} />
+            <StatCard label="各路人数" value={routeCounts} icon={Users} tone={reason === 'multiple' ? 'rose' : 'indigo'} />
+            <StatCard label="今日通道告警" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : undefined} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
           </section>}>
             <div className="space-y-3 sm:space-y-5">
               <Card className={CARD_CLASS}>

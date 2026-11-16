@@ -38,7 +38,6 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
     <label htmlFor={`${fieldId}-enable`} className="flex min-h-12 items-center justify-between gap-4">
       <span>
         <span className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100"><Volume2 className="h-4 w-4 text-violet-500" />启用喇叭告警</span>
-        <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">仅控制当前检测配置；关闭后保留设备和语音任务。</span>
       </span>
       <Switch id={`${fieldId}-enable`} checked={value.enable} disabled={readOnly}
         onCheckedChange={(enable) => onChange({ ...value, enable })} />
@@ -84,7 +83,6 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
       <Input id={`${fieldId}-interval`} type="number" min={0} step="any" disabled={readOnly}
         value={value.interval != null && Number.isFinite(value.interval) ? value.interval : ''}
         onChange={(event) => onChange({ ...value, interval: event.target.value === '' ? NaN : Number(event.target.value) })} />
-      <p className="text-xs text-slate-500 dark:text-slate-400">0 秒表示不额外等待；同台喇叭串行播放，避免声音重叠。设备内置音频仍受设备播放保护间隔限制。</p>
     </div> : null}
     {state ? <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">设备状态
       <Badge variant="outline" className={state === 'online'
@@ -92,16 +90,12 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'}>{HORN_STATE_LABELS[state]}</Badge>
       {selected?.enable && state !== 'online' ? <span>设备当前未在线；告警能否播放取决于设备连接恢复情况。</span> : null}
     </div> : null}
-    {!canConfigure ? <p className="text-xs text-slate-500 dark:text-slate-400">设备列表与实时状态仅管理员可查询，当前显示已保存的绑定。</p>
-      : loadError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{loadError}</p>
+    {canConfigure && (loadError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{loadError}</p>
         : devices === null ? <p role="status" className="text-xs text-slate-500">正在读取喇叭设备...</p>
-          : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在“喇叭设备”中添加并启用。</p> : null}
+          : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备</p> : null)}
     {warning ? <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p> : null}
     {selected && canConfigure ? <HornPlaybackControl device={selected}
       audioId={typeof value.parm.horn_event_id === 'number' ? value.parm.horn_event_id : null}
       duration={audio.files?.find((file) => file.id === value.parm.horn_event_id)?.duration} disabled={readOnly || Boolean(validation)} /> : null}
-    <p className="text-xs text-slate-500 dark:text-slate-400">{selected?.sip
-      ? '在“喇叭设备”的音频库上传 AAC 后选择报警音频，异常检测会由服务器通过 SIP 发送给所选喇叭。'
-      : '设备已有音频使用素材库中的文件 ID。'}修改后保存当前检测配置生效；试播会实际播放声音。</p>
   </div>
 }

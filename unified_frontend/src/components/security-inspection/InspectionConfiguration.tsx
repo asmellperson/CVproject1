@@ -24,7 +24,7 @@ export function InspectionConfiguration({ cameraKey, tab, state }: {
     onChange={(alarm) => setConfig({ ...config, alarm: alarm as InspectionConfig['alarm'] })} onSave={() => void save()} />
   if (tab === 'parameters') return <div className="space-y-6">
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Settings2} tone="blue" title="检测参数" description="当前摄像头的人员配对、会话结束条件及关键帧采样设置。" />
+      <DetectionConfigCardHeader icon={Settings2} tone="blue" title="检测参数" />
       <DetectionConfigCardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {INSPECTION_PARAMETERS.filter(([key]) => key !== 'alarm_interval').map(([key, label, min, max, step]) => <div key={key} className="space-y-2">
           <Label htmlFor={`inspection-${key}`}>{label}</Label>
@@ -33,7 +33,7 @@ export function InspectionConfiguration({ cameraKey, tab, state }: {
         </div>)}
       </DetectionConfigCardContent>
     </Card>
-    <DetectionSaveBar message={message || '参数按摄像头独立保存，保存后更新检测状态。'} saving={saving} disabled={disabled || !validParameters} onSave={() => void save()} />
+    <DetectionSaveBar message={message} saving={saving} disabled={disabled || !validParameters} onSave={() => void save()} />
   </div>
   const rois = config.value.staff_rois
   const roiName = Object.hasOwn(rois, selectedRoi) ? selectedRoi : Object.keys(rois)[0] || ''
@@ -48,13 +48,13 @@ export function InspectionConfiguration({ cameraKey, tab, state }: {
     setConfig({ ...config, value: { ...config.value, staff_rois: next } }); setRoiName(Object.keys(next)[0] || '')
   }
   return <Card className={DETECTION_CONFIG_CARD_CLASS}>
-    <DetectionConfigCardHeader icon={Crosshair} tone="rose" title="工位 ROI 绘制" description="选择工位后逐点绘制，或拖拽绘制四边区域。"
+    <DetectionConfigCardHeader icon={Crosshair} tone="rose" title="工位 ROI 绘制"
       actions={<><Button variant="outline" size="sm" disabled={disabled || Object.keys(rois).length >= 16} onClick={add}><Plus className="h-4 w-4" />新增</Button>
         <Button variant="outline" size="sm" disabled={disabled || !roiName} onClick={remove}><Trash2 className="h-4 w-4" />删除</Button></>} />
     <DetectionConfigCardContent className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <AiVisionRoiEditor key={roiName || 'preview'} title={roiName || '摄像头原始预览'} cameraKey={cameraKey} mode="polygon" roiJson={JSON.stringify(rois[roiName] || [])}
         disabled={disabled || !roiName} saving={saving} emptyRoiLabel="尚未配置工位区域"
-        message={message || (!roiName ? '请点击“新增”创建工位，再在画面上绘制区域并保存。' : '')}
+        message={message}
         onChange={(json) => {
           if (!roiName) return
           setConfig({ ...config, value: { ...config.value, staff_rois: { ...rois, [roiName]: JSON.parse(json) } } })
