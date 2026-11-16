@@ -17,13 +17,18 @@ def api(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     from auth.auth import get_current_user
     from AiVision.api.routes import smoke_detection as routes
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.features._shared.config_manager import FeatureConfigManager
     from AiVision.features.smoke_detection.schema import SmokeConfigSchema
 
     user = {"role": "admin", "feature_access": {"general_electric": ["smoke_detection"]}}
     camera = {"camera_id": 1, "shm_name": "camera_1", "name": "烟雾摄像头", "enabled": True,
               "department": "general_electric", "url": "rtsp://test:fake-secret@192.0.2.10/Streaming/Channels/101"}
     config = SmokeConfigSchema().model_dump()
-    lookup = Mock(return_value={"camera": camera, "config": config})
+    summary = FeatureConfigManager._camera_to_dict(AiCameraConfig(
+        id=camera["camera_id"], name=camera["name"], shm_name=camera["shm_name"], enable=camera["enabled"],
+    ))
+    lookup = Mock(return_value={"camera": summary, "config": config})
     monkeypatch.setattr(routes.feature_config_manager, "get_config", lookup)
     manager = SimpleNamespace(get_camera=Mock(return_value=camera))
     parameters = {"supported": True, "channel_id": 1, "parameters": []}
@@ -44,7 +49,7 @@ def api(monkeypatch, tmp_path):
     app.dependency_overrides[routes.get_smoke_device_service] = lambda: service
     app.dependency_overrides[routes.get_current_orchestrator] = lambda: runtime
     with TestClient(app) as client:
-        yield SimpleNamespace(client=client, user=user, camera=camera, config=config, lookup=lookup,
+        yield SimpleNamespace(client=client, user=user, camera=camera, summary=summary, config=config, lookup=lookup,
                               manager=manager, service=service, runtime=runtime, consumer=consumer, routes=routes)
 
 
@@ -91,6 +96,14 @@ def test_parameters_use_database_target_and_never_return_credentials(api):
     assert api.client.put(url("parameters"), json={"values": {"sensitivity": 75}, "url": "http://other.test"}).status_code == 422
 
 
+@pytest.mark.parametrize("field,value", [("id", 2), ("shm_name", "camera_2")])
+def test_configuration_summary_must_belong_to_the_selected_camera(api, field, value):
+    api.lookup.return_value["camera"] = {**api.summary, field: value}
+
+    assert api.client.get(url("parameters")).status_code == 409
+    api.service.parameters.assert_not_called()
+
+
 def test_safe_device_failure_is_reported_without_claiming_saved(api):
     from AiVision.features.smoke_detection.device import SmokeDeviceError
     api.service.save_parameters.side_effect = SmokeDeviceError("设备参数回读未确认", 409)
@@ -130,3 +143,104 @@ def test_unstarted_consumer_is_disabled_and_does_not_connect_to_device(api):
     assert state["connection_state"] == "disabled" and state["alarm"] is None
     assert state["valid_for_seconds"] == 0
     api.service.parameters.assert_not_called()
+
+
+@pytest.fixture
+def stored_api(api, monkeypatch):
+    """实际配置服务从 SQLite 读取不同公开结构，避免完整摄像头桩掩盖摘要误用。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from AiVision.cameras import config_manager as cameras
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.alarms.devices.orm import AiHornConfig
+    from AiVision.features._shared import config_manager as features
+    from AiVision.features.registry import get_spec
+
+    spec = get_spec("smoke_detection")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    sessions = sessionmaker(bind=engine)
+    spec.orm_class.metadata.create_all(engine, tables=[AiHornConfig.__table__, AiCameraConfig.__table__, spec.orm_class.__table__])
+    with sessions.begin() as session:
+        session.add(AiCameraConfig(
+            id=1, name=api.camera["name"], shm_name="camera_1", url=api.camera["url"],
+            enable=True, department="general_electric", fps=5, max_restart=10, shape=[480, 640, 3],
+        ))
+        config = spec.orm_class(camera_id=1)
+        config.apply_config_dict({**api.config, "enable": True})
+        session.add(config)
+    monkeypatch.setattr(cameras, "get_session", sessions)
+    monkeypatch.setattr(features, "get_session", sessions)
+    monkeypatch.setattr(cameras, "all_specs", lambda: {spec.name: spec})
+    manager = cameras.CameraConfigManager()
+    feature_manager = features.FeatureConfigManager()
+    monkeypatch.setattr(api.routes, "feature_config_manager", feature_manager)
+    api.client.app.dependency_overrides[api.routes.get_camera_config_manager] = lambda: manager
+    try:
+        yield SimpleNamespace(api=api, manager=manager, feature_manager=feature_manager,
+                              sessions=sessions, camera_model=AiCameraConfig, spec=spec)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("method,resource,payload", [
+    ("get", "status", None),
+    ("get", "parameters", None),
+    ("get", "shields", None),
+    ("get", "picture", None),
+    ("put", "parameters", {"values": {"sensitivity": 75}}),
+    ("put", "shields", {"enabled": False, "regions": []}),
+])
+def test_device_endpoints_use_full_camera_after_reading_real_feature_summary(stored_api, method, resource, payload):
+    stored = stored_api
+    summary = stored.feature_manager.get_config(stored.spec, 1)["camera"]
+    assert set(summary) == {"id", "name", "shm_name", "enable"}
+    assert "url" not in summary and "department" not in summary and "camera_id" not in summary
+    manager_read = Mock(wraps=stored.manager.get_camera)
+    stored.manager.get_camera = manager_read
+
+    response = getattr(stored.api.client, method)(url(resource), **({"json": payload} if payload is not None else {}))
+
+    assert response.status_code == 200, response.text
+    assert manager_read.call_args_list[0].args == ("camera_1",)
+    assert manager_read.call_args_list[-1].args == (1,)
+    if resource == "status":
+        assert response.json()["camera_key"] == "camera_1" and response.json()["alarm"] is None
+    else:
+        operation = resource if method == "get" else f"save_{resource}"
+        camera = getattr(stored.api.service, operation).call_args.args[0]
+        assert camera["camera_id"] == 1 and camera["department"] == "general_electric" and camera["enabled"] is True
+        assert camera["url"] == stored.api.camera["url"]
+        assert "fake-secret" not in response.text and "192.0.2.10" not in response.text
+
+
+@pytest.mark.parametrize("change", ["department", "delete", "disabled", "connection"])
+def test_device_access_rechecks_actual_camera_after_configuration_read(stored_api, monkeypatch, change):
+    stored = stored_api
+    read_config = stored.feature_manager.get_config
+
+    def read_then_change(spec, key):
+        result = read_config(spec, key)
+        with stored.sessions.begin() as session:
+            camera = session.get(stored.camera_model, 1)
+            if change == "department":
+                camera.department = "electronics_electrician"
+            elif change == "delete":
+                session.delete(camera)
+            elif change == "disabled":
+                camera.enable = False
+            else:
+                camera.url = camera.url.replace("/101", "/201")
+        return result
+
+    monkeypatch.setattr(stored.feature_manager, "get_config", read_then_change)
+    response = stored.api.client.get(url("parameters"))
+
+    assert response.status_code == 409
+    stored.api.service.parameters.assert_not_called()
+    if change == "connection":
+        assert "连接配置已变化" in response.json()["detail"]
+    elif change == "disabled":
+        assert "已停用" in response.json()["detail"]
+    else:
+        assert "归属已变化" in response.json()["detail"]

@@ -56,12 +56,21 @@ def smoke_camera(key: str, department: str, user: dict, manager, *, configuring:
         require_department_write_access(user, actual_department)
         if not camera.get("enabled"):
             raise HTTPException(409, "摄像头已停用")
-    result = feature_config_manager.get_config(get_spec(FEATURE), key)
+    camera_id = camera["camera_id"]
+    result = feature_config_manager.get_config(get_spec(FEATURE), camera_id)
     if result is None:
         raise HTTPException(404, "摄像头烟雾检测配置不存在")
-    current = result["camera"]
-    if current.get("department") != actual_department or current.get("camera_id") != camera.get("camera_id"):
+    summary = result["camera"]
+    # 功能配置仅携带 id/shm_name 等摘要，设备访问必须复读完整配置核对归属与源地址。
+    current = manager.get_camera(camera_id)
+    if (current is None or summary["id"] != camera_id or current["camera_id"] != camera_id
+            or current.get("department") != actual_department or current["shm_name"] != summary["shm_name"]):
         raise HTTPException(409, "摄像头归属已变化，请重新加载")
+    if configuring:
+        if not current["enabled"]:
+            raise HTTPException(409, "摄像头已停用")
+        if current["url"] != camera["url"]:
+            raise HTTPException(409, "摄像头连接配置已变化，请重新加载")
     return current, result["config"]
 
 
