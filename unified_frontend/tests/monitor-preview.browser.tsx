@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { CameraLivePreview } from '../src/components/monitor/CameraLivePreview'
 import { CurrentDetectionCard } from '../src/components/monitor/CurrentDetectionCard'
 import { useDetectionStatus } from '../src/components/monitor/useDetectionStatus'
+import { useSmokeStatus } from '../src/components/smoke_detection/useSmokeStatus'
 import { previewRegions, regionDirection } from '../src/components/monitor/previewRegions'
 import { LogisticsChannelMonitorView } from '../src/components/logistics_single_person/LogisticsChannelMonitorView'
 import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../src/components/logistics_single_person/api'
@@ -27,6 +28,9 @@ let failFirstCameraFrame = false
 let finishVideoFrame: (() => void) | null = null
 let videoFrameSignal: AbortSignal | null | undefined
 let unauthorizedEvents = 0
+let smokeMode: 'unknown' | 'active' | 'inactive' | 'hold' = 'unknown'
+let finishSmokeStatus: (() => void) | null = null
+let smokeStatusSignal: AbortSignal | null | undefined
 const logisticsFeature = 'detect_logistics_single_person'
 const logisticsRois = new Map<number, number[][]>()
 let logisticsRoiReads = 0
@@ -42,6 +46,22 @@ const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) 
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   requests.push(url)
+  if (url.pathname.startsWith('/api/aivision/smoke/') && url.pathname.endsWith('/status')) {
+    assert(url.searchParams.get('department') === 'general_electric', '烟雾状态请求缺少事业部范围')
+    const camera_key = url.pathname.split('/')[4]
+    const response = (alarm_state: 'active' | 'inactive' | 'unknown') => json({
+      camera_key, feature: 'smoke_detection', online: true, count: null,
+      connection_state: 'connected', alarm_state, alarm: alarm_state === 'unknown' ? null : alarm_state === 'active',
+      reason: alarm_state, updated_at: new Date().toISOString(), valid_for_seconds: 0.45,
+      event_channel_id: 1, last_event_at: alarm_state === 'unknown' ? null : new Date().toISOString(),
+    })
+    if (smokeMode === 'hold') return new Promise<Response>((resolve, reject) => {
+      smokeStatusSignal = init?.signal
+      finishSmokeStatus = () => resolve(response('active'))
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('已取消', 'AbortError')), { once: true })
+    })
+    return response(smokeMode)
+  }
   if (url.pathname === '/api/departments') return json([{ name: 'general_electric', display_name: '通用电气事业部' }])
   const logisticsRoi = /^\/api\/logistics-channels\/detect_logistics_single_person\/(\d+)\/cameras\/(\d+)\/roi$/.exec(url.pathname)
   if (logisticsRoi) {
@@ -109,6 +129,11 @@ const render = (cameraKey: string, enabled = true) => root.render(<StrictMode><C
 export function Status() {
   const result = useDetectionStatus('camera_1', 'detect_phone')
   return <CurrentDetectionCard feature="detect_phone" status={result?.status} error={result?.error} />
+}
+
+function SmokeStatusHarness({ cameraKey }: { cameraKey: string }) {
+  const result = useSmokeStatus(cameraKey, 'general_electric')
+  return <div>{JSON.stringify(result?.value ?? null)}</div>
 }
 
 const logisticsCamera: AiVisionCamera = { id: '1', camera_id: 1, name: '物流摄像头', shm_name: 'camera_1',
@@ -305,6 +330,25 @@ async function run() {
   assert(previewElement.querySelector('svg[aria-label="检测区域"] polygon')?.getAttribute('points') === '32,24 128,24 80,96', '晚到的旧通道 ROI 覆盖了当前通道')
   assert(!requests.some((url) => url.pathname.startsWith(`/api/features/${logisticsFeature}/configs/`)), '物流刷新或切换时回退到普通配置接口')
   successes.push('切换通道取消旧 ROI 请求，同一摄像头晚到的旧通道响应不会覆盖新区域')
+  statusRoot.render(<SmokeStatusHarness cameraKey="smoke_1" />)
+  await until(() => statusElement.textContent?.includes('"alarm_state":"unknown"'), '烟雾连接成功后的未知状态')
+  assert(statusElement.textContent?.includes('"alarm":null'), '尚未收到设备事件时被当成未报警')
+  successes.push('烟雾连接成功但未收到设备事件时仍为未知状态，状态请求携带当前事业部')
+  smokeMode = 'active'
+  await until(() => statusElement.textContent?.includes('"alarm_state":"active"'), '设备烟雾活动报警')
+  smokeMode = 'hold'
+  await until(() => statusElement.textContent?.includes('"alarm_state":"unknown"'), '烟雾状态独立到期')
+  assert(statusElement.textContent?.includes('"alarm":null'), '过期的设备报警仍当作当前结果')
+  await until(() => finishSmokeStatus !== null, '烟雾状态挂起请求')
+  successes.push('设备烟雾状态按服务端有效期过期，挂起请求不能让旧报警一直保持活动')
+  smokeMode = 'inactive'
+  statusRoot.render(<SmokeStatusHarness cameraKey="smoke_2" />)
+  await until(() => statusElement.textContent?.includes('"camera_key":"smoke_2"') && statusElement.textContent.includes('"alarm_state":"inactive"'), '切换后设备上报解除')
+  assert(smokeStatusSignal?.aborted, '切换摄像头后未取消旧设备状态请求')
+  finishSmokeStatus!()
+  await pause(100)
+  assert(statusElement.textContent?.includes('"camera_key":"smoke_2"') && !statusElement.textContent.includes('"alarm_state":"active"'), '旧设备晚到的报警覆盖了当前摄像头')
+  successes.push('摄像头切换取消旧状态读取，晚到的设备报警不能覆盖新摄像头解除状态')
   root.unmount(); statusRoot.unmount()
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`

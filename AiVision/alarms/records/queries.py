@@ -164,7 +164,7 @@ def event_dict(row: AiAlarmEvent) -> dict[str, Any]:
         "confidence": 1,
         "created_at": created_at,
         "image_path": row.image_path,
-        "image_url": f"/api/alarms/{row.id}/image",
+        "image_url": f"/api/alarms/{row.id}/image" if row.image_path else "",
         "video_path": row.video_path,
         "video_status": row.video_status,
         "video_url": f"/api/alarms/{row.id}/video" if row.video_status == "ready" else None,

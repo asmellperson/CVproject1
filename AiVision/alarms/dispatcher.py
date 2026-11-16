@@ -72,7 +72,7 @@ class AlarmRequest:
     feature_name: str
     camera_id: int
     camera_name: str
-    frame: np.ndarray
+    frame: np.ndarray | None
     violation_type: int
     alarm_config: dict
     camera_key: str = ""
@@ -303,6 +303,8 @@ class AlarmDispatcher:
         完整事件缺少令牌时不生成替代短片，避免将不完整视频标为完整事件。
         """
         evidence = req.evidence
+        if req.frame is None:
+            return None
         if evidence is None:
             return self.evidence_recorder.start_alarm(req.camera_key or req.camera_name, req.frame)
         if evidence.mode == "snapshot":
@@ -508,6 +510,16 @@ class AlarmDispatcher:
                         violation_type=req.violation_type,
                         camera_name=req.camera_name,
                         recipients=user,
+                    )
+                    continue
+                if getattr(alarm_record, "image_path", None) == "":
+                    # 设备事件可能没有截图，仍推送当前记录，不能拼出不存在的图片链接。
+                    _, detail_url = self._alarm_card_urls(getattr(alarm_record, "id", None))
+                    self.wechat.send_alarm_text(
+                        violation_type=req.violation_type,
+                        camera_name=req.camera_name,
+                        recipients=user,
+                        detail_url=detail_url,
                     )
                     continue
                 image_url, detail_url = self._alarm_card_urls(

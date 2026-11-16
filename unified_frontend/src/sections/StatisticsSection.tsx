@@ -40,6 +40,7 @@ type TrendRow = {
   total: number
   blocks?: number
   tailgating?: number
+  smoke_detection?: number
   detect_door?: number
   detect_phone?: number
   detect_human?: number
@@ -77,6 +78,7 @@ const EMPTY: AiVisionStatistics = {
 }
 
 const TYPE_META: TypeBucket[] = [
+  { event_type: 'smoke_detection', name: '烟雾报警', value: 0, color: '#b91c1c' },
   { event_type: 'tailgating', name: '非法闯闸（尾随）', value: 0, color: '#dc2626' },
   { event_type: 'blocks', name: '区域入侵', value: 0, color: '#ef4444' },
   { event_type: 'detect_door', name: '大门开关', value: 0, color: '#f59e0b' },
@@ -112,6 +114,7 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     total: toNumber(row?.total),
     blocks: toNumber(row?.blocks),
     tailgating: toNumber(row?.tailgating),
+    smoke_detection: toNumber(row?.smoke_detection),
     detect_door: toNumber(row?.detect_door),
     detect_face: toNumber(row?.detect_face),
     detect_phone: toNumber(row?.detect_phone),

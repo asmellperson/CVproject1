@@ -98,7 +98,7 @@ class AsyncViolationWriter:
 
     def enqueue(
         self,
-        frame: np.ndarray,
+        frame: np.ndarray | None,
         violation_type: int,
         camera_no: str | None,
         *,
@@ -117,7 +117,7 @@ class AsyncViolationWriter:
         validate_alarm_identity(violation_type, feature_name, department)
         # 构造一个字典然后放入队列
         item = {
-            "frame": frame.copy(),
+            "frame": frame.copy() if frame is not None else None,
             "violation_type": violation_type,
             "feature_name": feature_name,
             "department": department,
@@ -164,7 +164,7 @@ class AsyncViolationWriter:
     def save_now(
         self,
         *,
-        frame: np.ndarray,
+        frame: np.ndarray | None,
         violation_type: int,
         camera_no: str | None,
         feature_name: str,
@@ -407,17 +407,21 @@ class AsyncViolationWriter:
     def _save_alarm_snapshot(self, item: dict) -> dict | None:
         """同步写盘 — 返回供 DB 入库的行字典,失败返回 None"""
         try:
-            # 图片目录按告警类型编号
-            sub = self._data_path / str(item["violation_type"])
-            sub.mkdir(parents=True, exist_ok=True)
-            # 文件名去掉最后三位微秒，所以图片精确到毫秒
-            fname = item["ts"].strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3] + f"_{uuid.uuid4().hex}.png"
-            # 真正保存图片，把 NumPy 数组真正编码成 PNG 并写到磁盘。
-            full_path = sub / fname
-            if not cv2.imwrite(str(full_path), item["frame"]):
-                raise OSError(f"OpenCV 写入报警图片失败: {full_path}")
+            image_path = ""
+            metadata = deepcopy(item.get("event_metadata") or {})
+            if item["frame"] is not None:
+                sub = self._data_path / str(item["violation_type"])
+                sub.mkdir(parents=True, exist_ok=True)
+                fname = item["ts"].strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3] + f"_{uuid.uuid4().hex}.png"
+                full_path = sub / fname
+                if not cv2.imwrite(str(full_path), item["frame"]):
+                    raise OSError(f"OpenCV 写入报警图片失败: {full_path}")
+                image_path = str(full_path)
+            else:
+                # 无图设备事件仍须留档；独立存储键保证提交回执丢失后重试不会重复入库。
+                metadata["storage_event_key"] = uuid.uuid4().hex
             return {
-                "image_path": str(full_path),
+                "image_path": image_path,
                 "video_path": item.get("video_path"),
                 "video_status": item.get("video_status"),
                 "violation_type": item["violation_type"],
@@ -428,7 +432,7 @@ class AsyncViolationWriter:
                 "subject_id": item.get("subject_id") or "",
                 "subject_name": item.get("subject_name") or "",
                 "reason": item.get("reason") or "",
-                "event_metadata": item.get("event_metadata") or {},
+                "event_metadata": metadata,
                 "create_time": item["ts"],
             }
         except Exception as e:
@@ -443,12 +447,19 @@ class AsyncViolationWriter:
                 with session_scope() as session:
                     # 重试时以本次快照的唯一文件名识别已提交记录，处理 commit 回执丢失。
                     existing = set()
+                    existing_events = set()
                     if attempt:
                         existing = {path for (path,) in session.query(AiAlarmEvent.image_path).filter(
-                            AiAlarmEvent.image_path.in_([row["image_path"] for row in batch])
+                            AiAlarmEvent.image_path.in_([row["image_path"] for row in batch if row["image_path"]])
                         ).all()}
+                        event_keys = [row["event_metadata"]["storage_event_key"] for row in batch if not row["image_path"]]
+                        if event_keys:
+                            key = AiAlarmEvent.event_metadata["storage_event_key"].as_string()
+                            existing_events = {value for (value,) in session.query(key).filter(key.in_(event_keys)).all()}
                     for row in batch:
-                        if row["image_path"] not in existing:
+                        saved = (row["image_path"] in existing if row["image_path"] else
+                                 row["event_metadata"]["storage_event_key"] in existing_events)
+                        if not saved:
                             session.add(AiAlarmEvent(**row))
                 logger.info(f"[ViolationWriter] 提交 {len(batch)} 条违规记录")
                 return True

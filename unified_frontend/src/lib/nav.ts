@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Wind,
   Truck,
   UserCog,
   UsersRound,
@@ -48,6 +49,7 @@ export const detectionNavItems: NavItem[] = [
   { id: 'agv-person-check', label: 'AGV无人运货检测', icon: Truck, description: '实时画面与 AGV 请求触发检测配置' },
   { id: 'security-fence', label: '警戒围栏', icon: ShieldCheck, description: '每日时段警戒、独立白名单与人员身份监控' },
   { id: 'tailgating-detection', label: '非法闯闸检测', icon: UsersRound, description: '在 ROI 内共同出现且同向通过过闸判定线时报警' },
+  { id: 'smoke-detection', label: '烟雾检测', icon: Wind, description: '摄像头烟雾报警、实时画面与设备参数配置' },
 ]
 
 export const navGroups: NavGroup[] = [

@@ -19,6 +19,7 @@ from .agv_person_check.spec import SPEC as agv_person_check_spec
 from .visual_language_detection.spec import SPEC as visual_language_detection_spec
 from .security_fence.spec import SPEC as security_fence_spec
 from .tailgating.spec import SPEC as tailgating_spec
+from .smoke_detection.spec import SPEC as smoke_detection_spec
 
 # 保持原注册表的展示/遍历顺序；新增功能须在这里明确登记。
 _BUILTIN_SPECS = (
@@ -35,6 +36,7 @@ _BUILTIN_SPECS = (
     guard_behavior_spec,
     security_inspection_spec,
     agv_person_check_spec,
+    smoke_detection_spec,
 )
 
 

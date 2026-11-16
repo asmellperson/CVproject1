@@ -48,7 +48,7 @@ class ViolationMediaCleaner(MediaCleaner):
             if row is None or row.create_time != record.created_at:
                 return 0
             # 重新读取视频状态，避免扫描之后完成的视频被遗留。
-            image_removed = remove_file(row.image_path)
+            image_removed = not row.image_path or remove_file(row.image_path)
             video_removed = not row.video_path or remove_file(row.video_path)
             if not image_removed or not video_removed:
                 return 0

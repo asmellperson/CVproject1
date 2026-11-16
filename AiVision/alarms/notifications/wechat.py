@@ -258,13 +258,16 @@ class WeChatNotifier:
             image_url=image_url,
         )
 
-    def send_alarm_text(self, violation_type: int, camera_name: str, recipients: str):
-        """卡片记录保存失败时推送当前告警，避免存储故障同时中断通知。"""
+    def send_alarm_text(self, violation_type: int, camera_name: str, recipients: str, *, detail_url: str = ""):
+        """无截图或记录保存失败时继续通知；已保存的设备事件附带详情入口。"""
         if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
             raise ValueError("企业微信业务告警 violation_type 必须是正式报警类型注册表中的整数")
         label = VIOLATION_TYPE_META[violation_type]["label"]
+        content = f"{label}告警\n报警对象：{camera_name}\n推送时间：{time.strftime('%Y-%m-%d %H:%M:%S')}"
+        if detail_url:
+            content += f"\n[查看报警详情]({detail_url})"
         self.send_text(
-            content=f"{label}告警\n报警对象：{camera_name}\n推送时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+            content=content,
             recipients=recipients,
         )
 

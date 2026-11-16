@@ -77,7 +77,7 @@ def send_one(dispatcher, alarm_modules, monkeypatch):
     return request.call_args.kwargs["json"]
 
 
-@pytest.mark.parametrize("violation_type", range(1, 18))
+@pytest.mark.parametrize("violation_type", range(1, 19))
 @pytest.mark.parametrize("sql_enabled", [True, False])
 def test_each_alarm_push_links_to_its_current_record(alarm_modules, monkeypatch, violation_type, sql_enabled):
     from AiVision.alarms.types import VIOLATION_TYPE_META
@@ -198,3 +198,45 @@ def test_fence_camera_cooldown_survives_event_changes(alarm_modules, monkeypatch
     assert not dispatcher.maybe_dispatch(request, alarm_interval=3600)
     dispatcher.violation_writer.save_now.assert_called_once()
     assert [call.args[0] for call in callback.call_args_list] == ["sql", "wechat"]
+
+
+def test_device_alarm_without_frame_keeps_record_horn_and_text_link(alarm_modules, monkeypatch):
+    dispatcher = make_dispatcher(alarm_modules)
+    dispatcher.horn_runtime_manager = Mock()
+    dispatcher.violation_writer.save_now.return_value = SimpleNamespace(id=101, image_path="")
+    request = make_request(alarm_modules, 18)
+    request.frame = None
+    request.alarm_config["horn"] = {"enable": True, "parm": {"horn_id": 1, "horn_event_id": 1}}
+
+    assert dispatcher.maybe_dispatch(request)
+    payload = send_one(dispatcher, alarm_modules, monkeypatch)
+
+    assert payload["msgtype"] == "markdown"
+    assert "烟雾检测" in payload["markdown"]["content"]
+    assert "alarmId=101" in payload["markdown"]["content"]
+    assert "/image" not in payload["markdown"]["content"]
+    assert dispatcher.violation_writer.save_now.call_args.kwargs["frame"] is None
+    dispatcher.horn_runtime_manager.enqueue_play.assert_called_once_with(1, 1)
+    dispatcher.evidence_recorder.start_alarm.assert_not_called()
+
+
+def test_device_event_without_picture_is_retained_with_unique_storage_key(alarm_modules, tmp_path):
+    from datetime import datetime
+    from AiVision.alarms.records.service import AsyncViolationWriter
+
+    writer = object.__new__(AsyncViolationWriter)
+    writer._data_path = tmp_path
+    metadata = {"source": "device", "device_event_time": "2026-11-16T09:00:00+08:00"}
+    item = dict(frame=None, violation_type=18, feature_name="smoke_detection", department="general_electric",
+                camera_no="camera_1", event_metadata=metadata, ts=datetime.now())
+    first, second = writer._save_alarm_snapshot(item), writer._save_alarm_snapshot(item)
+
+    assert first["image_path"] == second["image_path"] == ""
+    assert first["event_metadata"]["storage_event_key"] != second["event_metadata"]["storage_event_key"]
+    assert first["event_metadata"]["device_event_time"] == metadata["device_event_time"]
+    assert "storage_event_key" not in metadata
+    assert not list(tmp_path.iterdir())
+    from AiVision.alarms.records.orm import AiAlarmEvent
+    from AiVision.alarms.records.queries import event_dict
+    response = event_dict(AiAlarmEvent(id=101, **first))
+    assert response["image_url"] == "" and response["image_path"] == ""

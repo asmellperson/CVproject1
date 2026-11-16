@@ -28,6 +28,14 @@ type AiVisionRoiEditorProps = {
   message?: string
   emptyRoiLabel?: string
   minRoiArea?: number
+  frameUrl?: string
+  regionLabel?: string
+  description?: string
+  minPoints?: number
+  maxPoints?: number
+  allowFullFrame?: boolean
+  showSaveButton?: boolean
+  onValidityChange?: (valid: boolean) => void
   onChange: (roiJson: string) => void
   onSave: () => void
 }
@@ -80,6 +88,14 @@ export function AiVisionRoiEditor({
   message,
   emptyRoiLabel = '全画面检测（未限定 ROI）',
   minRoiArea = DEFAULT_MIN_ROI_AREA,
+  frameUrl: sourceFrameUrl,
+  regionLabel = 'ROI',
+  description,
+  minPoints = 3,
+  maxPoints = Infinity,
+  allowFullFrame = true,
+  showSaveButton = true,
+  onValidityChange,
   onChange,
   onSave,
 }: AiVisionRoiEditorProps) {
@@ -92,17 +108,19 @@ export function AiVisionRoiEditor({
   const [dragPointIndex, setDragPointIndex] = useState<number | null>(null)
 
   const frameUrl = useMemo(
-    () => (cameraKey ? aiVisionFrameUrl(cameraKey, undefined, nonce) : ''),
-    [cameraKey, nonce],
+    () => sourceFrameUrl ? `${sourceFrameUrl}${sourceFrameUrl.includes('?') ? '&' : '?'}_frame=${nonce}` : (cameraKey ? aiVisionFrameUrl(cameraKey, undefined, nonce) : ''),
+    [cameraKey, nonce, sourceFrameUrl],
   )
   const imageSize = loadedImage?.frameUrl === frameUrl ? loadedImage : null
-  const valid = mode === 'line' ? points.length === 2 : mode === 'rect' ? points.length === 4 : points.length >= 3
+  const valid = mode === 'line' ? points.length === 2 : mode === 'rect' ? points.length === 4 : points.length >= minPoints && points.length <= maxPoints
   const outOfBounds = points.some(
     (point) => point.x < 0 || point.y < 0 || point.x > (imageSize?.width ?? 0) || point.y > (imageSize?.height ?? 0),
   )
   const roiArea = valid && mode !== 'line' ? polygonArea(points) : 0
   const areaTooSmall = valid && mode !== 'line' && roiArea < minRoiArea
   const canSave = Boolean(imageSize) && !coordinateError && (points.length === 0 || valid) && !outOfBounds && !areaTooSmall
+
+  useEffect(() => { onValidityChange?.(canSave) }, [canSave, onValidityChange])
 
   useEffect(() => {
     try {
@@ -199,7 +217,7 @@ export function AiVisionRoiEditor({
     } else if (dragged || mode === 'rect') {
       commitPoints(rectToPoints(pointsToRect([dragStart, draftPoint])))
     } else if (mode === 'polygon') {
-      commitPoints([...points, dragStart])
+      if (points.length < maxPoints) commitPoints([...points, dragStart])
     }
     setDragStart(null)
     setDraftPoint(null)
@@ -238,7 +256,7 @@ export function AiVisionRoiEditor({
         icon={MousePointer2}
         tone="rose"
         title={title}
-        description={`在实际摄像头画面上绘制${mode === 'line' ? lineLabel : '区域'}；保存后会随码流分辨率自动适配。`}
+        description={description ?? `在实际摄像头画面上绘制${mode === 'line' ? lineLabel : '区域'}；保存后会随码流分辨率自动适配。`}
         actions={(
           <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
             <RefreshCw className="h-4 w-4" />
@@ -307,7 +325,7 @@ export function AiVisionRoiEditor({
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div className="min-w-0 text-sm text-slate-600">
-            <div>{message || (mode === 'line' ? `${lineLabel}修改后点击保存配置生效。` : 'ROI 修改后点击保存配置生效。')}</div>
+            <div>{message || (mode === 'line' ? `${lineLabel}修改后点击保存配置生效。` : `${regionLabel}修改后点击保存配置生效。`)}</div>
             <div className="mt-1 font-mono text-xs text-slate-500">
               {mode === 'line'
                 ? points.length === 2
@@ -318,7 +336,7 @@ export function AiVisionRoiEditor({
                 : bbox.length === 4
                 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px²`
                 : mode === 'polygon'
-                  ? `顶点数: ${points.length}`
+                  ? `顶点数: ${points.length}${Number.isFinite(maxPoints) ? ` / ${maxPoints}` : ''}`
                   : '未绘制区域'}
             </div>
             {!imageSize ? <div className="mt-2 text-amber-700">请先加载摄像头画面后再编辑和保存。</div> : null}
@@ -328,7 +346,7 @@ export function AiVisionRoiEditor({
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
                   {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize?.width} / 0-{imageSize?.height} 内。</div> : null}
-                  {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
+                  {areaTooSmall ? <div>{regionLabel}面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
                 </div>
               </div>
             ) : null}
@@ -342,16 +360,16 @@ export function AiVisionRoiEditor({
               <Trash2 className="h-4 w-4" />
               清空
             </Button>
-            {mode !== 'line' ? (
+            {mode !== 'line' && allowFullFrame ? (
               <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraKey || !imageSize}>
                 <RotateCcw className="h-4 w-4" />
                 全画面
               </Button>
             ) : null}
-            <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !canSave}>
+            {showSaveButton && <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !canSave}>
               <Save className="h-4 w-4" />
-              {saving ? '保存中' : mode === 'line' ? `保存${lineLabel}` : '保存ROI'}
-            </Button>
+              {saving ? '保存中' : mode === 'line' ? `保存${lineLabel}` : `保存${regionLabel}`}
+            </Button>}
           </div>
         </div>
       </DetectionConfigCardContent>

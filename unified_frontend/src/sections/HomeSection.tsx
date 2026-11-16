@@ -84,7 +84,7 @@ const defaultOverview: OverviewState = {
   recentAlarms: [],
 }
 
-const criticalAlarmTypes = new Set(['blocks', 'guard_absent', 'tailgating'])
+const criticalAlarmTypes = new Set(['blocks', 'guard_absent', 'tailgating', 'smoke_detection'])
 const warningAlarmTypes = new Set([
   'detect_door',
   'detect_phone',

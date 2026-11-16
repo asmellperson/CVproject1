@@ -24,6 +24,7 @@ from AiVision.api.routes.alarms import public_router as public_alarms_router
 from AiVision.api.routes.alarms import router as alarms_router              # 正常需要认证的报警
 from AiVision.api.routes.cameras import router as cameras_router            # 对外公开、不要求普通认证的报警资源
 from AiVision.api.routes.camera_zoom import router as camera_zoom_router
+from AiVision.api.routes.smoke_detection import router as smoke_detection_router
 from AiVision.api.routes.preview_stream import router as preview_stream_router
 from AiVision.api.routes.departments import router as departments_router
 from AiVision.api.routes.exception_alerts import router as exception_alerts_router
@@ -189,6 +190,7 @@ def create_app() -> FastAPI:
     app.include_router(exception_alerts_router)
     app.include_router(cameras_router)
     app.include_router(camera_zoom_router)
+    app.include_router(smoke_detection_router)
     app.include_router(preview_stream_router)
     app.include_router(features_router)
     app.include_router(face_recognition_router)

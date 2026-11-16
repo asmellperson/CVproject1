@@ -24,12 +24,13 @@ import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMo
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
 import { FenceMonitorView } from './security_fence/FenceMonitorView'
 import { TailgatingMonitorView } from './tailgating/TailgatingMonitorView'
+import { SmokeMonitorView } from './smoke_detection/SmokeMonitorView'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence' | 'tailgating'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence' | 'tailgating' | 'smoke'
 }
 
 export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
@@ -124,6 +125,13 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       frameConnected={frameConnected} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
     />
+  }
+
+  if (presentation === 'smoke') {
+    return <SmokeMonitorView key={`${department}:${selectedCamera}`} department={department}
+      cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
+      frameConnected={frameConnected} frameContent={frameContent}
+      onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras} />
   }
 
   if (presentation === 'tailgating') {

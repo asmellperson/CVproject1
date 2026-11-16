@@ -1,6 +1,6 @@
 # AiVision：多摄像头视觉检测与告警后端
 
-AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十三项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
+AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十四项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
 
 本文按当前源码整理（2026-09-20）。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
 
@@ -30,7 +30,7 @@ AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模�
 flowchart LR
     UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
     API --> Auth[auth 认证 / 用户 / 访问审计]
-    API --> Features[十三项原生检测功能]
+    API --> Features[十四项原生检测功能]
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
@@ -50,7 +50,7 @@ flowchart LR
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 
-### 1.2 十三项原生功能
+### 1.2 十四项原生功能
 
 Python 目录名用于组织代码，业务标识用于 API、数据库、缓存和前端查询。接入时应使用表中的业务标识。
 
@@ -64,6 +64,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/phone_detection/` | `detect_phone` | 手机候选、人体关联与持续确认 | `yolo_phone`，人体关联时调用 `yolo_human` |
 | `features/security_fence/` | `security_fence` | 每日禁入时段与独立白名单准入 | `yolo_human`、`insightface`，两个时段均识别人脸 |
 | `features/tailgating/` | `tailgating` | 同向过线与 ROI 内共同出现联合判定 | `yolo_human` |
+| `features/smoke_detection/` | `smoke_detection` | 摄像头自身烟雾事件接收与转发 | 无 |
 | `features/face_recognition/` | `recognize_face` | 人脸对齐、特征与底库相似度匹配 | `insightface` |
 | `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测与通道联合判定 | `yolo_human` |
 | `features/guard_behavior/` | `guard_behavior` | 单路感知与保安室规则汇总 | 必需 `yolo_guard_person_phone`、`guard_uniform`；可选 `yolo_guard_pose`、`yolo_vehicle` |
@@ -114,7 +115,7 @@ AiVision/
 │   ├── insightface_detector.py     # InsightFace 检测和 GPU 模型加载
 │   └── workers/                    # YOLO、人脸检测、人脸身份识别
 ├── features/
-│   ├── registry.py                 # 十三项功能唯一显式注册入口
+│   ├── registry.py                 # 十四项功能唯一显式注册入口
 │   ├── _shared/
 │   │   ├── spec.py                 # FeatureSpec 元数据
 │   │   ├── consumer.py             # 公共帧处理、推理调用和告警衔接
@@ -135,6 +136,7 @@ AiVision/
 │   ├── agv_person_check/           # AGV 请求调度、人体检测和 HTTP 协议适配
 │   ├── security_fence/             # 围栏时段、身份状态机、独立白名单及查询服务
 │   ├── tailgating/                 # 非法闯闸配置、通行轨迹、事件与实时预览
+│   ├── smoke_detection/            # 摄像头烟雾事件、真实参数与屏蔽区配置
 │   ├── face_recognition/           # 身份识别、识别记录
 │   │   └── library/                # 人员同步、照片特征和内存索引
 │   ├── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
@@ -218,7 +220,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十三项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有福达AI请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
+十四项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有福达AI请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter，烟雾功能使用独立的设备事件连接。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -276,7 +278,7 @@ flowchart LR
     Alarm --> Dispatch[AlarmDispatcher]
 ```
 
-门状态检测直接在 ROI 上计算帧差，不提交模型任务。其他功能通过 `dispatch_inference_sync()` 调用模型。
+门状态检测直接在 ROI 上计算帧差，不提交模型任务。烟雾检测由后台订阅摄像头 ISAPI 事件，不进入逐帧识别循环；其他本机模型功能通过 `dispatch_inference_sync()` 调用模型。
 
 ### 4.3 ROI 坐标约定
 
@@ -353,7 +355,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | `alarm_types` | 该功能拥有的告警类型元组 |
 | `model_names` | 必需与可选模型合并去重后的只读属性 |
 
-[registry.py](features/registry.py) 显式导入十三项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
+[registry.py](features/registry.py) 显式导入十四项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
 
 ### 5.2 配置分为三类
 
@@ -1080,6 +1082,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 围栏配置 | `ai_camera_config_security_fence` | 逐摄像头时段、ROI 与报警策略 |
 | 围栏通行白名单 | `ai_security_fence_person_authorization` | 按摄像头和人员保存独立授权 |
 | 非法闯闸配置 | `ai_camera_config_tailgating` | ROI、过闸判定线、方向、共同出现确认与报警策略 |
+| 烟雾设备接入配置 | `ai_camera_config_smoke_detection` | 接口协议、端口、事件通道、参数通道与平台告警通道 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 安检数据库图片 | `ai_security_inspection_session_image` | 与不合规 session 一对一关联的 JPEG 二进制，随会话过期删除 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
@@ -1111,7 +1114,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-平台注册十三项检测功能，事业部可访问的功能由系统管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。角色包括系统管理员 `admin`、部门管理员 `department_admin` 和普通用户 `viewer`。部门管理员与普通用户按账号授权事业部访问摄像头和告警，所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；部门管理员可维护本部门已开放功能的配置，普通用户业务配置只读。账号、角色、部门归属、功能分配、全局模型和系统设置只由系统管理员管理，访问审计额外检查用户 capability。
+平台注册十四项检测功能，事业部可访问的功能由系统管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。角色包括系统管理员 `admin`、部门管理员 `department_admin` 和普通用户 `viewer`。部门管理员与普通用户按账号授权事业部访问摄像头和告警，所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；部门管理员可维护本部门已开放功能的配置，普通用户业务配置只读。账号、角色、部门归属、功能分配、全局模型和系统设置只由系统管理员管理，访问审计额外检查用户 capability。
 
 `require_config_manager()` 只验证业务配置写入资格，路由还需校验请求事业部与摄像头、通道或保安室的真实归属。摄像头和普通功能的写入在事务内复核已授权归属；跨部门绑定、未归属资源及功能未开放的请求不能扩大权限。部门管理员可读取本部门设备地址以维护摄像头，普通用户响应隐藏该地址。角色或事业部授权变更会增加账号的 `auth_version`，旧 JWT 在下一次认证时失效，用户需重新登录。
 
@@ -1399,7 +1402,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`。ROI 绘制使用 `/api/cameras/{key}/frame.jpg` 读取原始画面，无需预先配置工位；监控使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection` 读取工位配置生效后生成的安检标注画面。检测启停通过公共配置完成。
 
-`/api/overview` 的能力目录包含全部十三项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
+`/api/overview` 的能力目录包含全部十四项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
 非法闯闸状态使用 `GET /api/tailgating/cameras/{key}/status`，配置使用通用 Feature 配置接口；画面、配置和状态均按摄像头实际部门校验账号权限。
 
@@ -1466,6 +1469,23 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 列表通过 `violation_type=5` 选择人员逗留；多类型使用重复参数，如 `violation_type=5&violation_type=15&violation_type=16`。省略类型时，查询所选事业部已分配的上述支持类型。详情和图片只需报警 ID 与 `department`，不要求调用方传入功能英文名。
 
 `alarms/external.py` 从正式功能注册表推导类型归属，共用 `ai_violation_image` 并校验平台功能分配、持久化功能/类型对应关系及部门范围。响应不暴露磁盘路径，报警 ID 为字符串，`image_url` 指向同一报警的统一图片入口；已有记录未保存原因时，按正式类型及摄像头名称展示。时间边界按服务器本地时间比较，分页总数不受页大小影响。接口不依赖检测进程运行，平台和通知图片继续使用各自的鉴权方式。字段、数据库查询与接入示例见[外部报警对接说明](../docs/external-alarm-api.md)。
+
+### 12.9 烟雾摄像头接入
+
+`features/smoke_detection/` 中，`consumer.py` 管理后台事件连接、去重和启停；`events.py` 解析有界 multipart/XML，`device.py` 使用 Digest 鉴权访问设备，`device_schema.py` 定义参数与屏蔽区契约，`service.py` 连接平台配置及设备客户端。平台不执行烟雾算法，正式告警类型为 `18`。配置表在正常启动时创建，功能需由系统管理员分配至对应事业部。
+
+平台配置沿用 `GET/PUT /api/features/smoke_detection/configs/{key}`。`value` 保存 `device_scheme`、`device_port`、`event_channel_id`、`thermal_channel_id` 和 `alarm_interval`；地址、用户名和密码从摄像头 RTSP 源读取，不通过设备参数响应返回。功能开关仅控制后台接收；设备检测开关通过设备参数接口修改。配置刷新、禁用、删除或停止服务会取消旧连接，旧回调不能进入新配置。
+
+| 方法 | 原生 API | 用途 |
+| --- | --- | --- |
+| GET / PUT | `/api/smoke/{key}/parameters` | 根据实际能力读取、修改烟雾参数并回读确认 |
+| GET / PUT | `/api/smoke/{key}/shields` | 烟雾屏蔽区读写，前端采用左上原点的归一化坐标 |
+| GET | `/api/smoke/{key}/picture` | 参数通道的设备 JPEG，供屏蔽区绘制 |
+| GET | `/api/smoke/{key}/status` | 视频在线情况、设备连接、明确事件状态及有效期 |
+
+所有接口要求 `department` 并核对摄像头真实归属及功能分配；设备参数和抓图仅配置管理员可访问，普通用户可查看运行状态。区域写入要求实际设备提供坐标尺寸、四边形能力及可编辑区域；不具备能力时只读。请求禁用重定向和环境代理，错误不带认证地址；能力、设备业务回执和写入回读均校验。
+
+仅明确的 `smokeDetection` 事件触发烟雾报警；未验证的烟火联合格式需通过真机事件样本确认，不能按类型名称猜测烟雾。事件源时间、ID、通道及来源写入元数据，同一持续事件和重发事件去重；视频缺失不阻断设备事件接收。无截图记录的 `image_path` 和 `image_url` 为空，企微发送文字及当前详情链接，媒体清理遵守相同保留期。电话提醒与强制手机振动不属于该接口。
 
 ## 13. 人脸库同步与特征生成
 

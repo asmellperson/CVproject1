@@ -25,13 +25,14 @@ export const DETECTION_PAGE_IDS = [
   'visual-language-detection',
   'security-vlm', 'guard-behavior', 'intrusion-detection', 'door-detection',
   'face-detection', 'face-recognition', 'human-detection', 'logistics-single-person', 'phone-detection',
-  'agv-person-check', 'security-fence', 'tailgating-detection',
+  'agv-person-check', 'security-fence', 'tailgating-detection', 'smoke-detection',
 ] as const
 export type DetectionPageId = typeof DETECTION_PAGE_IDS[number]
 export const FEATURE_BY_PAGE: Record<DetectionPageId, string> = {
   'visual-language-detection': 'visual_language_detection',
   'security-fence': 'security_fence',
   'tailgating-detection': 'tailgating',
+  'smoke-detection': 'smoke_detection',
   'security-vlm': 'security_inspection', 'guard-behavior': 'guard_behavior',
   'intrusion-detection': 'blocks', 'door-detection': 'detect_door',
   'face-detection': 'detect_face', 'face-recognition': 'recognize_face',
@@ -48,6 +49,7 @@ export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'visual-language-detection': ['visual_language_detection'],
   'security-fence': ['security_fence_forbidden', 'security_fence_unauthorized'],
   'tailgating-detection': ['tailgating'],
+  'smoke-detection': ['smoke_detection'],
   'security-vlm': ['security_inspection'],
   'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep', 'guard_vehicle_inspection_missing'],
   'intrusion-detection': ['blocks'], 'door-detection': ['detect_door'],

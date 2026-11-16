@@ -67,6 +67,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('open')
   const [selectedAlarm, setSelectedAlarm] = useState<AlarmEvent | null>(null)
+  const selectedImage = selectedAlarm?.image_url?.trim() || (selectedAlarm?.image_path?.trim() ? alarmImageUrl(selectedAlarm.id) : '')
   const selectedPerson = selectedAlarm ? fenceAlarmPerson(selectedAlarm) : null
   const [dispositionNote, setDispositionNote] = useState('')
   const [dispositionError, setDispositionError] = useState('')
@@ -199,6 +200,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         { eventType: 'security_fence_forbidden', label: '围栏禁入时段有人', icon: <ShieldAlert className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
         { eventType: 'security_fence_unauthorized', label: '围栏非白名单人员', icon: <ShieldAlert className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
         { eventType: 'tailgating', label: '非法闯闸（尾随）', icon: <UsersRound className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
+        { eventType: 'smoke_detection', label: '烟雾报警', icon: <ShieldAlert className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
         { eventType: 'blocks', label: '区域入侵', icon: <Radar className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
         { eventType: 'detect_door', label: '大门开关', icon: <DoorOpen className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
         { eventType: 'detect_face', label: '人脸逗留检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
@@ -220,6 +222,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
       case 'security_fence_forbidden': return <Badge variant="destructive">围栏禁入时段有人</Badge>
       case 'security_fence_unauthorized': return <Badge variant="destructive">围栏非白名单人员</Badge>
       case 'tailgating': return <Badge variant="destructive">非法闯闸（尾随）</Badge>
+      case 'smoke_detection': return <Badge variant="destructive">烟雾报警</Badge>
       case 'blocks':
         return <Badge variant="destructive">区域入侵</Badge>
       case 'detect_door':
@@ -417,7 +420,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                 return (
                 <TableRow key={alarm.id}>
                   <TableCell>{getAlarmBadge(alarm.event_type)}</TableCell>
-                  <TableCell className="max-w-[12rem] truncate">{alarmSubjectName(alarm)}</TableCell>
+                  <TableCell className="max-w-[12rem] truncate"><button type="button" className="max-w-full cursor-pointer truncate text-left underline-offset-4 hover:underline focus-visible:underline" onClick={() => setSelectedAlarm(alarm)} aria-label={`查看${alarmSubjectName(alarm)}的报警详情`}>{alarmSubjectName(alarm)}</button></TableCell>
                   <TableCell className="max-w-[12rem]">
                     <span>{alarm.feature_name === FENCE_FEATURE ? fencePersonName(person) : '—'}</span>
                     {person?.job_no && <span className="block text-xs text-slate-500">工号：{person.job_no}</span>}
@@ -427,13 +430,13 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                   <TableCell>{getDispositionBadge(alarm.disposition_status || 'pending')}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatTime(alarm.created_at)}</TableCell>
                   <TableCell>
-                    {alarm.image_path || alarm.image_url ? (
+                    {alarm.image_path?.trim() || alarm.image_url?.trim() ? (
                       <Button variant="outline" size="sm" className="gap-2" onClick={() => setSelectedAlarm(alarm)}>
                         <Eye className="w-4 h-4" />
                         可查看
                       </Button>
                     ) : (
-                      <Badge variant="secondary">无</Badge>
+                      <Badge variant="secondary">{alarm.feature_name === 'smoke_detection' ? '设备未提供截图' : '无'}</Badge>
                     )}
                   </TableCell>
                 </TableRow>
@@ -581,7 +584,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               <div className="space-y-3">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">报警截图</div>
-                  <button
+                  {selectedImage ? <button
                     type="button"
                     className="group relative block w-full cursor-zoom-in overflow-hidden rounded-lg border bg-black/5 text-left dark:bg-black/30"
                     onClick={() => {
@@ -590,7 +593,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     aria-label="放大查看报警截图"
                   >
                     <img
-                      src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.id)}
+                      src={selectedImage}
                       alt="报警截图"
                       className="w-full transition duration-200 group-hover:brightness-90"
                       onError={(e) => {
@@ -601,7 +604,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                       <ZoomIn className="h-3.5 w-3.5" />
                       点击放大
                     </span>
-                  </button>
+                  </button> : <p className="rounded-lg border border-dashed p-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">{selectedAlarm.feature_name === 'smoke_detection' ? '设备未提供截图' : '该报警没有截图'}</p>}
                 </div>
 
                 {selectedAlarm.video_status === 'ready' && (
@@ -625,7 +628,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
 
                 {!selectedAlarm.video_status && (
                   <div className="text-sm text-slate-500">
-                    当前报警提供截图证据，未关联视频文件。
+                    {selectedImage ? '当前报警提供截图证据，未关联视频文件。' : '当前报警未关联视频文件。'}
                   </div>
                 )}
 
@@ -642,8 +645,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         </DialogContent>
       </Dialog>
 
-      {imagePreviewOpen && selectedAlarm && <ImagePreviewDialog
-        src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.id)}
+      {imagePreviewOpen && selectedAlarm && selectedImage && <ImagePreviewDialog
+        src={selectedImage}
         title="报警截图" filename={`alarm-${selectedAlarm.id}.jpg`}
         onClose={() => setImagePreviewOpen(false)}
       />}
