@@ -27,6 +27,9 @@ PARAMETER_CURRENT = '''<FireDetection xmlns="http://www.isapi.org/ver20/XMLSchem
     <doubleCheckSensitivity>50</doubleCheckSensitivity><displaySmokeInfoOnStreamEnabled>true</displaySmokeInfoOnStreamEnabled>
     <UnknownSmokeOption>keep</UnknownSmokeOption></SmokeDetection><Unknown>keep</Unknown></FireDetection>'''
 OK = '<ResponseStatus><statusCode>1</statusCode></ResponseStatus>'
+NOT_SUPPORT = '''<ResponseStatus xmlns="http://www.isapi.org/ver20/XMLSchema" version="2.0">
+    <statusCode>4</statusCode><statusString>Invalid Operation</statusString>
+    <subStatusCode>notSupport</subStatusCode></ResponseStatus>'''
 SHIELD_CAP = '''<SmokeShieldMask><enabled>true</enabled><SmokeShieldMaskRegionList size="4">
     <SmokeShieldMaskRegion><id min="1" max="4">1</id><enabled>true</enabled><showEnabled>true</showEnabled>
     <regionType opt="quadrilateral">quadrilateral</regionType></SmokeShieldMaskRegion>
@@ -199,6 +202,53 @@ def test_unsupported_capabilities_do_not_invent_device_defaults():
     assert session.request.call_count == 1
 
 
+def test_device_403_not_support_is_not_reported_as_bad_credentials():
+    client, session, _ = client_with([response(NOT_SUPPORT, 403)])
+    with pytest.raises(device.SmokeDeviceError, match="参数通道") as error:
+        client._request("GET", "/ISAPI/Thermal/channels/1/fireDetection/capabilities")
+    assert error.value.unsupported and error.value.device_status == 403
+    assert "密码" not in str(error.value)
+    assert session.request.call_count == 1
+
+
+def test_optional_403_not_support_returns_no_capability_without_switching_channel():
+    client, session, _ = client_with([response(THERMAL), response(NOT_SUPPORT, 403)])
+    state = client.read_parameters()
+    assert not state.supported and state.parameters == [] and "参数通道" in state.message
+    assert session.request.call_count == 2
+    assert session.request.call_args.args[1].endswith("/channels/2/fireDetection/capabilities")
+    assert all(call.args[0] == "GET" for call in session.request.call_args_list)
+
+
+@pytest.mark.parametrize("status,payload", [
+    (401, NOT_SUPPORT),
+    (403, '<ResponseStatus><statusCode>4</statusCode><subStatusCode>badAuthorization</subStatusCode></ResponseStatus>'),
+    (403, '<ResponseStatus><statusCode>4</statusCode><subStatusCode>lowPrivilege</subStatusCode></ResponseStatus>'),
+    (403, NOT_SUPPORT.replace('<statusCode>4', '<statusCode>3')),
+    (403, NOT_SUPPORT.replace('ResponseStatus', 'UnknownResponse')),
+    (403, '<ResponseStatus><statusCode>4</statusCode><subStatusCode>notSupport'),
+    (403, '<!DOCTYPE a [<!ENTITY x "notSupport">]><ResponseStatus><statusCode>4</statusCode><subStatusCode>&x;</subStatusCode></ResponseStatus>'),
+])
+def test_other_denials_are_not_suppressed_as_unsupported(status, payload):
+    reply = response(payload, status)
+    client, session, _ = client_with([reply])
+    with pytest.raises(device.SmokeDeviceError, match="拒绝访问") as error:
+        client._optional_get("/ISAPI/Thermal/channels/2/fireDetection/capabilities")
+    assert error.value.device_status == status and error.value.unsupported is False
+    assert session.request.call_count == 1
+    if status == 401:
+        reply.iter_content.assert_not_called()
+
+
+def test_403_error_xml_uses_the_response_size_limit():
+    client, session, _ = client_with([response(NOT_SUPPORT, 403)],
+                                    options=replace(device.SmokeDeviceOptions(), max_response_bytes=32))
+    with pytest.raises(device.SmokeDeviceError, match="大小") as error:
+        client._optional_get("/ISAPI/Thermal/channels/2/fireDetection/capabilities")
+    assert error.value.unsupported is False
+    assert session.request.call_count == 1
+
+
 @pytest.mark.parametrize("status", [301, 401, 403, 500])
 def test_device_http_failures_are_sanitized(status):
     client, _, _ = client_with([response("password", status)])
@@ -355,6 +405,18 @@ def test_subscription_filters_channel_but_reports_activity_and_connection():
     connected.assert_called_once()
     assert activity.call_count == 2
     assert session.get.call_args.kwargs["allow_redirects"] is False
+
+
+def test_successful_event_stream_is_not_read_before_connection_callback():
+    reply = response(multipart(smoke_xml()), content_type="multipart/mixed; boundary=boundary")
+    client, _, _ = client_with([reply])
+
+    def connected():
+        reply.iter_content.assert_not_called()
+
+    events = list(client.iter_events(Event(), on_connected=connected))
+    assert len(events) == 1
+    reply.iter_content.assert_called_once_with(device.STREAM_CHUNK_BYTES)
 
 
 def test_subscription_cancel_closes_response_without_raw_error():

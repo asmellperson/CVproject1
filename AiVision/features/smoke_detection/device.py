@@ -39,10 +39,12 @@ _WRITE_LOCKS: dict[tuple[str, int], Lock] = {}
 class SmokeDeviceError(RuntimeError):
     """仅包含可公开的中文错误，设备原始响应和认证信息不对外提供。"""
 
-    def __init__(self, message: str, status_code: int = 502, *, device_status: int | None = None):
+    def __init__(self, message: str, status_code: int = 502, *, device_status: int | None = None,
+                 unsupported: bool = False):
         super().__init__(message)
         self.status_code = status_code
         self.device_status = device_status
+        self.unsupported = unsupported
 
 
 @dataclass(frozen=True)
@@ -176,9 +178,29 @@ class SmokeDeviceClient:
         session.auth = HTTPDigestAuth(self._target.username, self._target.password)
         return session
 
-    @staticmethod
-    def _check_http(response) -> None:
+    def _response_bytes(self, response) -> bytes:
+        body = bytearray()
+        for chunk in response.iter_content(STREAM_CHUNK_BYTES):
+            if len(body) + len(chunk) > self.options.max_response_bytes:
+                raise SmokeDeviceError("设备参数响应超过允许大小")
+            body.extend(chunk)
+        return bytes(body)
+
+    def _check_http(self, response) -> None:
         status = response.status_code
+        if status == 403:
+            # 设备也用 403 表示通道或接口不支持，不能仅凭 HTTP 状态认定为密码错误。
+            body = self._response_bytes(response)
+            try:
+                root = parse_xml(body, maximum=self.options.max_response_bytes)
+            except SmokeProtocolError:
+                unsupported = False
+            else:
+                unsupported = (local_name(root) == "ResponseStatus" and text(root, "statusCode") == "4"
+                               and text(root, "subStatusCode") == "notSupport")
+            if unsupported:
+                raise SmokeDeviceError("设备当前参数通道不支持此接口，请核对设备参数通道",
+                                       device_status=status, unsupported=True)
         if status in {401, 403}:
             raise SmokeDeviceError("摄像头拒绝访问，请检查设备账号、密码和接口权限", device_status=status)
         if not 200 <= status < 300:
@@ -191,12 +213,8 @@ class SmokeDeviceClient:
                         headers={"Content-Type": "application/xml"}, stream=True, allow_redirects=False,
                         timeout=(self.options.connect_timeout_seconds, self.options.request_timeout_seconds)) as response:
                     self._check_http(response)
-                    body = bytearray()
-                    for chunk in response.iter_content(STREAM_CHUNK_BYTES):
-                        if len(body) + len(chunk) > self.options.max_response_bytes:
-                            raise SmokeDeviceError("设备参数响应超过允许大小")
-                        body.extend(chunk)
-            root = parse_xml(bytes(body), maximum=self.options.max_response_bytes)
+                    body = self._response_bytes(response)
+            root = parse_xml(body, maximum=self.options.max_response_bytes)
         except requests.exceptions.SSLError:
             raise SmokeDeviceError("设备 HTTPS 证书校验失败，请检查摄像头证书") from None
         except requests.Timeout:
@@ -214,7 +232,7 @@ class SmokeDeviceClient:
         try:
             return self._request("GET", path)
         except SmokeDeviceError as exc:
-            if exc.device_status in {404, 405}:
+            if exc.unsupported or exc.device_status in {404, 405}:
                 return None
             raise
 
@@ -238,7 +256,7 @@ class SmokeDeviceClient:
 
     def _parameter_state(self, capabilities, current) -> SmokeParametersState:
         result = SmokeParametersState(supported=False, channel_id=self._target.thermal_channel_id,
-                                      message="设备未确认烟雾参数配置能力")
+                                      message="当前设备参数通道未确认烟雾配置能力，请核对设备参数通道")
         if capabilities is None or current is None:
             return result
         cap = child(capabilities, "SmokeDetection")

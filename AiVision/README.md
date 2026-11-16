@@ -1474,7 +1474,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 `features/smoke_detection/` 中，`consumer.py` 管理后台事件连接、去重和启停；`events.py` 解析有界 multipart/XML，`device.py` 使用 Digest 鉴权访问设备，`device_schema.py` 定义参数与屏蔽区契约，`service.py` 连接平台配置及设备客户端。平台不执行烟雾算法，正式告警类型为 `18`。配置表在正常启动时创建，功能需由系统管理员分配至对应事业部。
 
-平台配置沿用 `GET/PUT /api/features/smoke_detection/configs/{key}`。`value` 保存 `device_scheme`、`device_port`、`event_channel_id`、`thermal_channel_id` 和 `alarm_interval`；地址、用户名和密码从摄像头 RTSP 源读取，不通过设备参数响应返回。功能开关仅控制后台接收；设备检测开关通过设备参数接口修改。配置刷新、禁用、删除或停止服务会取消旧连接，旧回调不能进入新配置。
+平台配置沿用 `GET/PUT /api/features/smoke_detection/configs/{key}`。`value` 保存 `device_scheme`、`device_port`、`event_channel_id`、`thermal_channel_id` 和 `alarm_interval`；地址、用户名和密码从摄像头 RTSP 源读取，不通过设备参数响应返回。双光谱监控可使用可见光码流，参数管理独立指向支持热成像配置的通道；参数通道不改变监控视频源。功能开关仅控制后台接收；设备检测开关通过设备参数接口修改。配置刷新、禁用、删除或停止服务会取消旧连接，旧回调不能进入新配置。
 
 | 方法 | 原生 API | 用途 |
 | --- | --- | --- |
@@ -1483,7 +1483,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/smoke/{key}/picture` | 参数通道的设备 JPEG，供屏蔽区绘制 |
 | GET | `/api/smoke/{key}/status` | 视频在线情况、设备连接、明确事件状态及有效期 |
 
-所有接口要求 `department` 并核对摄像头真实归属及功能分配；设备参数和抓图仅配置管理员可访问，普通用户可查看运行状态。功能配置中的摄像头摘要仅用于身份核对，设备访问按稳定摄像头 ID 重新读取完整配置并复核归属、启用状态与源地址。区域写入要求实际设备提供坐标尺寸、四边形能力及可编辑区域；不具备能力时只读。请求禁用重定向和环境代理，错误不带认证地址；能力、设备业务回执和写入回读均校验。
+所有接口要求 `department` 并核对摄像头真实归属及功能分配；设备参数和抓图仅配置管理员可访问，普通用户可查看运行状态。功能配置中的摄像头摘要仅用于身份核对，设备访问按稳定摄像头 ID 重新读取完整配置并复核归属、启用状态与源地址。区域写入要求实际设备提供坐标尺寸、四边形能力及可编辑区域；不具备能力时只读。请求禁用重定向和环境代理，错误不带认证地址；能力、设备业务回执和写入回读均校验。设备返回 HTTP 403 且明确提供 `ResponseStatus/statusCode=4/subStatusCode=notSupport` 时，识别为当前接口或参数通道不支持；普通认证及权限拒绝继续报错。
 
 仅明确的 `smokeDetection` 事件触发烟雾报警；未验证的烟火联合格式需通过真机事件样本确认，不能按类型名称猜测烟雾。事件源时间、ID、通道及来源写入元数据，同一持续事件和重发事件去重；视频缺失不阻断设备事件接收。无截图记录的 `image_path` 和 `image_url` 为空，企微发送文字及当前详情链接，媒体清理遵守相同保留期。电话提醒与强制手机振动不属于该接口。
 
