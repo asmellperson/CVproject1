@@ -339,3 +339,89 @@ def test_connected_stream_requires_recognized_smoke_protocol_and_surfaces_warnin
         assert dispatcher.call_count == 1
     finally:
         consumer.stop()
+
+
+@pytest.fixture
+def smoke_mysql_schema(modules, monkeypatch):
+    """复现现场 MySQL 8 的反射文本，其余结构与正式烟雾表完全一致。"""
+    from sqlalchemy import UniqueConstraint
+    from sqlalchemy.dialects import mysql, sqlite
+    from AiVision.core import schema
+    from AiVision.cameras import orm as _camera_orm  # noqa: F401
+    from AiVision.alarms.devices import orm as _horn_orm  # noqa: F401
+    from AiVision.features.smoke_detection.orm import SmokeConfigORM
+
+    table = SmokeConfigORM.__table__
+    checks = [
+        {"name": "ck_smoke_device_port", "sqltext": "(`device_port` between 1 and 65535)"},
+        {"name": "ck_smoke_event_channel", "sqltext": "(`event_channel_id` > 0)"},
+        {"name": "ck_smoke_thermal_channel", "sqltext": "(`thermal_channel_id` > 0)"},
+        {"name": "ck_smoke_device_scheme", "sqltext": "(`device_scheme` in (_utf8mb4'http',_utf8mb4'https'))"},
+        {"name": "ck_smoke_alarm_interval", "sqltext": "(`alarm_interval` > 0)"},
+    ]
+    inspector = SimpleNamespace(
+        get_columns=lambda name: [
+            {"name": column.name, "type": column.type, "nullable": column.nullable,
+             "default": str(column.server_default.arg) if column.server_default is not None else None}
+            for column in table.columns
+        ],
+        get_pk_constraint=lambda name: {"constrained_columns": [column.name for column in table.primary_key]},
+        get_indexes=lambda name: [
+            {"column_names": [column.name for column in index.columns], "unique": index.unique}
+            for index in table.indexes
+        ],
+        get_unique_constraints=lambda name: [
+            {"column_names": [column.name for column in constraint.columns]}
+            for constraint in table.constraints if isinstance(constraint, UniqueConstraint)
+        ],
+        get_foreign_keys=lambda name: [
+            {"constrained_columns": [column.name for column in constraint.columns],
+             "referred_table": constraint.referred_table.name,
+             "referred_columns": [element.column.name for element in constraint.elements],
+             "options": {"ondelete": constraint.ondelete}}
+            for constraint in table.foreign_key_constraints
+        ],
+        get_check_constraints=lambda name: checks,
+    )
+    monkeypatch.setattr(schema, "inspect", lambda connection: inspector)
+    return SimpleNamespace(schema=schema, table=table, checks=checks,
+                           connection=SimpleNamespace(dialect=mysql.dialect()), sqlite=sqlite.dialect())
+
+
+def test_smoke_bootstrap_accepts_mysql_utf8mb4_check_reflection(smoke_mysql_schema):
+    reflected = smoke_mysql_schema
+    reflected.schema.assert_table_matches(reflected.connection, reflected.table)
+
+
+@pytest.mark.parametrize("scheme_sql", [
+    "(`device_scheme` in (_utf8mb4'http',_utf8mb4'ftp'))",
+    "(`device_scheme` in (_utf8mb4'HTTP',_utf8mb4'https'))",
+    "(`device_scheme` in (_utf8mb4'h ttp',_utf8mb4'https'))",
+    "(`device_scheme` in (_utf8mb4'http()',_utf8mb4'https'))",
+    "(`device_scheme` in ('_utf8mb4http',_utf8mb4'https'))",
+    "(`device_scheme` in (_binary'http',_binary'https'))",
+    "(`device_scheme` in (_latin1'http',_latin1'https'))",
+])
+def test_smoke_bootstrap_rejects_changed_check_literal_semantics(smoke_mysql_schema, scheme_sql):
+    reflected = smoke_mysql_schema
+    reflected.checks[3]["sqltext"] = scheme_sql
+    with pytest.raises(ValueError, match="CHECK 约束不一致"):
+        reflected.schema.assert_table_matches(reflected.connection, reflected.table)
+
+
+@pytest.mark.parametrize("change", ["range", "missing"])
+def test_smoke_bootstrap_still_rejects_real_schema_drift(smoke_mysql_schema, change):
+    reflected = smoke_mysql_schema
+    if change == "range":
+        reflected.checks[0]["sqltext"] = "(`device_port` between 1 and 65536)"
+    else:
+        reflected.checks.pop(0)
+    with pytest.raises(ValueError, match="CHECK 约束不一致"):
+        reflected.schema.assert_table_matches(reflected.connection, reflected.table)
+
+
+def test_smoke_bootstrap_does_not_apply_mysql_literal_rules_to_sqlite(smoke_mysql_schema):
+    reflected = smoke_mysql_schema
+    reflected.connection.dialect = reflected.sqlite
+    with pytest.raises(ValueError, match="CHECK 约束不一致"):
+        reflected.schema.assert_table_matches(reflected.connection, reflected.table)

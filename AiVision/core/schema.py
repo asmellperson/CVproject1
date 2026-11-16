@@ -33,9 +33,20 @@ def _type(column_type, dialect):
     return {"BOOL": "BOOLEAN", "TINYINT(1)": "BOOLEAN", "INTEGER": "INT"}.get(value, value)
 
 
-def _expression(value):
-    """去掉表达式空白、标识符引号和括号并转小写，供约束文本比较使用。"""
-    return re.sub(r"[\s`\"()]+", "", str(value)).lower()
+def _expression(value, *, dialect_name=None):
+    """规范化约束语法，保留字符串内容并识别 MySQL 的 UTF-8 反射前缀。"""
+    parts = re.split(r"('(?:[^'\\]|\\.|'')*')", str(value))
+    normalized = []
+    for index, part in enumerate(parts):
+        if index % 2:
+            # 字面量内的空格、大小写和括号属于实际允许值，不能随 SQL 格式一起删除。
+            normalized.append(part)
+            continue
+        if dialect_name == "mysql" and index + 1 < len(parts):
+            # 当前连接使用 utf8mb4；MySQL 反射会显式标出该字符集，不扩大到其他字符集。
+            part = re.sub(r"(?<!\w)_utf8mb4\s*$", "", part, flags=re.IGNORECASE)
+        normalized.append(re.sub(r"[\s`\"()]+", "", part).lower())
+    return "".join(normalized)
 
 
 def assert_table_matches(connection, table, *, actual_name=None):
@@ -87,8 +98,10 @@ def assert_table_matches(connection, table, *, actual_name=None):
                    fk.get("options", {}).get("ondelete")) for fk in inspector.get_foreign_keys(name)}
     if expected_fks != actual_fks:
         errors.append("外键不一致")
-    expected_checks = {_expression(c.sqltext) for c in table.constraints if isinstance(c, CheckConstraint)}
-    actual_checks = {_expression(c["sqltext"]) for c in inspector.get_check_constraints(name)}
+    expected_checks = {_expression(c.sqltext, dialect_name=connection.dialect.name)
+                       for c in table.constraints if isinstance(c, CheckConstraint)}
+    actual_checks = {_expression(c["sqltext"], dialect_name=connection.dialect.name)
+                     for c in inspector.get_check_constraints(name)}
     if expected_checks != actual_checks:
         errors.append("CHECK 约束不一致")
     if errors:
