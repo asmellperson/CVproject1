@@ -75,7 +75,7 @@ export function SmokeShields({ cameraKey, department, disabled }: {
     }
   }
   return <div className="space-y-5">
-    <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">烟雾屏蔽区内不检测烟雾。画面来自设备参数配置通道；请核对画面后绘制，保存将直接修改摄像头。</p>
+    <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">烟雾屏蔽区内不检测烟雾。画面来自设备实际支持的烟雾屏蔽区通道；请核对画面后绘制，保存将直接修改摄像头。</p>
     {state?.supported && <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <label className="flex items-center justify-between gap-4"><span className="text-sm">启用设备烟雾区域屏蔽</span><Switch aria-label="启用设备烟雾区域屏蔽" checked={state.enabled} disabled={readOnly}
         onCheckedChange={(enabled) => setState((current) => current ? { ...current, enabled } : current)} /></label>

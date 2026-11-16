@@ -10,9 +10,10 @@ import xml.etree.ElementTree as ET
 
 import requests
 from requests.auth import HTTPDigestAuth
+from urllib3.exceptions import HTTPError
 
 from .device_schema import (
-    SmokeParameter, SmokeParametersState, SmokeParametersUpdate,
+    SmokeParameter, SmokeParameterChoice, SmokeParametersState, SmokeParametersUpdate,
     SmokeShieldPoint, SmokeShieldRegion, SmokeShieldState, SmokeShieldUpdate,
 )
 from .events import SmokeEvent, SmokeProtocolError, child, iter_multipart, local_name, parse_smoke_event, parse_xml, text
@@ -26,11 +27,23 @@ STREAM_CHUNK_BYTES = 4096
 SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024
 SNAPSHOT_MAX_PIXELS = 24 * 1024 * 1024
 PARAMETERS = {
-    "enabled": ("enabled", "烟雾检测", "boolean"),
-    "sensitivity": ("sensitivity", "烟雾灵敏度", "integer"),
-    "patrol_sensitivity": ("patrolSensitivity", "巡航检测灵敏度", "integer"),
-    "double_check_sensitivity": ("doubleCheckSensitivity", "二次确认灵敏度", "integer"),
-    "display_smoke_info": ("displaySmokeInfoOnStreamEnabled", "画面叠加烟雾信息", "boolean"),
+    "enabled": (("SmokeDetection", "enabled"), "烟雾检测", "boolean"),
+    "sensitivity": (("SmokeDetection", "sensitivity"), "烟雾灵敏度", "integer"),
+    "patrol_sensitivity": (("SmokeDetection", "patrolSensitivity"), "巡航检测灵敏度", "integer"),
+    "double_check_sensitivity": (("SmokeDetection", "doubleCheckSensitivity"), "二次确认灵敏度", "integer"),
+    "display_smoke_info": (("SmokeDetection", "displaySmokeInfoOnStreamEnabled"), "画面叠加烟雾信息", "boolean"),
+    "alarm_strategy": (("AlarmStrategy", "strategyType"), "设备报警策略（烟雾与火点）", "enum"),
+    "device_alarm_interval": (("SmokeDetection", "alarmInterval"), "设备烟雾报警间隔（秒）", "integer"),
+    "image_quality": (("SmokeDetection", "imgQuality"), "烟雾报警抓图质量", "enum"),
+    "high_sensitivity_enabled": (("SmokeDetection", "highSensitivityEnabled"), "烟雾高灵敏度模式", "boolean"),
+}
+PARAMETER_CHOICES = {
+    "alarm_strategy": {
+        "any": "烟雾或火点任一报警", "cooperate": "烟雾与火点协同报警",
+        "multiSystem": "多系统确认报警", "multisystem": "多系统确认报警",
+        "appointFire": "仅火点报警", "appointSmoke": "仅烟雾报警",
+    },
+    "image_quality": {"best": "最佳", "good": "良好", "general": "一般"},
 }
 _LOCKS_GUARD = Lock()
 _WRITE_LOCKS: dict[tuple[str, int], Lock] = {}
@@ -107,6 +120,14 @@ def _set_text(parent: ET.Element, name: str, value: str) -> None:
     node.text = value
 
 
+def _descendant(parent: ET.Element, path: tuple[str, ...]) -> ET.Element | None:
+    for name in path:
+        parent = child(parent, name)
+        if parent is None:
+            return None
+    return parent
+
+
 def _xml_bytes(root: ET.Element) -> bytes:
     if "}" in root.tag:
         ET.register_namespace("", root.tag[1:].split("}", 1)[0])
@@ -157,6 +178,7 @@ class SmokeDeviceClient:
         self._active_response = None
         self._active_session = None
         self._closed = Event()
+        self._shield_channel_id = self._target.event_channel_id
         with _LOCKS_GUARD:
             self._write_lock = _WRITE_LOCKS.setdefault(
                 (self._target.base_url, self._target.thermal_channel_id), Lock())
@@ -259,8 +281,9 @@ class SmokeDeviceClient:
                                       message="当前设备参数通道未确认烟雾配置能力，请核对设备参数通道")
         if capabilities is None or current is None:
             return result
-        cap = child(capabilities, "SmokeDetection")
-        values = child(current, "SmokeDetection")
+        strategy = _descendant(current, ("AlarmStrategy", "strategyType"))
+        if strategy is not None and (strategy.text or "").strip() == "appointFire":
+            result.warnings.append("当前设备报警策略为仅火点报警，烟雾报警不会上传；请按需选择仅烟雾报警或烟雾/火点任一报警。")
         result.global_enabled = _boolean(text(current, "smokeFireEnabled"))
         global_cap = child(capabilities, "smokeFireEnabled")
         if global_cap is not None and result.global_enabled is not None:
@@ -269,16 +292,11 @@ class SmokeDeviceClient:
                 # 部分固件只提供烟火总开关，不提供烟雾独立开关；名称明确其同时影响火点检测。
                 result.parameters.append(SmokeParameter(key="global_enabled", label="烟火检测总开关（含火点）",
                     kind="boolean", value=result.global_enabled))
-        if cap is None or values is None:
-            if result.parameters:
-                result.supported = True
-                result.message = "已读取摄像头当前参数"
-            return result
         result.supported = True
         result.message = "已读取摄像头当前参数"
-        for key, (xml_name, label, kind) in PARAMETERS.items():
-            node = child(cap, xml_name)
-            current_node = child(values, xml_name)
+        for key, (path, label, kind) in PARAMETERS.items():
+            node = _descendant(capabilities, path)
+            current_node = _descendant(current, path)
             if node is None or current_node is None:
                 continue
             raw = (current_node.text or "").strip()
@@ -287,7 +305,7 @@ class SmokeDeviceClient:
                 choices = {item.strip().lower() for item in (node.get("opt") or "true,false").split(",")}
                 if value is not None and {"true", "false"} <= choices:
                     result.parameters.append(SmokeParameter(key=key, label=label, kind=kind, value=value))
-            else:
+            elif kind == "integer":
                 minimum, maximum = _integer(node.get("min")), _integer(node.get("max"))
                 value = _integer(raw)
                 # 不把通用协议示例范围冒充这台设备的实际范围。
@@ -295,6 +313,12 @@ class SmokeDeviceClient:
                         and minimum <= value <= maximum):
                     result.parameters.append(SmokeParameter(key=key, label=label, kind=kind, value=value,
                                                             minimum=minimum, maximum=maximum))
+            else:
+                supported = [item.strip() for item in (node.get("opt") or "").split(",") if item.strip()]
+                labels = PARAMETER_CHOICES[key]
+                choices = [SmokeParameterChoice(value=item, label=labels[item]) for item in supported if item in labels]
+                if raw in {item.value for item in choices}:
+                    result.parameters.append(SmokeParameter(key=key, label=label, kind=kind, value=raw, choices=choices))
         return result
 
     def read_parameters(self) -> SmokeParametersState:
@@ -308,19 +332,22 @@ class SmokeDeviceClient:
             if not state.supported or update.values.keys() - fields.keys():
                 raise SmokeDeviceError("设备未确认所提交参数的写入能力", 409)
             changed = deepcopy(current)
-            values = child(changed, "SmokeDetection")
             for key, value in update.values.items():
                 definition = fields[key]
                 if definition.kind == "boolean":
                     valid = type(value) is bool
-                else:
+                elif definition.kind == "integer":
                     valid = type(value) is int and definition.minimum <= value <= definition.maximum
+                else:
+                    valid = type(value) is str and value in {item.value for item in definition.choices}
                 if not valid:
                     raise SmokeDeviceError("提交的烟雾参数类型或数值范围不符合设备能力", 422)
                 if key == "global_enabled":
                     _set_text(changed, "smokeFireEnabled", str(value).lower())
                 else:
-                    _set_text(values, PARAMETERS[key][0], str(value).lower())
+                    path = PARAMETERS[key][0]
+                    parent = _descendant(changed, path[:-1])
+                    _set_text(parent, path[-1], str(value).lower() if type(value) is bool else str(value))
             result = self._request("PUT", self._path("fireDetection"), payload=_xml_bytes(changed))
             if local_name(result) != "ResponseStatus":
                 raise SmokeDeviceError("设备未确认参数保存结果")
@@ -332,18 +359,23 @@ class SmokeDeviceClient:
             return actual
 
     def _shield_documents(self):
-        capabilities = self._optional_get(self._path("smokeShieldMask/capabilities"))
-        if capabilities is None:
-            return None, None
-        current = self._optional_get(self._path("SmokeShieldMask"))
-        if current is None:
-            return None, None
-        if local_name(capabilities) != "SmokeShieldMask" or local_name(current) != "SmokeShieldMask":
-            raise SmokeDeviceError("设备未返回有效的烟雾屏蔽区域")
-        return capabilities, current
+        # 双光谱设备的烟雾屏蔽区可能属于可见光通道，不能强行套用热成像参数通道。
+        for channel in dict.fromkeys((self._target.event_channel_id, self._target.thermal_channel_id)):
+            path = f"/ISAPI/Thermal/channels/{channel}/"
+            capabilities = self._optional_get(path + "smokeShieldMask/capabilities")
+            if capabilities is None:
+                continue
+            current = self._optional_get(path + "SmokeShieldMask")
+            if current is None:
+                continue
+            if local_name(capabilities) != "SmokeShieldMask" or local_name(current) != "SmokeShieldMask":
+                raise SmokeDeviceError("设备未返回有效的烟雾屏蔽区域")
+            self._shield_channel_id = channel
+            return capabilities, current
+        return None, None
 
     def _shield_state(self, capabilities, current) -> SmokeShieldState:
-        result = SmokeShieldState(supported=False, channel_id=self._target.thermal_channel_id,
+        result = SmokeShieldState(supported=False, channel_id=self._shield_channel_id,
                                   message="设备未确认烟雾屏蔽区域能力")
         if capabilities is None or current is None:
             return result
@@ -361,7 +393,10 @@ class SmokeDeviceClient:
         template = child(regions_cap, "SmokeShieldMaskRegion") if regions_cap is not None else None
         id_cap = child(template, "id") if template is not None else None
         maximum = _integer(id_cap.get("max")) if id_cap is not None else None
+        regions = child(current, "SmokeShieldMaskRegionList")
         count = _integer(regions_cap.get("size")) if regions_cap is not None else None
+        if count is None and regions is not None:
+            count = _integer(regions.get("size"))
         minimum = _integer(id_cap.get("min")) if id_cap is not None else None
         result.max_regions = min(maximum or 0, count or 0)
         region_type = text(template, "regionType") if template is not None else ""
@@ -378,7 +413,6 @@ class SmokeDeviceClient:
                                and child(template, "enabled") is not None
                                and text(template, "showEnabled") != "false"
                                and (region_type == "quadrilateral" or "quadrilateral" in type_choices))
-        regions = child(current, "SmokeShieldMaskRegionList")
         for region in regions if regions is not None else []:
             if local_name(region) != "SmokeShieldMaskRegion" or text(region, "showEnabled") == "false":
                 continue
@@ -412,8 +446,11 @@ class SmokeDeviceClient:
         return self._shield_state(*self._shield_documents())
 
     def read_picture(self) -> bytes:
-        """屏蔽区预览只取所选设备通道，禁止回退到其它监控画面。"""
-        stream_id = self._target.thermal_channel_id * 100 + 1
+        """屏蔽区底图必须来自能力确认后的区域通道，避免在热图上绘制可见光坐标。"""
+        capabilities, current = self._shield_documents()
+        if capabilities is None or current is None:
+            raise SmokeDeviceError("尚未确认设备屏蔽区画面通道", 409)
+        stream_id = self._shield_channel_id * 100 + 1
         try:
             with self._session() as session:
                 with session.get(self._target.base_url + f"/ISAPI/Streaming/channels/{stream_id}/picture",
@@ -501,10 +538,11 @@ class SmokeDeviceClient:
                     _set_text(item, "positionX", str(round(point.x * state.coordinate_width)))
                     _set_text(item, "positionY", str(round((1 - point.y) * state.coordinate_height)))
                 container.append(node)
-            result = self._request("PUT", self._path("SmokeShieldMask"), payload=_xml_bytes(changed))
+            path = f"/ISAPI/Thermal/channels/{self._shield_channel_id}/SmokeShieldMask"
+            result = self._request("PUT", path, payload=_xml_bytes(changed))
             if local_name(result) != "ResponseStatus":
                 raise SmokeDeviceError("设备未确认区域保存结果")
-            actual = self._shield_state(capabilities, self._request("GET", self._path("SmokeShieldMask")))
+            actual = self._shield_state(capabilities, self._request("GET", path))
             expected = {region.id: region for region in update.regions}
             returned = {region.id: region for region in actual.regions}
             if actual.enabled != update.enabled or expected.keys() != returned.keys():
@@ -542,7 +580,15 @@ class SmokeDeviceClient:
                     multipart_boundary(content_type)
                     if on_connected is not None:
                         on_connected()
-                    for part in iter_multipart(response.iter_content(STREAM_CHUNK_BYTES), content_type,
+                    # 非 chunked 长连接的心跳很小；read1及时交付已有数据，避免攒满缓冲后误报断线。
+                    def chunks():
+                        while not stop_event.is_set() and not self._closed.is_set():
+                            data = response.raw.read1(STREAM_CHUNK_BYTES, decode_content=True)
+                            if not data:
+                                return
+                            yield data
+
+                    for part in iter_multipart(chunks(), content_type,
                                                maximum_part_bytes=self.options.max_part_bytes):
                         if stop_event.is_set() or self._closed.is_set():
                             return
@@ -564,7 +610,7 @@ class SmokeDeviceClient:
                             if on_protocol_warning is not None:
                                 on_protocol_warning("")
                             yield event
-        except (requests.RequestException, SmokeProtocolError):
+        except (requests.RequestException, HTTPError, SmokeProtocolError):
             if not stop_event.is_set() and not self._closed.is_set():
                 raise SmokeDeviceError("摄像头报警事件连接中断或协议无效，请检查设备网络和事件接口") from None
         finally:

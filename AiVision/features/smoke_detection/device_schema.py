@@ -8,13 +8,19 @@ class DeviceModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
+class SmokeParameterChoice(DeviceModel):
+    value: str
+    label: str
+
+
 class SmokeParameter(DeviceModel):
     key: str
     label: str
-    kind: Literal["boolean", "integer"]
-    value: bool | int
+    kind: Literal["boolean", "integer", "enum"]
+    value: bool | int | str
     minimum: int | None = None
     maximum: int | None = None
+    choices: list[SmokeParameterChoice] = Field(default_factory=list)
 
 
 class SmokeParametersState(DeviceModel):
@@ -23,10 +29,11 @@ class SmokeParametersState(DeviceModel):
     channel_id: int
     global_enabled: bool | None = None
     parameters: list[SmokeParameter] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SmokeParametersUpdate(DeviceModel):
-    values: dict[str, bool | int] = Field(min_length=1, max_length=6)
+    values: dict[str, bool | int | str] = Field(min_length=1, max_length=10)
 
 
 class SmokeShieldPoint(DeviceModel):
@@ -88,7 +95,7 @@ class SmokeShieldState(DeviceModel):
 
 class SmokeShieldUpdate(DeviceModel):
     enabled: bool
-    regions: list[SmokeShieldRegion] = Field(default_factory=list, max_length=24)
+    regions: list[SmokeShieldRegion] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def unique_regions(self):

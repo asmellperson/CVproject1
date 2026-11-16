@@ -326,7 +326,8 @@ def test_connected_stream_requires_recognized_smoke_protocol_and_surfaces_warnin
         before = consumer.get_monitor_status("camera_1")
         assert before["connection_state"] == "connected"
         assert not before["event_protocol_verified"]
-        assert "待真机核验" in before["message"]
+        assert before["alarm_state"] == "unknown"
+        assert before["message"] == "设备报警接口已连接，等待烟雾事件"
         consumer._protocol_warning(subscription, "设备上报烟火相关事件，烟雾子类型尚未核验，请完成设备联调")
         warning = consumer.get_monitor_status("camera_1")
         assert warning["reason"] == "unsupported_event" and warning["alarm_state"] == "unknown"
@@ -336,6 +337,53 @@ def test_connected_stream_requires_recognized_smoke_protocol_and_surfaces_warnin
         verified = consumer.get_monitor_status("camera_1")
         assert verified["event_protocol_verified"] and verified["reason"] == "smoke_alarm"
         assert verified["alarm_state"] == "active"
+        assert dispatcher.call_count == 1
+    finally:
+        consumer.stop()
+
+
+def test_heartbeat_keeps_transport_connected_without_inventing_smoke_state(modules, monkeypatch):
+    consumer, _, _, devices, dispatcher = runtime(modules, monkeypatch)
+    try:
+        consumer.start()
+        wait_until(lambda: devices and devices[0].connected.is_set())
+        subscription = consumer._subscriptions[1]
+        connected_at = consumer._smoke_states[1].last_activity_at
+        monkeypatch.setattr(modules[0].time, "time", lambda: connected_at + 20)
+        consumer._activity(subscription)
+        monkeypatch.setattr(modules[0].time, "time", lambda: connected_at + 40)
+        status = consumer.get_monitor_status("camera_1")
+        assert status["connection_state"] == "connected"
+        assert status["alarm_state"] == "unknown"
+        assert not status["event_protocol_verified"]
+        assert status["last_event_at"] is None
+        assert status["valid_for_seconds"] == 10
+        dispatcher.assert_not_called()
+        # 真正没有心跳或事件时仍应过期，不把长期静默描述成设备正常。
+        monkeypatch.setattr(modules[0].time, "time", lambda: connected_at + 51)
+        expired = consumer.get_monitor_status("camera_1")
+        assert expired["connection_state"] == "disconnected"
+        assert expired["alarm_state"] == "unknown"
+        assert expired["valid_for_seconds"] == 0
+        assert "未收到心跳或事件" in expired["message"]
+    finally:
+        consumer.stop()
+
+
+def test_reconnected_verified_protocol_waits_for_new_device_state(modules, monkeypatch):
+    consumer, _, _, devices, dispatcher = runtime(modules, monkeypatch)
+    try:
+        consumer.start()
+        wait_until(lambda: devices and devices[0].connected.is_set())
+        subscription = consumer._subscriptions[1]
+        consumer._receive_event(subscription, smoke_event(modules))
+        devices[0].queue.put(None)
+        wait_until(lambda: len(devices) == 2 and devices[1].connected.is_set())
+        status = consumer.get_monitor_status("camera_1")
+        assert status["connection_state"] == "connected"
+        assert status["event_protocol_verified"]
+        assert status["alarm_state"] == "unknown"
+        assert status["message"] == "设备报警接口已连接，等待烟雾事件"
         assert dispatcher.call_count == 1
     finally:
         consumer.stop()

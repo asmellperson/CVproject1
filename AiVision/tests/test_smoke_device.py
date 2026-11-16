@@ -52,6 +52,7 @@ def response(payload, status=200, content_type="application/xml"):
     result.headers = {"Content-Type": content_type}
     body = payload.encode() if isinstance(payload, str) else payload
     result.iter_content.return_value = iter([body])
+    result.raw.read1.side_effect = [body, b""]
     result.__enter__ = Mock(return_value=result)
     result.__exit__ = Mock(return_value=False)
     return result
@@ -61,8 +62,9 @@ def client_with(responses, *, options=None, value=None):
     session = Mock()
     session.__enter__ = Mock(return_value=session)
     session.__exit__ = Mock(return_value=False)
-    session.request.side_effect = responses
-    session.get.side_effect = responses
+    replies = iter(responses)
+    session.request.side_effect = replies
+    session.get.side_effect = replies
     factory = Mock(return_value=session)
     client = device.SmokeDeviceClient(CAMERA, value or VALUE, options, session_factory=factory)
     return client, session, factory
@@ -162,10 +164,12 @@ def test_global_switch_does_not_invent_independent_smoke_enable():
     assert "global_enabled" in fields and "enabled" not in fields and "sensitivity" in fields
 
 
-def test_parameter_update_accepts_six_declared_fields_but_rejects_seven():
+def test_parameter_update_accepts_all_declared_fields_but_rejects_excess():
     values = {"global_enabled": True, "enabled": True, "sensitivity": 40, "patrol_sensitivity": 50,
-              "double_check_sensitivity": 50, "display_smoke_info": True}
-    assert len(SmokeParametersUpdate(values=values).values) == 6
+              "double_check_sensitivity": 50, "display_smoke_info": True,
+              "alarm_strategy": "any", "device_alarm_interval": 10,
+              "image_quality": "best", "high_sensitivity_enabled": True}
+    assert len(SmokeParametersUpdate(values=values).values) == 10
     with pytest.raises(ValidationError):
         SmokeParametersUpdate(values={**values, "unknown": 1})
 
@@ -413,10 +417,13 @@ def test_successful_event_stream_is_not_read_before_connection_callback():
 
     def connected():
         reply.iter_content.assert_not_called()
+        reply.raw.read1.assert_not_called()
 
     events = list(client.iter_events(Event(), on_connected=connected))
     assert len(events) == 1
-    reply.iter_content.assert_called_once_with(device.STREAM_CHUNK_BYTES)
+    reply.iter_content.assert_not_called()
+    assert reply.raw.read1.call_count == 1
+    reply.raw.read1.assert_called_with(device.STREAM_CHUNK_BYTES, decode_content=True)
 
 
 def test_subscription_cancel_closes_response_without_raw_error():
@@ -470,15 +477,178 @@ def test_picture_uses_exact_configuration_channel_and_validates_jpeg():
     ok, encoded = cv2.imencode(".jpg", np.zeros((4, 6, 3), dtype=np.uint8))
     assert ok
     payload = encoded.tobytes()
-    client, session, _ = client_with([response(payload, content_type="image/jpeg")])
+    client, session, _ = client_with([response(SHIELD_CAP), response(SHIELD_CURRENT),
+                                    response(payload, content_type="image/jpeg")])
     assert client.read_picture() == payload
     assert session.get.call_args.args[0].endswith("/ISAPI/Streaming/channels/201/picture")
 
 
 def test_picture_rejects_xml_body_and_oversized_dimensions():
-    client, _, _ = client_with([response("<ResponseStatus/>", content_type="application/xml")])
+    client, _, _ = client_with([response(SHIELD_CAP), response(SHIELD_CURRENT),
+                               response("<ResponseStatus/>", content_type="application/xml")])
     with pytest.raises(device.SmokeDeviceError, match="JPEG"):
         client.read_picture()
     body = b"\xff\xd8\xff\xc0\x00\x08\x08\xff\xff\xff\xff\x00"
     with pytest.raises(device.SmokeDeviceError, match="尺寸"):
         device._jpeg_dimensions(body)
+
+
+EXTENDED_CAP = PARAMETER_CAP.replace('</SmokeDetection>', '''
+    <alarmInterval min="1" max="300">1</alarmInterval><imgQuality opt="best,good,general">best</imgQuality>
+    <highSensitivityEnabled opt="true,false">true</highSensitivityEnabled></SmokeDetection>''').replace(
+    '</FireDetection>', '<AlarmStrategy><strategyType opt="any,multiSystem,appointFire,appointSmoke">any</strategyType></AlarmStrategy></FireDetection>')
+EXTENDED_CURRENT = PARAMETER_CURRENT.replace('</SmokeDetection>', '''
+    <alarmInterval>1</alarmInterval><imgQuality>best</imgQuality>
+    <highSensitivityEnabled>true</highSensitivityEnabled></SmokeDetection>''').replace(
+    '</FireDetection>', '<AlarmStrategy><strategyType>appointFire</strategyType></AlarmStrategy></FireDetection>')
+
+
+def test_extended_parameters_show_actual_choices_ranges_and_fire_only_warning():
+    client, session, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(EXTENDED_CURRENT)])
+    state = client.read_parameters()
+    fields = {item.key: item for item in state.parameters}
+    assert fields['alarm_strategy'].value == 'appointFire'
+    assert [choice.value for choice in fields['alarm_strategy'].choices] == ['any', 'multiSystem', 'appointFire', 'appointSmoke']
+    assert (fields['device_alarm_interval'].minimum, fields['device_alarm_interval'].maximum) == (1, 300)
+    assert fields['image_quality'].value == 'best' and fields['high_sensitivity_enabled'].value is True
+    assert len(state.warnings) == 1 and '烟雾报警不会上传' in state.warnings[0]
+    assert all(call.args[0] == 'GET' for call in session.request.call_args_list)
+
+
+def test_extended_parameter_save_preserves_enum_case_unknown_fields_and_confirms_readback():
+    actual = EXTENDED_CURRENT.replace('appointFire', 'multiSystem').replace('<alarmInterval>1</alarmInterval>', '<alarmInterval>30</alarmInterval>').replace('<imgQuality>best</imgQuality>', '<imgQuality>good</imgQuality>').replace('<highSensitivityEnabled>true', '<highSensitivityEnabled>false')
+    client, session, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(EXTENDED_CURRENT), response(OK), response(actual)])
+    result = client.write_parameters(SmokeParametersUpdate(values={
+        'alarm_strategy': 'multiSystem', 'device_alarm_interval': 30,
+        'image_quality': 'good', 'high_sensitivity_enabled': False,
+    }))
+    payload = session.request.call_args_list[3].kwargs['data']
+    assert b'<strategyType>multiSystem</strategyType>' in payload
+    assert b'<Unknown>keep</Unknown>' in payload and b'<sensitivity>99</sensitivity>' in payload
+    assert not result.warnings
+
+
+@pytest.mark.parametrize('values', [
+    {'alarm_strategy': 'invented'}, {'alarm_strategy': True}, {'image_quality': 'unknown'},
+    {'device_alarm_interval': 0}, {'device_alarm_interval': 301}, {'device_alarm_interval': True},
+    {'high_sensitivity_enabled': 1},
+])
+def test_extended_parameters_reject_unconfirmed_values_before_put(values):
+    client, session, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(EXTENDED_CURRENT)])
+    with pytest.raises(device.SmokeDeviceError):
+        client.write_parameters(SmokeParametersUpdate(values=values))
+    assert all(call.args[0] == 'GET' for call in session.request.call_args_list)
+
+
+def test_enum_requires_reported_choices_and_matching_readback():
+    capabilities = EXTENDED_CAP.replace('opt="any,multiSystem,appointFire,appointSmoke"', 'opt="appointFire,appointSmoke"')
+    client, session, _ = client_with([response(THERMAL), response(capabilities), response(EXTENDED_CURRENT)])
+    with pytest.raises(device.SmokeDeviceError, match='范围'):
+        client.write_parameters(SmokeParametersUpdate(values={'alarm_strategy': 'any'}))
+    assert all(call.args[0] == 'GET' for call in session.request.call_args_list)
+    client, _, _ = client_with([response(THERMAL), response(EXTENDED_CAP), response(EXTENDED_CURRENT), response(OK), response(EXTENDED_CURRENT)])
+    with pytest.raises(device.SmokeDeviceError, match='回读'):
+        client.write_parameters(SmokeParametersUpdate(values={'alarm_strategy': 'any'}))
+
+
+def test_shields_use_confirmed_visible_channel_independently_from_parameters():
+    cap = SHIELD_CAP.replace(' size="4"', '').replace('max="4"', 'max="50"')
+    current = SHIELD_CURRENT.replace('<SmokeShieldMaskRegionList>', '<SmokeShieldMaskRegionList size="50">')
+    client, session, _ = client_with([response(cap), response(current)], value={**VALUE, 'event_channel_id': 1})
+    result = client.read_shields()
+    assert result.supported and result.writable and result.channel_id == 1 and result.max_regions == 50
+    assert all('/channels/1/' in call.args[1] for call in session.request.call_args_list)
+    assert client._target.thermal_channel_id == 2
+
+
+def test_shield_picture_and_write_both_use_capability_confirmed_channel():
+    import cv2
+    import numpy as np
+    ok, encoded = cv2.imencode('.jpg', np.zeros((4, 6, 3), dtype=np.uint8))
+    assert ok
+    client, session, _ = client_with([response(SHIELD_CAP), response(SHIELD_CURRENT), response(encoded.tobytes(), content_type='image/jpeg')], value={**VALUE, 'event_channel_id': 1})
+    client.read_picture()
+    assert session.get.call_args.args[0].endswith('/channels/101/picture')
+    client, session, _ = client_with([response(SHIELD_CAP), response(SHIELD_CURRENT), response(OK), response(SHIELD_CURRENT)], value={**VALUE, 'event_channel_id': 1})
+    region = client._shield_state(parse_xml(SHIELD_CAP.encode()), parse_xml(SHIELD_CURRENT.encode())).regions[0]
+    result = client.write_shields(SmokeShieldUpdate(enabled=True, regions=[region]))
+    assert result.channel_id == 1
+    assert all('/channels/1/' in call.args[1] for call in session.request.call_args_list)
+
+
+def test_shield_channel_probe_only_skips_explicitly_unsupported_interface():
+    client, session, _ = client_with([response(NOT_SUPPORT, 403), response(SHIELD_CAP), response(SHIELD_CURRENT)], value={**VALUE, 'event_channel_id': 1})
+    assert client.read_shields().channel_id == 2
+    assert '/channels/1/' in session.request.call_args_list[0].args[1]
+    client, session, _ = client_with([response('<ResponseStatus/>', 403)], value={**VALUE, 'event_channel_id': 1})
+    with pytest.raises(device.SmokeDeviceError, match='拒绝访问'):
+        client.read_shields()
+    assert session.request.call_count == 1
+
+
+def test_raw_stream_timeout_is_sanitized():
+    from urllib3.exceptions import ReadTimeoutError
+    reply = response(b'', content_type='multipart/mixed; boundary=boundary')
+    reply.raw.read1.side_effect = ReadTimeoutError(None, 'secret-url', 'secret-password')
+    client, _, _ = client_with([reply])
+    with pytest.raises(device.SmokeDeviceError) as caught:
+        list(client.iter_events(Event()))
+    assert 'secret' not in str(caught.value)
+
+
+def test_small_non_chunked_http_event_arrives_before_stream_closes():
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    release, complete = Event(), Event()
+    received, failures = [], []
+    payload = multipart(smoke_xml(), closing=False)
+    assert len(payload) < device.STREAM_CHUNK_BYTES
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'multipart/mixed; boundary=boundary')
+            self.end_headers()
+            self.wfile.write(payload)
+            self.wfile.flush()
+            # 模拟摄像头持续连接；不能靠关闭连接才交付这条小事件。
+            release.wait(3)
+            self.close_connection = True
+
+        def log_message(self, *args):
+            return
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server_thread = Thread(target=server.serve_forever, kwargs={'poll_interval': 0.02}, daemon=True)
+    server_thread.start()
+    client = device.SmokeDeviceClient(
+        {'url': 'rtsp://operator:sample@127.0.0.1/Streaming/Channels/201'},
+        {**VALUE, 'device_port': server.server_port},
+        device.SmokeDeviceOptions(stream_timeout_seconds=2.0),
+    )
+
+    def receive():
+        events = client.iter_events(Event())
+        try:
+            received.append(next(events))
+        except Exception as exc:
+            failures.append(type(exc).__name__)
+        finally:
+            events.close()
+            complete.set()
+
+    reader = Thread(target=receive, daemon=True)
+    try:
+        reader.start()
+        assert complete.wait(1), '小报文被HTTP缓冲，未在持续连接中及时交付'
+        assert not failures and received[0].active
+        assert not release.is_set()
+    finally:
+        release.set()
+        reader.join(3)
+        client.close()
+        server.shutdown()
+        server.server_close()
+        server_thread.join(1)

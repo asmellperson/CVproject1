@@ -216,7 +216,7 @@ class SmokeConsumer(BaseFunctionConsumer):
                     subscription.client = client
                 for event in client.iter_events(
                     subscription.stop_event,
-                    on_connected=lambda: self._connection(subscription, "connected", "事件流已连接，烟雾事件格式待真机核验"),
+                    on_connected=lambda: self._connection(subscription, "connected", "设备报警接口已连接，等待烟雾事件"),
                     on_activity=lambda: self._activity(subscription),
                     on_protocol_warning=lambda message: self._protocol_warning(subscription, message),
                 ):
@@ -325,7 +325,7 @@ class SmokeConsumer(BaseFunctionConsumer):
             if not self.running:
                 connection_state, message = "disabled", "设备报警接收未启动"
             elif state.connection_state == "connected" and not connected:
-                connection_state, message = "disconnected", "设备报警连接未收到数据"
+                connection_state, message = "disconnected", "设备报警连接长时间未收到心跳或事件"
             return {
                 "camera_key": camera_key, "feature": self.feature_name,
                 "count": None, "alarm": active is True,

@@ -5,10 +5,11 @@ import type { DetectionStatus } from '@/components/monitor/useDetectionStatus'
 export type SmokeParameter = {
   key: string
   label: string
-  kind: 'boolean' | 'integer'
-  value: boolean | number
+  kind: 'boolean' | 'integer' | 'enum'
+  value: boolean | number | string
   minimum: number | null
   maximum: number | null
+  choices: { value: string; label: string }[]
 }
 export type SmokeParametersState = {
   supported: boolean
@@ -16,6 +17,7 @@ export type SmokeParametersState = {
   channel_id: number
   global_enabled: boolean | null
   parameters: SmokeParameter[]
+  warnings: string[]
 }
 export type SmokeShieldPoint = { x: number; y: number }
 export type SmokeShieldRegion = { id: number; enabled: boolean; name: string; points: SmokeShieldPoint[] }
@@ -54,7 +56,7 @@ async function request<T>(path: string, method: 'GET' | 'PUT', body?: unknown, s
 
 export const readSmokeParameters = (key: string, department: DepartmentId, signal?: AbortSignal) =>
   request<SmokeParametersState>(smokePath(key, 'parameters', department), 'GET', undefined, signal)
-export const saveSmokeParameters = (key: string, department: DepartmentId, values: Record<string, boolean | number>) =>
+export const saveSmokeParameters = (key: string, department: DepartmentId, values: Record<string, boolean | number | string>) =>
   request<SmokeParametersState>(smokePath(key, 'parameters', department), 'PUT', { values })
 export const readSmokeShields = (key: string, department: DepartmentId, signal?: AbortSignal) =>
   request<SmokeShieldState>(smokePath(key, 'shields', department), 'GET', undefined, signal)

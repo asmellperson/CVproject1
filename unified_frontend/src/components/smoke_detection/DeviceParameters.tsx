@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { readSmokeParameters, saveSmokeParameters, type SmokeParametersState } from './api'
 
 export function DeviceParameters({ cameraKey, department, disabled }: {
@@ -41,10 +42,16 @@ export function DeviceParameters({ cameraKey, department, disabled }: {
     if (disabled || loading || mutation.current || !state?.supported || !state.parameters.length) return
     const token = revision.current
     try {
-      const values: Record<string, boolean | number> = {}
+      const values: Record<string, boolean | number | string> = {}
       for (const field of state.parameters) {
         const current = draft[field.key]
         if (field.kind === 'boolean') values[field.key] = current === true
+        else if (field.kind === 'enum') {
+          if (typeof current !== 'string' || !field.choices.some((choice) => choice.value === current)) {
+            throw new Error(`${field.label}不在设备允许的选项中`)
+          }
+          values[field.key] = current
+        }
         else {
           const parsed = Number(current)
           if (typeof current !== 'string' || !current.trim() || !Number.isInteger(parsed)
@@ -70,13 +77,21 @@ export function DeviceParameters({ cameraKey, department, disabled }: {
       <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="摄像头烟雾参数" description="显示设备实际支持的参数；保存后直接写入摄像头。" />
       <DetectionConfigCardContent className="space-y-5">
         {state?.global_enabled === false && <p className="text-sm text-amber-700 dark:text-amber-300">设备烟火总开关当前关闭，请核对摄像头端的功能启用状态。</p>}
+        {state?.warnings.map((warning) => <p key={warning} role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p>)}
         {state?.parameters.map((field) => <div key={field.key} className="space-y-2">
           {field.kind === 'boolean'
             ? <label className="flex min-h-12 items-center justify-between gap-4"><span className="text-sm">{field.label}</span><Switch aria-label={field.label} checked={draft[field.key] === true} disabled={readOnly}
               onCheckedChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} /></label>
-            : <><Label htmlFor={`smoke-device-${field.key}`}>{field.label}</Label><Input id={`smoke-device-${field.key}`} type="number" step={1}
+            : field.kind === 'enum'
+              ? <><Label htmlFor={`smoke-device-${field.key}`}>{field.label}</Label><Select value={String(draft[field.key] ?? '')} disabled={readOnly}
+                onValueChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}>
+                <SelectTrigger id={`smoke-device-${field.key}`}><SelectValue placeholder="选择设备支持的选项" /></SelectTrigger>
+                <SelectContent>{field.choices.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent>
+              </Select></>
+              : <><Label htmlFor={`smoke-device-${field.key}`}>{field.label}</Label><Input id={`smoke-device-${field.key}`} type="number" step={1}
               min={field.minimum ?? undefined} max={field.maximum ?? undefined} value={String(draft[field.key] ?? '')} disabled={readOnly}
               onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} /></>}
+          {field.key === 'device_alarm_interval' && <p className="text-xs text-slate-500 dark:text-slate-400">摄像头自身的烟雾报警间隔；平台推送间隔在报警推送中设置。</p>}
         </div>)}
         {!loading && state && !state.parameters.length && <p className="text-sm text-slate-500 dark:text-slate-400">{state.message || '设备没有返回可调整的烟雾参数。'}</p>}
       </DetectionConfigCardContent>

@@ -5,7 +5,9 @@ import { CameraLivePreview } from '../src/components/monitor/CameraLivePreview'
 import { CurrentDetectionCard } from '../src/components/monitor/CurrentDetectionCard'
 import { useDetectionStatus } from '../src/components/monitor/useDetectionStatus'
 import { useSmokeStatus } from '../src/components/smoke_detection/useSmokeStatus'
-import { readSmokeParameters, saveSmokeParameters, readSmokeShields, saveSmokeShields, smokePictureUrl, readSmokeStatus } from '../src/components/smoke_detection/api'
+import { SmokeMonitorView } from '../src/components/smoke_detection/SmokeMonitorView'
+import { DeviceParameters } from '../src/components/smoke_detection/DeviceParameters'
+import { readSmokeParameters, saveSmokeParameters, readSmokeShields, saveSmokeShields, smokePictureUrl, readSmokeStatus, type SmokeParametersState } from '../src/components/smoke_detection/api'
 import { previewRegions, regionDirection } from '../src/components/monitor/previewRegions'
 import { LogisticsChannelMonitorView } from '../src/components/logistics_single_person/LogisticsChannelMonitorView'
 import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../src/components/logistics_single_person/api'
@@ -31,6 +33,9 @@ let finishVideoFrame: (() => void) | null = null
 let videoFrameSignal: AbortSignal | null | undefined
 let unauthorizedEvents = 0
 let smokeMode: 'unknown' | 'active' | 'inactive' | 'hold' = 'unknown'
+let smokeStatusOverride: Record<string, unknown> | null = null
+let smokeStatusHttpError = false
+let smokeParameterOverride: SmokeParametersState | null = null
 let finishSmokeStatus: (() => void) | null = null
 let smokeStatusSignal: AbortSignal | null | undefined
 const logisticsFeature = 'detect_logistics_single_person'
@@ -58,9 +63,15 @@ window.fetch = async (input, init) => {
     const resource = smoke[2]
     if (!['GET', 'PUT'].includes(method) || (['picture', 'status'].includes(resource) && method !== 'GET')) return json({ detail: 'Method Not Allowed' }, 405)
     if (resource === 'parameters') {
+      if (smokeParameterOverride) {
+        const values = method === 'PUT' ? JSON.parse(String(init?.body)).values as Record<string, boolean | number | string> : {}
+        const parameters = smokeParameterOverride.parameters.map((field) => ({ ...field, value: values[field.key] ?? field.value }))
+        const strategy = parameters.find((field) => field.key === 'alarm_strategy')?.value
+        return json({ ...smokeParameterOverride, parameters, warnings: strategy === 'appointFire' ? smokeParameterOverride.warnings : [] })
+      }
       const values = method === 'PUT' ? JSON.parse(String(init?.body)).values : { sensitivity: 52 }
-      return json({ supported: true, message: '', channel_id: 1, global_enabled: true,
-        parameters: [{ key: 'sensitivity', label: '烟雾灵敏度', kind: 'integer', value: values.sensitivity, minimum: 1, maximum: 100 }] })
+      return json({ supported: true, message: '', channel_id: 1, global_enabled: true, warnings: [],
+        parameters: [{ key: 'sensitivity', label: '烟雾灵敏度', kind: 'integer', value: values.sensitivity, minimum: 1, maximum: 100, choices: [] }] })
     }
     if (resource === 'shields') {
       const value = method === 'PUT' ? JSON.parse(String(init?.body)) : { enabled: false, regions: [] }
@@ -68,12 +79,15 @@ window.fetch = async (input, init) => {
         coordinate_width: 1000, coordinate_height: 1000, max_regions: 4, min_points: 4, max_points: 4, ...value })
     }
     if (resource === 'picture') return new Response('device-picture', { headers: { 'Content-Type': 'image/jpeg' } })
+    if (smokeStatusHttpError) return json({ detail: '设备状态服务不可用' }, 503)
     const camera_key = decodeURIComponent(smoke[1])
     const response = (alarm_state: 'active' | 'inactive' | 'unknown') => json({
       camera_key, feature: 'smoke_detection', online: true, count: null,
       connection_state: 'connected', alarm_state, alarm: alarm_state === 'unknown' ? null : alarm_state === 'active',
       reason: alarm_state, updated_at: new Date().toISOString(), valid_for_seconds: 0.45,
       event_channel_id: 1, last_event_at: alarm_state === 'unknown' ? null : new Date().toISOString(),
+      message: alarm_state === 'active' ? '设备已上报烟雾报警' : '设备报警接口已连接，等待烟雾事件',
+      ...smokeStatusOverride,
     })
     if (smokeMode === 'hold') return new Promise<Response>((resolve, reject) => {
       smokeStatusSignal = init?.signal
@@ -155,6 +169,12 @@ export function Status() {
 function SmokeStatusHarness({ cameraKey }: { cameraKey: string }) {
   const result = useSmokeStatus(cameraKey, 'general_electric')
   return <div>{JSON.stringify(result?.value ?? null)}</div>
+}
+
+function renderSmokeMonitor(cameraKey: string) {
+  statusRoot.render(<SmokeMonitorView department="general_electric" cameras={[]} selectedCamera={cameraKey}
+    loading={false} message="" frameConnected={true} frameContent={<div>设备画面</div>}
+    onSelectCamera={() => {}} onRefreshCameras={() => {}} />)
 }
 
 const logisticsCamera: AiVisionCamera = { id: '1', camera_id: 1, name: '物流摄像头', shm_name: 'camera_1',
@@ -397,6 +417,7 @@ async function run() {
   smokeMode = 'hold'
   await until(() => statusElement.textContent?.includes('"alarm_state":"unknown"'), '烟雾状态独立到期')
   assert(statusElement.textContent?.includes('"alarm":null'), '过期的设备报警仍当作当前结果')
+  assert(statusElement.textContent?.includes('设备状态已过期') && !statusElement.textContent.includes('设备已上报烟雾报警'), '状态过期后仍展示旧的报警消息')
   await until(() => finishSmokeStatus !== null, '烟雾状态挂起请求')
   successes.push('设备烟雾状态按服务端有效期过期，挂起请求不能让旧报警一直保持活动')
   smokeMode = 'inactive'
@@ -407,6 +428,81 @@ async function run() {
   await pause(100)
   assert(statusElement.textContent?.includes('"camera_key":"smoke_2"') && !statusElement.textContent.includes('"alarm_state":"active"'), '旧设备晚到的报警覆盖了当前摄像头')
   successes.push('摄像头切换取消旧状态读取，晚到的设备报警不能覆盖新摄像头解除状态')
+  smokeMode = 'unknown'
+  for (const scenario of [
+    { connection_state: 'connected', label: '尚未收到烟雾报警事件', message: '设备报警接口已连接，等待烟雾事件' },
+    { connection_state: 'error', label: '报警接收异常', message: '设备报警连接未收到数据' },
+    { connection_state: 'disconnected', label: '报警连接已断开', message: '设备报警连接长时间未收到心跳或事件' },
+    { connection_state: 'connecting', label: '正在连接设备', message: '正在连接摄像头报警接口' },
+    { connection_state: 'disabled', label: '烟雾接收未启用', message: '烟雾检测接收未启用' },
+  ]) {
+    smokeStatusOverride = { ...scenario, valid_for_seconds: 10 }
+    renderSmokeMonitor(`smoke_monitor_${scenario.connection_state}`)
+    await until(() => statusElement.textContent?.includes(scenario.label) && statusElement.textContent.includes(scenario.message), `烟雾监控状态：${scenario.connection_state}`)
+    assert(!statusElement.textContent?.includes('等待设备状态'), '明确连接状态仍被模糊为等待设备状态')
+    assert(statusElement.textContent?.split(scenario.message).length === 2, '设备具体状态消息重复展示')
+    if (scenario.connection_state === 'connected') {
+      assert(statusElement.textContent?.includes('当前烟雾状态尚未确认') && !statusElement.textContent.includes('无烟雾'), '未收到事件时被展示成设备已确认正常')
+      assert(!statusElement.querySelector('[role="alert"]'), '连接成功等待事件被错误标记为故障')
+    }
+    if (scenario.connection_state === 'error') assert(statusElement.querySelectorAll('[role="alert"]').length === 1, '具体故障外又叠加了重复通用错误')
+    successes.push(`烟雾真实监控视图区分${scenario.connection_state}状态且不重复错误提示`)
+  }
+  smokeStatusOverride = { connection_state: 'connected', valid_for_seconds: 0, message: '旧的连接消息' }
+  renderSmokeMonitor('smoke_monitor_expired')
+  await until(() => statusElement.textContent?.includes('设备状态已过期'), '监控状态过期提示')
+  assert(!statusElement.textContent?.includes('旧的连接消息'), '过期状态仍显示旧连接消息')
+  successes.push('烟雾监控对传输中已过期的状态显示明确过期提示')
+  smokeStatusHttpError = true
+  renderSmokeMonitor('smoke_monitor_api_error')
+  await until(() => statusElement.textContent?.includes('设备状态服务不可用'), '烟雾状态接口失败提示')
+  assert(statusElement.textContent?.includes('设备状态读取失败') && !statusElement.textContent.includes('Error:'), '状态接口失败被显示成等待或泄漏Error前缀')
+  assert(statusElement.querySelectorAll('[role="alert"]').length === 1, '状态读取失败提示重复')
+  successes.push('烟雾状态接口失败显示具体错误，清除旧结果且不重复提示')
+  smokeStatusHttpError = false
+  const strategyWarning = '当前设备报警策略为仅火点报警，烟雾报警不会上传；请按需选择仅烟雾报警或烟雾/火点任一报警'
+  smokeParameterOverride = {
+    supported: true, message: '已读取摄像头当前参数', channel_id: 2, global_enabled: null, warnings: [strategyWarning],
+    parameters: [
+      { key: 'alarm_strategy', label: '设备报警策略', kind: 'enum', value: 'appointFire', minimum: null, maximum: null,
+        choices: [{ value: 'any', label: '烟雾/火点任一报警' }, { value: 'appointFire', label: '仅火点报警' }, { value: 'appointSmoke', label: '仅烟雾报警' }] },
+      { key: 'device_alarm_interval', label: '设备烟雾报警间隔', kind: 'integer', value: 1, minimum: 1, maximum: 300, choices: [] },
+      { key: 'image_quality', label: '烟雾报警抓图质量', kind: 'enum', value: 'best', minimum: null, maximum: null,
+        choices: [{ value: 'best', label: '最佳' }, { value: 'good', label: '较好' }] },
+      { key: 'high_sensitivity_enabled', label: '烟雾高灵敏度', kind: 'boolean', value: true, minimum: null, maximum: null, choices: [] },
+    ],
+  }
+  const parameterWritesBefore = smokeRequests.filter((request) => request.url.pathname.endsWith('/parameters') && request.init?.method === 'PUT').length
+  statusRoot.render(<DeviceParameters cameraKey="smoke_parameters" department="general_electric" disabled={false} />)
+  await until(() => statusElement.textContent?.includes(strategyWarning) && document.getElementById('smoke-device-alarm_strategy'), '设备报警策略与配置警告')
+  assert(document.getElementById('smoke-device-alarm_strategy')?.textContent?.includes('仅火点报警'), '设备实际报警策略未正确显示')
+  const intervalInput = document.getElementById('smoke-device-device_alarm_interval') as HTMLInputElement
+  assert(intervalInput.type === 'number' && intervalInput.min === '1' && intervalInput.max === '300', '设备报警间隔未使用真机范围')
+  assert(statusElement.textContent?.includes('平台推送间隔在报警推送中设置'), '未区分设备报警间隔与平台推送间隔')
+  assert(smokeRequests.filter((request) => request.url.pathname.endsWith('/parameters') && request.init?.method === 'PUT').length === parameterWritesBefore, '仅打开参数页就修改了设备配置')
+  successes.push('烟雾参数展示设备报警策略、真实范围和仅火点上传警告，读取不会自动改设备')
+  const chooseParameter = async (id: string, label: string) => {
+    const trigger = document.getElementById(`smoke-device-${id}`)!
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await until(() => Array.from(document.querySelectorAll('[role="option"]')).some((option) => option.textContent === label), `设备参数选项：${label}`)
+    const option = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find((item) => item.textContent === label)!
+    option.focus()
+    option.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await until(() => trigger.textContent?.includes(label) && !document.querySelector('[role="listbox"]'), `选择设备参数：${label}`)
+  }
+  await chooseParameter('alarm_strategy', '仅烟雾报警')
+  await chooseParameter('image_quality', '较好')
+  const highSensitivity = statusElement.querySelector<HTMLButtonElement>('[role="switch"]')!
+  highSensitivity.click()
+  await until(() => highSensitivity.getAttribute('aria-checked') === 'false', '关闭设备高灵敏度开关')
+  const saveParameters = Array.from(statusElement.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('保存到摄像头'))!
+  saveParameters.click()
+  await until(() => statusElement.textContent?.includes('摄像头参数已保存并回读确认。'), '设备参数保存回读')
+  const savedParameterValues = JSON.parse(String(smokeRequests.filter((request) => request.url.pathname.endsWith('/parameters') && request.init?.method === 'PUT').at(-1)!.init?.body)).values
+  assert(savedParameterValues.alarm_strategy === 'appointSmoke' && savedParameterValues.image_quality === 'good', '枚举参数被当作数值或没有按实际选项提交')
+  assert(savedParameterValues.device_alarm_interval === 1 && savedParameterValues.high_sensitivity_enabled === false, '数字或布尔参数提交类型不正确')
+  assert(!statusElement.textContent?.includes(strategyWarning) && document.getElementById('smoke-device-alarm_strategy')?.textContent?.includes('仅烟雾报警'), '保存后未按设备回读更新策略与警告')
+  successes.push('烟雾枚举、整数与布尔参数经保存按钮提交，设备回读同步刷新策略与警告')
   root.unmount(); statusRoot.unmount()
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
