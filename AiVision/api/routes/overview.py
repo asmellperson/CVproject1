@@ -25,8 +25,12 @@ def overview(
 ):
     """按账号事业部及功能分配过滤资源，再统一汇总摄像头、业务对象和服务状态。"""
     departments = list(DEPARTMENT_SPECS) if user["role"] == "admin" else _camera_departments_for_user(user)
-    items = [camera_response_for_user(camera, user) for department in departments
-             for camera in cameras.list_cameras(department)]
+    # 一次读取授权范围，避免每个事业部重复扫描全部功能配置表。
+    department_order = {department: index for index, department in enumerate(departments)}
+    items = [camera_response_for_user(camera, user) for camera in sorted(
+        cameras.list_cameras(departments=departments),
+        key=lambda camera: department_order[camera["department"]],
+    )]
     feature_access = {
         department: [feature for feature in all_specs() if department in feature_departments(user, feature)]
         for department in departments

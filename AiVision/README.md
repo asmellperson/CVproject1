@@ -1402,7 +1402,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`。ROI 绘制使用 `/api/cameras/{key}/frame.jpg` 读取原始画面，无需预先配置工位；监控使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection` 读取工位配置生效后生成的安检标注画面。检测启停通过公共配置完成。
 
-`/api/overview` 的能力目录包含全部十四项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
+`/api/overview` 的能力目录包含全部十四项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。摄像头按账号授权的事业部集合批量读取，每个功能配置表只查询一次，避免随事业部数量重复读取；空授权范围不查询摄像头。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
 非法闯闸状态使用 `GET /api/tailgating/cameras/{key}/status`，配置使用通用 Feature 配置接口；画面、配置和状态均按摄像头实际部门校验账号权限。
 

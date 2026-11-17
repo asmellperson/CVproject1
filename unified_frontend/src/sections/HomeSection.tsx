@@ -175,7 +175,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
     cameraOffline: overviewStatus?.summary.camera_offline ?? 0,
   }
   const cameraStatusReady = overviewStatus !== null && !overviewState.error
-  const scopedStatusLevel = overviewStatus?.level ?? 'down'
+  const scopedStatusLevel = overviewStatus?.level ?? (overviewState.error ? 'error' : 'loading')
 
   useEffect(() => {
     if (!isAdmin) {
@@ -404,8 +404,8 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
-                <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
+                <MiniStatusMetric label="能力在线" value={cameraStatusReady ? `${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}` : overviewState.error ? '加载失败' : '加载中'} />
+                <MiniStatusMetric label="正在检测" value={cameraStatusReady ? `${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}` : overviewState.error ? '加载失败' : '加载中'} />
                 <MiniStatusMetric label="摄像头在线" value={cameraStatusReady ? `${cameraInventorySummary.cameraOnline}/${cameraInventorySummary.cameraTotal}` : overviewState.error ? '加载失败' : '加载中'} />
                 <OfflineCamerasDialog overviewState={overviewState}>
                   <button
@@ -900,9 +900,12 @@ function MetricTile({
 }
 
 function StatusBadge({ level }: { level: string }) {
-  const label = level === 'healthy' ? '全部正常' : level === 'degraded' ? '部分异常' : '模块离线'
+  const label = level === 'healthy' ? '全部正常' : level === 'degraded' ? '部分异常'
+    : level === 'loading' ? '加载中' : level === 'error' ? '状态获取失败' : '模块离线'
   const className =
-    level === 'healthy'
+    level === 'loading'
+      ? 'border-slate-200 bg-slate-50 text-slate-600'
+      : level === 'healthy'
       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
       : level === 'degraded'
         ? 'border-amber-200 bg-amber-50 text-amber-700'
@@ -922,7 +925,7 @@ function ServiceStatusCard({ service, capability }: {
   const onlineCameras = capability.online_camera_count
   const displayName = capability.name
   const featureKey = capability.id
-  const statusText = getServiceStatusText({
+  const statusText = service ? getServiceStatusText({
     online,
     running,
     hasError,
@@ -930,7 +933,7 @@ function ServiceStatusCard({ service, capability }: {
     cameraCount,
     modelLoaded,
     onlineCameraCount: onlineCameras,
-  })
+  }) : '状态待确认'
 
   return (
     <div className="w-full rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-left shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
@@ -944,7 +947,7 @@ function ServiceStatusCard({ service, capability }: {
         <span
           className={cn(
             'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
-            online && running && !hasError ? 'bg-emerald-500' : online ? 'bg-amber-500' : 'bg-red-500',
+            !service ? 'bg-slate-400' : online && running && !hasError ? 'bg-emerald-500' : online ? 'bg-amber-500' : 'bg-red-500',
           )}
         />
       </div>
@@ -952,7 +955,7 @@ function ServiceStatusCard({ service, capability }: {
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
           <div className="text-slate-500">摄像头</div>
-          <div className="mt-1 font-black text-slate-900 dark:text-slate-100">{onlineCameras}/{cameraCount}</div>
+          <div className="mt-1 font-black text-slate-900 dark:text-slate-100">{service ? `${onlineCameras}/${cameraCount}` : '待确认'}</div>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
           <div className="text-slate-500">识别能力</div>
@@ -963,7 +966,7 @@ function ServiceStatusCard({ service, capability }: {
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
           <div className="text-slate-500">检测引擎</div>
           <div className="mt-1 font-black text-slate-900 dark:text-slate-100">
-            {service?.running ? '已就绪' : '未就绪'}
+            {!service ? '待确认' : service.running ? '已就绪' : '未就绪'}
           </div>
         </div>
       </div>

@@ -13,6 +13,9 @@ import { LogisticsChannelMonitorView } from '../src/components/logistics_single_
 import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../src/components/logistics_single_person/api'
 import type { LogisticsChannelDetail } from '../src/components/logistics_single_person/types'
 import type { AiVisionCamera } from '../src/lib/aivision'
+import type { OverviewStatus } from '../src/lib/api'
+import { AuthContext, type AuthContextValue } from '../src/auth/auth-context'
+import { HomeSection } from '../src/sections/HomeSection'
 import '../src/index.css'
 
 const previewElement = document.getElementById('preview')!
@@ -53,6 +56,8 @@ const hold = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) 
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   requests.push(url)
+  if (url.pathname === '/api/departments') return json([])
+  if (url.pathname === '/api/alarms') return json({ items: [] })
   // 与后端注册路径一致；多余的旧前缀必须返回404，不能落入通用状态桩而掩盖错误。
   if (url.pathname.startsWith('/api/aivision/smoke/')) return json({ detail: 'Not Found' }, 404)
   const smoke = /^\/api\/smoke\/([^/]+)\/(parameters|shields|picture|status)$/.exec(url.pathname)
@@ -509,6 +514,39 @@ async function run() {
   assert(savedParameterValues.device_alarm_interval === 1 && savedParameterValues.high_sensitivity_enabled === false, '数字或布尔参数提交类型不正确')
   assert(!statusElement.textContent?.includes(strategyWarning) && document.getElementById('smoke-device-alarm_strategy')?.textContent?.includes('仅烟雾报警'), '保存后未按设备回读更新策略与警告')
   successes.push('烟雾枚举、整数与布尔参数经保存按钮提交，设备回读同步刷新策略与警告')
+  const auth: AuthContextValue = {
+    user: { employee_id: 'overview-viewer', name: '测试用户', role: 'viewer', departments: ['general_electric'],
+      feature_access: { general_electric: ['smoke_detection'] } },
+    loading: false, isAdmin: false, login: async () => {}, changePassword: async () => {},
+    logout: async () => {}, refreshMe: async () => {}, handleUnauthorized: () => {},
+  }
+  const renderHome = (data: OverviewStatus | null, error = '', loading = false) => {
+    statusRoot.render(<AuthContext.Provider value={auth}><HomeSection onNavigate={() => {}}
+      overviewState={{ data, error, loading, refresh: () => {} }} /></AuthContext.Provider>)
+  }
+  renderHome(null, '', true)
+  await until(() => statusElement.textContent?.includes('正在加载摄像头清单'), '总览加载状态')
+  assert(!statusElement.textContent?.includes('模块离线') && !statusElement.textContent?.includes('未就绪'), '首次加载被误报为模块离线')
+  successes.push('总览首次加载显示待确认，不伪造模块离线或引擎未就绪')
+  renderHome(null, '摄像头清单加载失败：请求超时')
+  await until(() => statusElement.textContent?.includes('状态获取失败'), '总览超时状态')
+  assert(statusElement.textContent?.includes('请求超时') && !statusElement.textContent?.includes('模块离线')
+    && !statusElement.textContent?.includes('0/0') && !statusElement.textContent?.includes('暂时不可用'), '超时仍显示虚假的离线或零路摄像头')
+  successes.push('总览请求超时保留具体错误，模块和计数显示未知而不是离线或零')
+  const overview: OverviewStatus = {
+    departments: ['general_electric'], department_summaries: {}, generated_at: Date.now() / 1000,
+    ok: true, level: 'healthy', inventory_complete: true, inventory_errors: {},
+    summary: { capability_total: 1, capability_online: 1, capability_running: 1,
+      camera_total: 1, camera_online: 1, camera_offline: 0 },
+    capabilities: [{ id: 'smoke-detection', name: '烟雾检测', camera_count: 1, online_camera_count: 1,
+      running: true, model_ready: true }], cameras: [], guard_behavior_sites: [],
+    service: { online: true, running: true, error: null, camera_count: 1, online_camera_count: 1, model_ready: false },
+  }
+  renderHome(overview)
+  await until(() => statusElement.textContent?.includes('全部正常'), '总览请求恢复')
+  assert(statusElement.textContent?.includes('正常检测中') && statusElement.textContent?.includes('烟雾检测')
+    && !statusElement.textContent?.includes('请求超时'), '恢复后未展示烟雾模块的真实运行状态')
+  successes.push('总览恢复后清除错误并展示烟雾模块与实际在线计数')
   root.unmount(); statusRoot.unmount()
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`

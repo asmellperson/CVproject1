@@ -57,6 +57,48 @@ def url(resource, department="general_electric"):
     return f"/api/smoke/camera_1/{resource}?department={department}"
 
 
+@pytest.mark.parametrize("role", ["admin", "department_admin", "viewer"])
+def test_saved_smoke_alarm_is_visible_in_history_details_and_statistics(api, monkeypatch, role):
+    from datetime import datetime, timedelta
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from AiVision.api.routes import alarms
+    from AiVision.alarms.records.orm import AiAlarmEvent, AiAlarmDisposition
+    from AiVision.core.db import Base
+
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def sqlite_hour(connection, record):
+        connection.create_function("hour", 1, lambda value: datetime.fromisoformat(value).hour)
+
+    Base.metadata.create_all(engine, tables=[AiAlarmEvent.__table__, AiAlarmDisposition.__table__])
+    sessions = sessionmaker(bind=engine)
+    with sessions.begin() as session:
+        for alarm_id, department in [(1, "general_electric"), (2, "electronics_electrician")]:
+            session.add(AiAlarmEvent(id=alarm_id, violation_type=18, feature_name="smoke_detection",
+                                    department=department, image_path="", subject_type="camera",
+                                    subject_id="1", subject_name="烟雾摄像头",
+                                    create_time=datetime.now() - timedelta(minutes=1)))
+    monkeypatch.setattr(alarms, "get_session", sessions)
+    api.client.app.include_router(alarms.router)
+    api.user.update(role=role, departments=["general_electric"])
+    try:
+        response = api.client.get("/api/alarms", params={"event_types": "smoke_detection"})
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert {item["id"] for item in items} == ({"1", "2"} if role == "admin" else {"1"})
+        assert all(item["event_type"] == "smoke_detection" and not item["image_url"] for item in items)
+        assert api.client.get("/api/alarms/1").status_code == 200
+        assert api.client.get("/api/alarms/2").status_code == (200 if role == "admin" else 403)
+        statistics = api.client.get("/api/alarms/statistics/summary", params={"event_types": "smoke_detection"})
+        assert statistics.status_code == 200
+        assert statistics.json()["summary"]["total"] == len(items)
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize("resource", ["parameters", "shields", "picture"])
 def test_viewer_cannot_access_device_configuration(api, resource):
     api.user.update(role="viewer", departments=["general_electric"])

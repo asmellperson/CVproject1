@@ -2,15 +2,10 @@
 from typing import Any, Iterable
 
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from AiVision.alarms.types import VIOLATION_TYPE_META
 
-DETECTION_EVENT_TYPES = frozenset({
-    "security_inspection", "visual_language_detection",
-    "security_fence_forbidden", "security_fence_unauthorized",
-    "tailgating",
-    "guard_absent", "guard_phone_use", "guard_prone_sleep", "guard_vehicle_inspection_missing",
-    "blocks", "detect_door", "detect_face", "recognize_face", "detect_human",
-    "detect_logistics_single_person", "detect_phone", "agv_person_check",
-})
+# 事件类型沿用正式目录，避免新功能已入库却被普通账号的重复白名单过滤。
+DETECTION_EVENT_TYPES = frozenset(meta["event_type"] for meta in VIOLATION_TYPE_META.values())
 
 
 def allowed_alarm_event_types(user: dict[str, Any], departments: Iterable[str]) -> set[str] | None:

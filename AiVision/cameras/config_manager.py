@@ -110,14 +110,23 @@ class CameraConfigManager:
     """摄像头主表的所有操作"""
 
     # ---------- Read ----------
-    def list_cameras(self, department: Optional[str] = None) -> list[dict]:
-        """返回摄像头列表(基础信息 + 各功能启用状态)，可选按部门过滤"""
+    def list_cameras(self, department: Optional[str] = None, *, departments: list[str] | None = None) -> list[dict]:
+        """按单个事业部或授权事业部集合批量读取摄像头及功能配置。"""
+        if department is not None and departments is not None:
+            raise ValueError("不能同时指定单个事业部和事业部集合")
+        if department is not None:
+            department = require_department(department)
+        if departments is not None:
+            departments = list(dict.fromkeys(require_department(value) for value in departments))
+            if not departments:
+                return []
         session = get_session()
         try:
             query = session.query(AiCameraConfig)
             if department is not None:
-                require_department(department)
                 query = query.filter(AiCameraConfig.department == department)
+            if departments is not None:
+                query = query.filter(AiCameraConfig.department.in_(departments))
             cameras = query.order_by(AiCameraConfig.sort_order, AiCameraConfig.id).all()
             specs = all_specs()
             function_states, function_orders = _load_function_metadata(

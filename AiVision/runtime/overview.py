@@ -20,6 +20,7 @@ CAPABILITIES = (
     ("intrusion-detection", "区域入侵检测", "blocks"),
     ("security-fence", "警戒围栏", "security_fence"),
     ("tailgating-detection", "非法闯闸检测", "tailgating"),
+    ("smoke-detection", "烟雾检测", "smoke_detection"),
     ("door-detection", "大门开关异常检测", "detect_door"),
     ("face-detection", "人脸逗留检测", "detect_face"),
     ("face-recognition", "人脸身份识别", "recognize_face"),
