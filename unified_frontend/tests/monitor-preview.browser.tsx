@@ -435,7 +435,7 @@ async function run() {
   successes.push('摄像头切换取消旧状态读取，晚到的设备报警不能覆盖新摄像头解除状态')
   smokeMode = 'unknown'
   for (const scenario of [
-    { connection_state: 'connected', label: '待上报', message: '设备报警接口已连接，等待烟雾事件' },
+    { connection_state: 'connected', label: '未检测到烟雾', message: '设备报警接口已连接，等待烟雾事件' },
     { connection_state: 'error', label: '报警接收异常', message: '设备报警连接未收到数据' },
     { connection_state: 'disconnected', label: '报警连接已断开', message: '设备报警连接长时间未收到心跳或事件' },
     { connection_state: 'connecting', label: '正在连接设备', message: '正在连接摄像头报警接口' },

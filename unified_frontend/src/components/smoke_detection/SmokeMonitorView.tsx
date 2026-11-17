@@ -26,7 +26,7 @@ export function SmokeMonitorView({ department, cameras, selectedCamera, loading,
   const connectionState = result?.error ? 'error' : status?.connection_state ?? 'unknown'
   const connected = connectionState === 'connected'
   const alarmLabel = result?.error ? '设备状态读取失败' : connected
-    ? status?.alarm_state === 'active' ? '设备烟雾报警' : status?.alarm_state === 'inactive' ? '设备已上报报警解除' : '待上报'
+    ? status?.alarm_state === 'active' ? '设备烟雾报警' : status?.alarm_state === 'inactive' ? '设备已上报报警解除' : '未检测到烟雾'
     : UNAVAILABLE_ALARM_LABELS[connectionState] ?? (status?.reason === 'stale' ? '设备状态已过期' : '等待连接设备')
   const statusError = connectionState === 'error' || connectionState === 'disconnected' || status?.reason === 'unsupported_event'
   const statusMessage = result?.error || ((statusError || status?.reason === 'stale') ? status?.message : '') || (connectionState === 'error' ? '设备报警连接异常，请核对设备连接配置。' : '')
