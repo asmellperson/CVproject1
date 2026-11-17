@@ -1,6 +1,7 @@
 """总览批量读取、事业部权限与无模型能力的长期回归，不连接现场服务。"""
 from types import SimpleNamespace
 from unittest.mock import Mock
+from threading import Event, Thread
 
 import pytest
 
@@ -52,7 +53,7 @@ def api(monkeypatch, tmp_path):
     guards = SimpleNamespace(list_sites=Mock(return_value=[]))
     runtime = SimpleNamespace(
         consumers={}, guard_behavior_runtime=None,
-        runtime_status=lambda: {"started": True, "running_cameras": [f"camera_{i}" for i in range(1, len(departments) + 1)],
+        runtime_summary=lambda: {"started": True, "running_cameras": [f"camera_{i}" for i in range(1, len(departments) + 1)],
                                 "running_consumers": ["smoke_detection"], "running_models": []},
     )
     app = FastAPI()
@@ -62,7 +63,9 @@ def api(monkeypatch, tmp_path):
         routes.get_logistics_channel_service: logistics, routes.get_guard_behavior_service: guards,
         routes.get_optional_orchestrator: runtime,
     }.items():
-        app.dependency_overrides[dependency] = lambda value=value: value
+        def override(value):
+            return lambda: value
+        app.dependency_overrides[dependency] = override(value)
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, user=user, manager=manager, departments=departments,
                               selects=selects, specs=specs, logistics=logistics, guards=guards, runtime=runtime)
@@ -119,3 +122,155 @@ def test_camera_list_keeps_single_department_contract_and_empty_scope(api):
         api.manager.list_cameras(own, departments=[own])
     with pytest.raises(ValueError):
         api.manager.list_cameras(departments=["not-a-department"])
+
+
+def test_overview_does_not_collect_consumer_or_worker_diagnostics(api, monkeypatch):
+    from AiVision.runtime import orchestrator as module
+    from AiVision.api.routes import overview as routes
+
+    worker_details = Mock(side_effect=AssertionError("总览不需要等待Worker详细诊断"))
+    consumer_details = Mock(side_effect=AssertionError("总览不需要等待Consumer推理统计"))
+    monkeypatch.setattr(module, "inference_runtime_manager", SimpleNamespace(
+        list_running=lambda: [], runtime_status=worker_details,
+    ))
+    instance = object.__new__(module.Orchestrator)
+    instance._started = True
+    instance.camera_runtime_manager = SimpleNamespace(list_running=lambda: ["camera_1"])
+    instance.consumers = {"smoke_detection": SimpleNamespace(
+        running=True, spec=api.specs["smoke_detection"], inference_status=consumer_details,
+    )}
+    instance.guard_behavior_runtime = None
+    api.client.app.dependency_overrides[routes.get_optional_orchestrator] = lambda: instance
+    response = api.client.get("/api/overview")
+    assert response.status_code == 200
+    assert response.json()["cameras"][0]["online"] is True
+    worker_details.assert_not_called()
+    consumer_details.assert_not_called()
+    worker_details.side_effect = consumer_details.side_effect = None
+    worker_details.return_value = {"models": []}
+    consumer_details.return_value = {"totals": {}, "targets": []}
+    details = instance.runtime_status()
+    assert details["inference"]["workers"] == {"models": []}
+    assert details["inference"]["consumers"]["smoke_detection"]["targets"] == []
+    worker_details.assert_called_once()
+    consumer_details.assert_called_once()
+
+
+@pytest.fixture
+def guard_runtime(api):
+    from AiVision.features.guard_behavior.runtime import GuardBehaviorSiteRuntime
+    from AiVision.features.guard_behavior.schema import (
+        GuardBehaviorRuntimeAlarmPolicy, GuardBehaviorRuntimeMember,
+        GuardBehaviorRuntimePolicy, GuardBehaviorRuntimeSiteConfig,
+    )
+    config = GuardBehaviorRuntimeSiteConfig(
+        site_id=1, site_name="测试保安室", department=api.departments[0], enabled=True,
+        members=(GuardBehaviorRuntimeMember(camera_id=1, camera_name="摄像头1", shm_name="camera_1",
+                 member_enabled=True, physical_enabled=True, feature_enabled=True, sort_order=0),),
+        policy=GuardBehaviorRuntimePolicy(),
+        alarm_policies=tuple(GuardBehaviorRuntimeAlarmPolicy(violation_type=kind, alarm_interval=60.)
+                             for kind in (8, 9, 10, 11)),
+    )
+    evidence = Mock()
+    service = SimpleNamespace(list_runtime_site_configs=lambda: [config], get_runtime_site_config=lambda key: config)
+    runtime = GuardBehaviorSiteRuntime(service=service, dispatcher=SimpleNamespace(evidence_recorder=evidence),
+                                      evidence_recorder=evidence, is_camera_active=lambda key: True,
+                                      start_background=False)
+    runtime.start()
+    yield runtime
+    runtime.stop()
+
+
+def test_guard_status_does_not_wait_for_slow_alarm_dispatch(guard_runtime, monkeypatch):
+    runtime = guard_runtime
+    monkeypatch.setattr(runtime, "_dispatch_evaluation", lambda *args: None)
+    initial = runtime.evaluate_after_camera_update(1)
+    assert initial is not None
+    entered, release, received = Event(), Event(), Event()
+    values = []
+
+    def slow_dispatch(*args):
+        entered.set()
+        assert release.wait(3)
+
+    def read_status():
+        values.append(runtime.get_site_status(1))
+        received.set()
+
+    monkeypatch.setattr(runtime, "_dispatch_evaluation", slow_dispatch)
+    evaluation = Thread(target=runtime.evaluate_after_camera_update, args=(1,))
+    reader = Thread(target=read_status)
+    evaluation.start()
+    try:
+        assert entered.wait(1)
+        reader.start()
+        assert received.wait(.5), "读取总览状态被告警分发持有的保安室锁阻塞"
+        assert values[0].status == initial.status
+        values[0].camera_states.clear()
+        assert runtime.get_site_status(1).camera_states
+    finally:
+        release.set()
+        evaluation.join(2)
+        if reader.ident is not None:
+            reader.join(2)
+
+
+def test_guard_published_status_clears_when_site_is_reloaded_or_removed(guard_runtime, monkeypatch):
+    monkeypatch.setattr(guard_runtime, "_dispatch_evaluation", lambda *args: None)
+    assert guard_runtime.evaluate_after_camera_update(1) is not None
+    guard_runtime.reload_site(1)
+    assert guard_runtime.get_site_status(1) is None
+    assert guard_runtime.evaluate_after_camera_update(1) is not None
+    guard_runtime.remove_site(1)
+    assert guard_runtime.get_site_status(1) is None
+
+
+def test_guard_published_status_expires_without_new_evaluation(guard_runtime, monkeypatch):
+    monkeypatch.setattr(guard_runtime, "_dispatch_evaluation", lambda *args: None)
+    monkeypatch.setattr(guard_runtime, "_clock", lambda: 1000.)
+    guard_runtime.evaluate_after_camera_update(1)
+    assert guard_runtime.get_site_status(1) is not None
+    monkeypatch.setattr(guard_runtime, "_clock", lambda: 2000.)
+    assert guard_runtime.get_site_status(1) is None
+
+
+def test_overview_returns_while_guard_alarm_dispatch_is_blocked(api, guard_runtime, monkeypatch):
+    api.runtime.guard_behavior_runtime = guard_runtime
+    api.guards.list_sites.side_effect = lambda department: [
+        {"id": 1, "name": "测试保安室", "enabled": True},
+    ] if department == api.departments[0] else []
+    api.guards.list_site_cameras = Mock(return_value=[{"camera_id": 1, "member_enabled": True}])
+    entered, release, received = Event(), Event(), Event()
+    responses, failures = [], []
+
+    def slow_dispatch(*args):
+        entered.set()
+        assert release.wait(3)
+
+    def read_overview():
+        try:
+            responses.append(api.client.get("/api/overview"))
+        except Exception as exc:
+            failures.append(exc)
+        finally:
+            received.set()
+
+    monkeypatch.setattr(guard_runtime, "_dispatch_evaluation", slow_dispatch)
+    evaluation = Thread(target=guard_runtime.evaluate_after_camera_update, args=(1,))
+    reader = Thread(target=read_overview)
+    evaluation.start()
+    try:
+        assert entered.wait(1)
+        reader.start()
+        assert received.wait(1), "保安室告警阻塞时整个总览请求没有返回"
+        assert not failures, str(failures)
+        assert responses[0].status_code == 200
+        data = responses[0].json()
+        assert data["inventory_complete"] is True
+        assert len(data["cameras"]) == len(api.departments)
+        assert data["cameras"][0]["site_id"] == 1
+    finally:
+        release.set()
+        evaluation.join(2)
+        if reader.ident is not None:
+            reader.join(2)

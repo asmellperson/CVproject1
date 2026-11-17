@@ -10,7 +10,7 @@ from AiVision.api.deps import (
 )
 from AiVision.api.routes.cameras import _camera_departments_for_user, camera_response_for_user
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
-from AiVision.runtime.overview import OverviewStatus, build_overview
+from AiVision.runtime.overview import OverviewStatus, build_overview, read_overview_stage
 
 router = APIRouter(prefix="/api/overview", tags=["overview"])
 
@@ -28,7 +28,7 @@ def overview(
     # 一次读取授权范围，避免每个事业部重复扫描全部功能配置表。
     department_order = {department: index for index, department in enumerate(departments)}
     items = [camera_response_for_user(camera, user) for camera in sorted(
-        cameras.list_cameras(departments=departments),
+        read_overview_stage("摄像头清单", lambda: cameras.list_cameras(departments=departments)),
         key=lambda camera: department_order[camera["department"]],
     )]
     feature_access = {

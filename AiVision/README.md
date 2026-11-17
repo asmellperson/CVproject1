@@ -1404,6 +1404,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 `/api/overview` 的能力目录包含全部十四项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。摄像头按账号授权的事业部集合批量读取，每个功能配置表只查询一次，避免随事业部数量重复读取；空授权范围不查询摄像头。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
+总览通过 `Orchestrator.runtime_summary()` 读取运行摘要，不收集完整的 Consumer 推理统计和 Worker 诊断。保安室在告警分发前发布独立状态快照，总览读取不等待取证或告警分发持有的评估锁；快照按保安室采样周期判定有效期，过期或配置重新加载后返回未知。完整运行诊断仍由 `/api/runtime/status` 提供。后端以 `[Overview]` 标记摄像头清单、运行摘要、AGV、安检、物流和保安室各读取阶段的起止及耗时，可从最后一个未结束的阶段定位阻塞。
+
 非法闯闸状态使用 `GET /api/tailgating/cameras/{key}/status`，配置使用通用 Feature 配置接口；画面、配置和状态均按摄像头实际部门校验账号权限。
 
 ### 12.5 安检外部对接

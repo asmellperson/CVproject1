@@ -56,6 +56,9 @@ class GuardBehaviorSiteRuntime:
         self._camera_fps: dict[int, float] = {}
         self._frames: dict[int, np.ndarray] = {}
         self._lock, self._lifecycle_lock = threading.RLock(), threading.Lock()
+        # 状态读取独立于评估、取证及告警分发，慢磁盘或数据库不能阻塞总览。
+        self._status_lock = threading.Lock()
+        self._statuses: dict[int, tuple[SiteEvaluation, float]] = {}
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self.running = False
@@ -74,6 +77,8 @@ class GuardBehaviorSiteRuntime:
                 raise ValueError("同一 Camera 不能属于多个 Guard Site")
             with self._lock:
                 self.sites = {config.site_id: SiteRuntimeState(config) for config in configs}
+                with self._status_lock:
+                    self._statuses.clear()
                 self._stop_event.clear()
                 self.running = True
             if self._start_background:
@@ -119,6 +124,8 @@ class GuardBehaviorSiteRuntime:
         """取消事件并清除成员与保安室帧源，防止解绑后遗留证据缓存。"""
         with self._lock:
             state = self.sites.pop(site_id, None)
+            with self._status_lock:
+                self._statuses.pop(site_id, None)
             if state is None:
                 return
             self._cancel_episodes(state)
@@ -192,6 +199,7 @@ class GuardBehaviorSiteRuntime:
                     SiteRuleDecision("unavailable", "idle", "Site 未参与检测"), now,
                 )
                 state.last_error = None
+                self._publish_status(site_id, state.evaluation)
                 return state.evaluation
             camera_states = {member.camera_id: camera_availability(
                 member, self.latest_snapshots.get(member.camera_id), now, stale_seconds(config),
@@ -209,6 +217,7 @@ class GuardBehaviorSiteRuntime:
             ) for camera_id, availability in camera_states.items() if availability == CameraAvailability.READY}
             state.evaluation = SiteEvaluation(status, camera_states, absence, phone, prone, vehicle, now, metrics)
             state.last_error = None
+            self._publish_status(site_id, state.evaluation)
             try:
                 self._dispatch_evaluation(state, completed, now)
             finally:
@@ -359,13 +368,25 @@ class GuardBehaviorSiteRuntime:
             return {member.camera_id: bool(member.physical_enabled and self._is_camera_active(member.shm_name))
                     for member in state.config.members} if state is not None else {}
 
+    def _publish_status(self, site_id: int, evaluation: SiteEvaluation) -> None:
+        """在慢告警分发之前发布评估快照，不把内部映射交给外部修改。"""
+        snapshot = replace(evaluation, camera_states=dict(evaluation.camera_states),
+                           camera_metrics=dict(evaluation.camera_metrics))
+        valid_until = evaluation.updated_at + stale_seconds(self.sites[site_id].config)
+        with self._status_lock:
+            self._statuses[site_id] = (snapshot, valid_until)
+
     def get_site_status(self, site_id: int) -> SiteEvaluation | None:
-        """返回最新评估快照并复制可变映射，未评估或站点不存在时返回 None。"""
-        with self._lock:
-            state = self.sites.get(site_id)
-            evaluation = state.evaluation if state is not None else None
+        """复制已发布的评估快照，读取不等待检测与告警分发锁。"""
+        with self._status_lock:
+            published = self._statuses.get(site_id)
+            if published is None:
+                return None
+            evaluation, valid_until = published
+            if not evaluation.updated_at <= self._clock() <= valid_until:
+                return None
             return replace(evaluation, camera_states=dict(evaluation.camera_states),
-                           camera_metrics=dict(evaluation.camera_metrics)) if evaluation is not None else None
+                           camera_metrics=dict(evaluation.camera_metrics))
 
     def _cancel_episodes(self, state: SiteRuntimeState) -> None:
         """取消站点持有的全部事件取证并清空令牌映射。"""

@@ -3,14 +3,30 @@
 从摄像头配置、通道/保安室关系和运行快照合并物理设备，避免同摄像头多能力重复计数。
 在线、模型就绪与正在检测分别统计，尤其 AGV 待机在线不计为正在执行请求。
 """
-from time import time
-from typing import Literal
+from time import time, perf_counter
+from threading import get_ident
+from typing import Callable, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
 from AiVision.features.registry import all_specs
 from AiVision.features.guard_behavior.state import CameraAvailability
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.core.logger import logger
+
+
+_StageResult = TypeVar("_StageResult")
+
+
+def read_overview_stage(stage: str, read: Callable[[], _StageResult]) -> _StageResult:
+    """标明总览当前读取阶段与耗时，阻塞时日志停在对应阶段且不输出设备地址。"""
+    started_at = perf_counter()
+    identity = get_ident()
+    logger.info(f"[Overview] thread={identity} 开始读取 {stage}")
+    try:
+        return read()
+    finally:
+        logger.info(f"[Overview] thread={identity} 结束读取 {stage} 耗时={perf_counter() - started_at:.3f}s")
 
 
 CAPABILITIES = (
@@ -101,20 +117,20 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     调用方提供事业部、摄像头、通道/保安室服务、可选编排器及功能分配。
     安检计入外部服务健康，AGV 仅将尚未完成的请求计为检测中；返回 OverviewStatus。
     """
-    status = orchestrator.runtime_status() if orchestrator is not None else {}
+    status = read_overview_stage("运行摘要", orchestrator.runtime_summary) if orchestrator is not None else {}
     running_cameras = set(status.get("running_cameras", []))
     running_features = set(status.get("running_consumers", []))
     running_models = set(status.get("running_models", []))
     agv = orchestrator.consumers.get("agv_person_check") if orchestrator is not None else None
-    detecting_agv_cameras = agv.service.detecting_camera_ids() if agv is not None else set()
+    detecting_agv_cameras = read_overview_stage("AGV请求状态", agv.service.detecting_camera_ids) if agv is not None else set()
     inspection = orchestrator.consumers.get("security_inspection") if orchestrator is not None else None
-    health = inspection.vlm_runtime.health_status() if inspection is not None else None
+    health = read_overview_stage("安检健康状态", inspection.vlm_runtime.health_status) if inspection is not None else None
     vlm_ready = bool(inspection is not None and inspection.running and health.reachable is True
                      and health.circuit_state != "open")
-    inventory = logistics_service.camera_inventory_status(
+    inventory = read_overview_stage("物流摄像头清单", lambda: logistics_service.camera_inventory_status(
         [department for department in departments
          if "detect_logistics_single_person" in feature_access[department]], orchestrator,
-    )
+    ))
     memberships = {item["camera_id"]: item for item in inventory}
     physical = {}
     for camera in cameras:
@@ -145,10 +161,10 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     for department in departments:
         if "guard_behavior" not in feature_access[department]:
             continue
-        for site in guard_service.list_sites(department):
+        for site in read_overview_stage(f"保安室清单:{department}", lambda: guard_service.list_sites(department)):
             sites.append({"id": site["id"], "name": site["name"], "department": department})
-            evaluation = guard_runtime.get_site_status(site["id"]) if guard_runtime is not None and guard_runtime.running else None
-            for member in guard_service.list_site_cameras(site["id"]):
+            evaluation = read_overview_stage(f"保安室状态:{site['id']}", lambda: guard_runtime.get_site_status(site["id"])) if guard_runtime is not None and guard_runtime.running else None
+            for member in read_overview_stage(f"保安室成员:{site['id']}", lambda: guard_service.list_site_cameras(site["id"])):
                 camera = physical.get(member["camera_id"])
                 if camera is None:
                     errors[f"guard_camera:{member['camera_id']}"] = "保安室成员不在物理摄像头清单中"

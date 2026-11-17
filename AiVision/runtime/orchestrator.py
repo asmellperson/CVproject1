@@ -861,6 +861,20 @@ class Orchestrator:
         """获取物流通道的最新拼接标注画面。"""
         return self.logistics_channel_runtime.get_channel_frame(feature, channel_id)
 
+    def runtime_summary(self) -> dict:
+        """总览只读取生命周期与就绪列表，不等待各检测线程的详细统计锁。"""
+        running_models = inference_runtime_manager.list_running()
+        running_model_set = set(running_models)
+        return {
+            "started": self._started,
+            "running_cameras": self.camera_runtime_manager.list_running(),
+            "running_models": running_models,
+            "running_consumers": [
+                name for name, consumer in tuple(self.consumers.items())
+                if consumer.running and all(model in running_model_set for model in consumer.spec.required_models)
+            ],
+        }
+
     def runtime_status(self) -> dict:
         """
         汇总AiVision的整体运行状态，主要供健康检测和状态接口使用
@@ -870,27 +884,16 @@ class Orchestrator:
             3、Consuemr本身及其依赖模型是否正常
             4、InferenceWorker和各Consumer的详细推理状态
         """
-        # 真正已经启动的模型推理进程有哪些
-        running_models = inference_runtime_manager.list_running()
-        running_model_set = set(running_models)
+        status = self.runtime_summary()
         # 遍历所有Consumer，如果这个Consumer支持inference_status(),就把自己的推理状态收集起来
         consumer_inference = {
             name: consumer.inference_status()
             for name, consumer in self.consumers.items()
             if callable(getattr(consumer, "inference_status", None))
         }
-        # Consumer在运行，并且这个consumer依赖的所有模型也必须正在运行
-        running_consumers = [
-            name
-            for name, consumer in self.consumers.items()
-            if consumer.running and all(model in running_model_set for model in consumer.spec.required_models)
-        ]
         # 最后返回系统整体运行状态
         return {
-            "started": self._started,                             # Orchestrator整体有没有完成启动
-            "running_cameras": self.camera_runtime_manager.list_running(), # 当前正在运行采集的摄像头
-            "running_models": running_models,                     # 当前正在运行的模型推理进程
-            "running_consumers": running_consumers,              # Consumer本身正常，而且它依赖的模型也全部正常的检测功能
+            **status,
             "inference": {
                 "workers": inference_runtime_manager.runtime_status(),     # 模型推理进程的详细状态
                 "consumers": consumer_inference,                   # 每个consumer自己的推理调用状态
