@@ -93,6 +93,38 @@ def test_camera_grants_filters_and_face_permissions_are_independent(database):
     assert fence.update_person_allowed(999, True, camera_id=1) is None
 
 
+def test_batch_camera_authorizations_use_one_select_and_preserve_empty_scopes(database):
+    db = database()
+    from AiVision.features.security_fence.service import person_library
+
+    with db.engine.begin() as connection:
+        connection.execute(db.authorization.insert(), [
+            {"camera_id": 1, "person_id": 123}, {"camera_id": 2, "person_id": 456},
+            {"camera_id": 3, "person_id": 789},
+        ])
+    statements = []
+    event.listen(db.engine, "before_cursor_execute",
+                 lambda connection, cursor, statement, parameters, context, many: statements.append(statement))
+    assert person_library.get_allowed_person_ids_by_camera([2, 1, 3, 4, 1]) == {
+        1: {123}, 2: {456}, 3: set(), 4: set(),
+    }
+    assert len(statements) == 1 and statements[0].lstrip().upper().startswith("SELECT")
+    assert person_library.get_allowed_person_ids_by_camera([]) == {}
+    assert len(statements) == 1
+
+
+@pytest.mark.parametrize("camera_ids", [[0], [True], ["1"]])
+def test_batch_camera_authorizations_reject_invalid_scopes(database, camera_ids):
+    database()
+    from AiVision.features.security_fence.service import person_library
+    from AiVision.features.face_recognition.library.service import FaceLibraryService
+
+    with pytest.raises(ValueError, match="摄像头"):
+        person_library.get_allowed_person_ids_by_camera(camera_ids)
+    with pytest.raises(ValueError, match="摄像头"):
+        FaceLibraryService().get_allowed_person_ids_by_camera([1])
+
+
 @pytest.mark.parametrize("scope", [{}, {"department": "general_electric"}, {"camera_id": 0},
                                  {"camera_id": True}, {"camera_id": 1, "department": "general_electric"}])
 def test_fence_service_requires_camera_scope(database, scope):

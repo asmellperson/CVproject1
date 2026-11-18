@@ -59,7 +59,9 @@ def make_consumer(fence_modules):
                    "sql_enable": True, "horn_enable": True, "horn_interval": 0.0}
             consumer.config_cache[camera] = cfg
             consumer.preview.configure(camera, cfg)
-        consumer.library = Mock(get_allowed_person_ids=Mock(return_value=set()))
+        consumer.library = Mock(get_allowed_person_ids_by_camera=Mock(
+            return_value={camera: set() for camera in range(1, count + 1)},
+        ))
         consumer.running = True
         consumer.result_router.start()
         instances.append(consumer)
@@ -126,9 +128,80 @@ def test_slow_face_does_not_block_another_camera_in_real_loop(make_consumer):
     assert consumer.inference_status()["targets"]
 
 
+def test_fourteen_cameras_with_slow_authorization_still_enqueue_fresh_horn_alarms(
+    make_consumer, fence_modules, monkeypatch,
+):
+    from AiVision.alarms.dispatcher import AlarmDispatcher
+    from AiVision.features._shared import consumer as shared
+    from AiVision.features._shared.consumer import SubmittedInference
+    from AiVision.inference.contracts import build_inference_result
+
+    consumer = make_consumer(14, confirmation_frames=1)
+
+    def single_lookup(*, camera_id):
+        time.sleep(0.45)
+        return set()
+
+    def batch_lookup(camera_ids):
+        time.sleep(0.45)
+        return {camera_id: set() for camera_id in camera_ids}
+
+    consumer.library.get_allowed_person_ids.side_effect = single_lookup
+    consumer.library.get_allowed_person_ids_by_camera.side_effect = batch_lookup
+    for config in consumer.config_cache.values():
+        config.update(sql_enable=False, horn_id=8, horn_event_id=5)
+
+    def submit(camera_id, model_name, frame, task_meta, timeout=0.8):
+        started_at = time.monotonic()
+        result = build_inference_result(
+            {"function_name": consumer.feature_name, "camera_id": camera_id,
+             "model_name": model_name, "roi_id": 0, "request_id": f"{camera_id}:{model_name}"},
+            status="ok", detections=[FACE] if model_name == "insightface" else [PERSON],
+        )
+        return SubmittedInference(camera_id, model_name, started_at, started_at + timeout, result=result)
+
+    consumer.submit_inference = submit
+    before_round = consumer._before_camera_round
+
+    def refresh_and_submit():
+        # 模拟采集与传输已有两秒延迟，剩余预算不能被逐摄像头读库耗尽。
+        for key, frame in list(consumer.latest_frames.items()):
+            consumer.latest_frames[key] = frame.copy()
+            consumer.latest_frame_times[key] = time.time() - 2.0
+        before_round()
+
+    consumer._before_camera_round = refresh_and_submit
+    dispatcher = AlarmDispatcher()
+    dispatcher.horn_runtime_manager = Mock(enqueue_play=Mock(return_value=True))
+    monkeypatch.setattr(shared, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(fence_modules[0], "alarm_dispatcher", dispatcher)
+    dispatched = dispatcher.maybe_dispatch
+    seen, ages, finished = set(), [], Event()
+
+    def observe(request, *args, **kwargs):
+        queued_before = dispatcher.horn_runtime_manager.enqueue_play.call_count
+        accepted = dispatched(request, *args, **kwargs)
+        if dispatcher.horn_runtime_manager.enqueue_play.call_count > queued_before:
+            seen.add(request.camera_id)
+            ages.append(time.time() - consumer._frame_sampled_at[request.camera_id])
+            if len(seen) == 14:
+                finished.set()
+        return accepted
+
+    dispatcher.maybe_dispatch = observe
+    consumer._thread = Thread(target=consumer._run)
+    consumer._thread.start()
+    try:
+        assert finished.wait(3.0), f"14路有效违规未及时进入喇叭队列，实际只有{len(seen)}路"
+        assert max(ages) < fence_modules[0].STALE_SECONDS
+        consumer.library.get_allowed_person_ids.assert_not_called()
+    finally:
+        consumer.stop()
+
+
 def test_forbidden_alarm_does_not_wait_for_face_or_database(make_consumer):
     consumer = make_consumer(forbidden=True)
-    consumer.library.get_allowed_person_ids.side_effect = RuntimeError("数据库不可用")
+    consumer.library.get_allowed_person_ids_by_camera.side_effect = RuntimeError("数据库不可用")
     consumer._before_camera_round()
     pending = consumer._pending_inferences[1]
     complete(consumer, 1, "yolo_human", [PERSON])
@@ -138,7 +211,7 @@ def test_forbidden_alarm_does_not_wait_for_face_or_database(make_consumer):
     assert not result[1]["error"] and not result[1]["identity_only"]
     assert result[1]["updated_at_s"] == pending.captured_at
     assert 1 in consumer._pending_inferences
-    consumer.library.get_allowed_person_ids.assert_not_called()
+    consumer.library.get_allowed_person_ids_by_camera.assert_not_called()
 
 
 def test_late_identity_only_patches_original_event(make_consumer, monkeypatch):
@@ -218,7 +291,7 @@ def test_whitelist_keeps_three_distinct_identity_observations(make_consumer):
 
 def test_allowed_identity_still_passes(make_consumer):
     consumer = make_consumer(confirmation_frames=1)
-    consumer.library.get_allowed_person_ids.return_value = {123}
+    consumer.library.get_allowed_person_ids_by_camera.return_value = {1: {123}}
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [PERSON])
     complete(consumer, 1, "insightface", [FACE])
@@ -281,7 +354,7 @@ def test_degenerate_face_landmarks_never_confirm_identity(make_consumer, points)
     from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
 
     consumer = make_consumer(confirmation_frames=1)
-    consumer.library.get_allowed_person_ids.return_value = {123}
+    consumer.library.get_allowed_person_ids_by_camera.return_value = {1: {123}}
     frame = consumer.latest_frames["camera_1"] = np.random.default_rng(42).integers(
         0, 256, (200, 200, 3), dtype=np.uint8,
     )
@@ -454,7 +527,7 @@ def test_ambiguous_face_keeps_full_frame_for_each_person_alarm(make_consumer):
 
 def test_same_department_cameras_have_independent_whitelists(make_consumer):
     consumer = make_consumer(2, confirmation_frames=1)
-    consumer.library.get_allowed_person_ids.side_effect = lambda *, camera_id: {123} if camera_id == 1 else set()
+    consumer.library.get_allowed_person_ids_by_camera.return_value = {1: {123}, 2: set()}
     consumer._before_camera_round()
     for camera in (1, 2):
         complete(consumer, camera, "yolo_human", [PERSON])
@@ -468,17 +541,99 @@ def test_same_department_cameras_have_independent_whitelists(make_consumer):
 def test_authorization_cache_refresh_and_cleanup_are_per_camera(make_consumer):
     consumer = make_consumer(2)
     allowed = {1: {123}, 2: {456}}
-    consumer.library.get_allowed_person_ids.side_effect = lambda *, camera_id: allowed[camera_id].copy()
+    consumer.library.get_allowed_person_ids_by_camera.side_effect = lambda camera_ids: {
+        camera_id: allowed[camera_id].copy() for camera_id in camera_ids
+    }
+    consumer._refresh_camera_authorizations()
     assert consumer._camera_allowed_people(1) == {123}
     assert consumer._camera_allowed_people(2) == {456}
     allowed[1].clear()
+    consumer._refresh_camera_authorizations()
     assert consumer._camera_allowed_people(1) == {123}
     consumer._authorization_refresh_at[1] = 0
+    consumer._refresh_camera_authorizations()
     assert consumer._camera_allowed_people(1) == set()
     assert consumer._camera_allowed_people(2) == {456}
     consumer._clear_camera_state(1, "camera_1")
     assert 1 not in consumer._authorization_refresh_at
     assert consumer._allowed_person_ids == {2: {456}}
+
+
+def test_batch_authorization_failure_revokes_cached_grants_and_recovers(make_consumer):
+    consumer = make_consumer(confirmation_frames=1)
+    lookup = consumer.library.get_allowed_person_ids_by_camera
+    lookup.return_value = {1: {123}}
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    complete(consumer, 1, "insightface", [FACE])
+    assert process(consumer, 1)[1]["persons"][0]["identity"] == "allowed"
+
+    lookup.side_effect = RuntimeError("数据库不可用")
+    consumer._authorization_refresh_at[1] = 0
+    refresh_frame(consumer, 1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    complete(consumer, 1, "insightface", [FACE])
+    result = process(consumer, 1)
+    assert result[1]["error"] == "摄像头围栏白名单读取失败"
+    assert result[1]["persons"][0]["identity"] == "pending" and not result[0]
+    assert not consumer._allowed_person_ids
+    consumer._refresh_camera_authorizations()
+    assert lookup.call_count == 2
+
+    lookup.side_effect, lookup.return_value = None, {1: set()}
+    consumer._authorization_refresh_at[1] = 0
+    refresh_frame(consumer, 1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    complete(consumer, 1, "insightface", [FACE])
+    result = process(consumer, 1)
+    assert not result[1]["error"]
+    assert result[0] and result[1]["persons"][0]["identity"] == "unauthorized"
+
+
+@pytest.mark.parametrize("action", ["replace", "remove", "disable", "stop"])
+def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_results(
+    make_consumer, monkeypatch, action,
+):
+    from AiVision.features._shared.consumer import config_cache
+
+    consumer = make_consumer(2)
+    entered, released = Event(), Event()
+    consumer._allowed_person_ids[1] = {456}
+    consumer._authorization_refresh_at[1] = 0
+
+    def lookup(camera_ids):
+        entered.set()
+        assert released.wait(2), "阻塞查询未被释放"
+        return {camera_id: {123} for camera_id in camera_ids}
+
+    consumer.library.get_allowed_person_ids_by_camera.side_effect = lookup
+    refresh = Thread(target=consumer._refresh_camera_authorizations)
+    refresh.start()
+    try:
+        assert entered.wait(1)
+        assert consumer._camera_state_lock.acquire(timeout=0.2), "数据库查询不能占用摄像头状态锁"
+        try:
+            if action == "replace":
+                updated = {**consumer.config_cache[1], "threshold": 0.8}
+                monkeypatch.setattr(config_cache, "get_function_config", lambda *args: updated)
+                consumer.update_config(1)
+            elif action == "remove":
+                consumer.remove_camera(1)
+            elif action == "disable":
+                consumer.update_status(1, False)
+            else:
+                consumer.stop()
+        finally:
+            consumer._camera_state_lock.release()
+    finally:
+        released.set()
+        refresh.join(timeout=2)
+    assert not refresh.is_alive()
+    assert 1 not in consumer._allowed_person_ids
+    assert 1 not in consumer._authorization_refresh_at
+    assert consumer._allowed_person_ids == ({} if action == "stop" else {2: {123}})
 
 
 def test_timeout_uses_submission_deadline_without_another_wait(make_consumer):
@@ -532,7 +687,7 @@ def test_ready_results_keep_input_frame_and_capture_time(make_consumer):
 
 def test_face_failure_revokes_an_old_allowed_identity(make_consumer):
     consumer = make_consumer(confirmation_frames=1)
-    consumer.library.get_allowed_person_ids.return_value = {123}
+    consumer.library.get_allowed_person_ids_by_camera.return_value = {1: {123}}
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [PERSON])
     complete(consumer, 1, "insightface", [FACE])

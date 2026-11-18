@@ -171,6 +171,22 @@ class FaceLibraryService:
                 getattr(self.authorization_model, self.authorization_scope) == scope[self.authorization_scope],
             )))
 
+    def get_allowed_person_ids_by_camera(self, camera_ids: Sequence[int]) -> dict[int, set[int]]:
+        """一条查询读取本轮摄像头白名单，空名单也保留独立的摄像头条目。"""
+        if self.authorization_scope != "camera_id":
+            raise ValueError("批量摄像头白名单必须使用摄像头授权范围")
+        allowed = {self._scope(camera_id=camera_id)["camera_id"]: set() for camera_id in camera_ids}
+        if not allowed:
+            return allowed
+        authorization = self.authorization_model
+        with get_session() as session:
+            rows = session.execute(select(authorization.camera_id, FacePerson.id).join(
+                FacePerson, authorization.person_id == FacePerson.id,
+            ).where(FacePerson.is_active.is_(True), authorization.camera_id.in_(allowed)))
+            for camera_id, person_id in rows:
+                allowed[camera_id].add(person_id)
+        return allowed
+
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:
         """调用方必须已完整获取该来源所有页；异常时整批回滚。
 
