@@ -158,22 +158,20 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     guard_runtime = orchestrator.guard_behavior_runtime if orchestrator is not None else None
     sites = []
     errors = {}
-    for department in departments:
-        if "guard_behavior" not in feature_access[department]:
-            continue
-        for site in read_overview_stage(f"保安室清单:{department}", lambda: guard_service.list_sites(department)):
-            sites.append({"id": site["id"], "name": site["name"], "department": department})
-            evaluation = read_overview_stage(f"保安室状态:{site['id']}", lambda: guard_runtime.get_site_status(site["id"])) if guard_runtime is not None and guard_runtime.running else None
-            for member in read_overview_stage(f"保安室成员:{site['id']}", lambda: guard_service.list_site_cameras(site["id"])):
-                camera = physical.get(member["camera_id"])
-                if camera is None:
-                    errors[f"guard_camera:{member['camera_id']}"] = "保安室成员不在物理摄像头清单中"
-                    continue
-                camera.site_id = site["id"]
-                camera.capabilities.append("guard-behavior")
-                if (camera.online and site["enabled"] and member["member_enabled"] and evaluation is not None
-                        and evaluation.camera_states.get(camera.camera_id) == CameraAvailability.READY):
-                    camera.running_capabilities.append("guard-behavior")
+    guard_departments = [department for department in departments if "guard_behavior" in feature_access[department]]
+    for site in read_overview_stage("保安室清单及成员", lambda: guard_service.list_overview_sites(guard_departments)):
+        sites.append({"id": site["id"], "name": site["name"], "department": site["department"]})
+        evaluation = read_overview_stage(f"保安室状态:{site['id']}", lambda: guard_runtime.get_site_status(site["id"])) if guard_runtime is not None and guard_runtime.running else None
+        for member in site["members"]:
+            camera = physical.get(member["camera_id"])
+            if camera is None:
+                errors[f"guard_camera:{member['camera_id']}"] = "保安室成员不在物理摄像头清单中"
+                continue
+            camera.site_id = site["id"]
+            camera.capabilities.append("guard-behavior")
+            if (camera.online and site["enabled"] and member["member_enabled"] and evaluation is not None
+                    and evaluation.camera_states.get(camera.camera_id) == CameraAvailability.READY):
+                camera.running_capabilities.append("guard-behavior")
     specs = all_specs()
     capabilities = []
     visible_features = {feature for features in feature_access.values() for feature in features}

@@ -27,6 +27,7 @@ from time import sleep
 from typing import Optional
 from uuid import uuid4
 
+from sqlalchemy import literal, null, select, union_all
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from AiVision.core.system_config import AiSystemConfig
@@ -63,23 +64,20 @@ def _load_function_metadata(
         for camera_id in camera_ids
     }
     orders = {camera_id: {} for camera_id in camera_ids}
-    if not camera_ids:
+    if not camera_ids or not specs:
         return states, orders
-    # 逐个Feature表查询
+    # 功能表彼此独立，合并结果避免随功能数量增加数据库往返次数。
+    queries = []
     for feature_name, spec in specs.items():
-        ordered = "sort_order" in spec.orm_class.__table__.columns
-        columns = [spec.orm_class.camera_id, spec.orm_class.enable]
-        if ordered:
-            columns.append(spec.orm_class.sort_order)
-        rows = (
-            session.query(*columns)
-            .filter(spec.orm_class.camera_id.in_(camera_ids))
-            .all()
-        )
-        for row in rows:
-            states[row.camera_id][feature_name] = bool(row.enable)
-            if ordered:
-                orders[row.camera_id][feature_name] = row.sort_order
+        model = spec.orm_class
+        order = getattr(model, "sort_order", null())
+        queries.append(select(
+            model.camera_id, model.enable, literal(feature_name), order,
+        ).where(model.camera_id.in_(camera_ids)))
+    for camera_id, enabled, feature_name, order in session.execute(union_all(*queries)):
+        states[camera_id][feature_name] = bool(enabled)
+        if order is not None:
+            orders[camera_id][feature_name] = order
     return states, orders
 
 def _database_error_code(exc: OperationalError) -> int | None:

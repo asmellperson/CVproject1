@@ -25,12 +25,15 @@ def api(monkeypatch, tmp_path):
     from AiVision.cameras.orm import AiCameraConfig
     from AiVision.core.db import Base
     from AiVision.departments.department_registry import DEPARTMENT_SPECS
+    from AiVision.features.guard_behavior.orm import GuardBehaviorSite, GuardBehaviorSiteCamera
     from AiVision.features.registry import all_specs
 
     specs = all_specs()
     departments = list(DEPARTMENT_SPECS)
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine, tables=[AiCameraConfig.__table__, *(spec.orm_class.__table__ for spec in specs.values())])
+    Base.metadata.create_all(engine, tables=[AiCameraConfig.__table__, GuardBehaviorSite.__table__,
+                                             GuardBehaviorSiteCamera.__table__,
+                                             *(spec.orm_class.__table__ for spec in specs.values())])
     sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(config_manager, "get_session", sessions)
     with sessions.begin() as session:
@@ -50,7 +53,7 @@ def api(monkeypatch, tmp_path):
             "feature_access": {department: list(specs) for department in departments}}
     manager = config_manager.CameraConfigManager()
     logistics = SimpleNamespace(camera_inventory_status=Mock(return_value=[]))
-    guards = SimpleNamespace(list_sites=Mock(return_value=[]))
+    guards = SimpleNamespace(list_overview_sites=Mock(return_value=[]))
     runtime = SimpleNamespace(
         consumers={}, guard_behavior_runtime=None,
         runtime_summary=lambda: {"started": True, "running_cameras": [f"camera_{i}" for i in range(1, len(departments) + 1)],
@@ -68,18 +71,21 @@ def api(monkeypatch, tmp_path):
         app.dependency_overrides[dependency] = override(value)
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, user=user, manager=manager, departments=departments,
-                              selects=selects, specs=specs, logistics=logistics, guards=guards, runtime=runtime)
+                              selects=selects, specs=specs, logistics=logistics, guards=guards,
+                              runtime=runtime, sessions=sessions)
     engine.dispose()
 
 
-def test_overview_queries_each_feature_once_across_all_departments(api):
+def test_overview_queries_camera_and_all_feature_tables_in_two_round_trips(api):
     result = api.client.get("/api/overview")
     assert result.status_code == 200
     data = result.json()
     assert data["inventory_complete"] is True
     assert [camera["department"] for camera in data["cameras"]] == api.departments
     assert data["summary"]["camera_total"] == len(api.departments)
-    assert len(api.selects) == 1 + len(api.specs)
+    assert len(api.selects) == 2
+    assert all(spec.orm_class.__tablename__ in api.selects[1] for spec in api.specs.values())
+    api.guards.list_overview_sites.assert_called_once_with(api.departments)
 
 
 @pytest.mark.parametrize("role", ["viewer", "department_admin"])
@@ -91,7 +97,8 @@ def test_scoped_users_only_receive_owned_departments_and_assigned_features(api, 
     assert list(data["cameras"][0]["aivision_camera"]["functions"]) == ["smoke_detection"]
     assert ("url" in data["cameras"][0]["aivision_camera"]) is (role == "department_admin")
     assert [item["id"] for item in data["capabilities"]] == ["smoke-detection"]
-    assert len(api.selects) == 1 + len(api.specs)
+    assert len(api.selects) == 2
+    api.guards.list_overview_sites.assert_called_once_with([])
 
 
 def test_user_without_departments_does_not_query_camera_tables(api):
@@ -122,6 +129,34 @@ def test_camera_list_keeps_single_department_contract_and_empty_scope(api):
         api.manager.list_cameras(own, departments=[own])
     with pytest.raises(ValueError):
         api.manager.list_cameras(departments=["not-a-department"])
+
+
+def test_overview_loads_scoped_guard_sites_and_members_in_one_query(api, monkeypatch):
+    from AiVision.api.routes import overview as routes
+    from AiVision.features.guard_behavior import service as module
+    from AiVision.features.guard_behavior.orm import GuardBehaviorSite, GuardBehaviorSiteCamera
+
+    own, other = api.departments[:2]
+    api.user["feature_access"][other].remove("guard_behavior")
+    monkeypatch.setattr(module.db, "get_session", api.sessions)
+    api.client.app.dependency_overrides[routes.get_guard_behavior_service] = module.GuardBehaviorService
+    with api.sessions.begin() as session:
+        session.add_all([
+            GuardBehaviorSite(id=1, department=own, name="有成员", sort_order=2),
+            GuardBehaviorSite(id=2, department=own, name="空保安室", sort_order=1, enabled=False),
+            GuardBehaviorSite(id=3, department=other, name="未获授权"),
+        ])
+        session.add_all([GuardBehaviorSiteCamera(site_id=1, camera_id=1, enabled=False),
+                         GuardBehaviorSiteCamera(site_id=3, camera_id=2)])
+
+    response = api.client.get("/api/overview")
+    assert response.status_code == 200
+    data = response.json()
+    assert [site["id"] for site in data["guard_behavior_sites"]] == [2, 1]
+    assert data["cameras"][0]["site_id"] == 1
+    assert data["cameras"][1]["site_id"] is None
+    assert len(api.selects) == 3
+    assert "LEFT OUTER JOIN" in api.selects[-1]
 
 
 def test_overview_does_not_collect_consumer_or_worker_diagnostics(api, monkeypatch):
@@ -236,10 +271,10 @@ def test_guard_published_status_expires_without_new_evaluation(guard_runtime, mo
 
 def test_overview_returns_while_guard_alarm_dispatch_is_blocked(api, guard_runtime, monkeypatch):
     api.runtime.guard_behavior_runtime = guard_runtime
-    api.guards.list_sites.side_effect = lambda department: [
-        {"id": 1, "name": "测试保安室", "enabled": True},
-    ] if department == api.departments[0] else []
-    api.guards.list_site_cameras = Mock(return_value=[{"camera_id": 1, "member_enabled": True}])
+    api.guards.list_overview_sites.return_value = [{
+        "id": 1, "name": "测试保安室", "department": api.departments[0], "enabled": True,
+        "members": [{"camera_id": 1, "member_enabled": True}],
+    }]
     entered, release, received = Event(), Event(), Event()
     responses, failures = [], []
 

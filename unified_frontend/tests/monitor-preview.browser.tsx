@@ -14,7 +14,8 @@ import { invalidateLogisticsChannelQueries, updateLogisticsCameraRoi } from '../
 import type { LogisticsChannelDetail } from '../src/components/logistics_single_person/types'
 import type { AiVisionCamera } from '../src/lib/aivision'
 import type { OverviewStatus } from '../src/lib/api'
-import { AuthContext, type AuthContextValue } from '../src/auth/auth-context'
+import { AuthContext, type AuthContextValue, type AuthUser } from '../src/auth/auth-context'
+import { useOverview } from '../src/hooks/use-overview'
 import { HomeSection } from '../src/sections/HomeSection'
 import '../src/index.css'
 
@@ -180,6 +181,66 @@ function renderSmokeMonitor(cameraKey: string) {
   statusRoot.render(<SmokeMonitorView department="general_electric" cameras={[]} selectedCamera={cameraKey}
     loading={false} message="" frameConnected={true} frameContent={<div>设备画面</div>}
     onSelectCamera={() => {}} onRefreshCameras={() => {}} />)
+}
+
+function OverviewPollingHarness({ user }: { user: AuthUser | null }) {
+  const { data, error } = useOverview(user)
+  return <div>{error || (data ? '总览已恢复' : '总览加载中')}</div>
+}
+
+async function verifyOverviewPolling(user: AuthUser | null, overview: OverviewStatus) {
+  const fetchBefore = window.fetch
+  const setTimeoutBefore = window.setTimeout
+  const clearTimeoutBefore = window.clearTimeout
+  const timers = new Map<number, { delay: number; run: () => void }>()
+  let nextTimer = -1
+  let calls = 0
+  let timedOut = 0
+  window.setTimeout = (handler: TimerHandler, delay = 0, ...args: unknown[]) => {
+    if (typeof handler !== 'function' || delay < 3000) return setTimeoutBefore(handler, delay, ...args)
+    const id = nextTimer--
+    timers.set(id, { delay, run: () => handler(...args) })
+    return id
+  }
+  window.clearTimeout = (id?: number) => {
+    if (id === undefined || !timers.delete(id)) clearTimeoutBefore(id)
+  }
+  window.fetch = async (input, init) => {
+    if (new URL(String(input), location.origin).pathname !== '/api/overview') return fetchBefore(input, init)
+    calls += 1
+    if (calls === 3) return json(overview)
+    return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => {
+      if (init.signal?.reason.name === 'TimeoutError') timedOut += 1
+      reject(init.signal?.reason)
+    }, { once: true }))
+  }
+  const findTimer = (delay: number) => [...timers].find(([, timer]) => timer.delay === delay)
+  const runTimer = async (delay: number) => {
+    await until(() => findTimer(delay), `总览安排 ${delay} 毫秒定时器`)
+    const [id, timer] = findTimer(delay)!
+    timers.delete(id)
+    timer.run()
+  }
+  try {
+    statusRoot.render(<OverviewPollingHarness user={user} />)
+    await runTimer(8000)
+    await until(() => statusElement.textContent?.includes('TimeoutError: 请求超时'), '实际轮询超时显示')
+    await runTimer(3000)
+    await runTimer(8000)
+    await until(() => findTimer(6000), '再次超时延长重试间隔')
+    await runTimer(6000)
+    await until(() => statusElement.textContent?.includes('总览已恢复'), '实际轮询恢复')
+    assert(calls === 3 && timedOut === 2, '总览未按串行方式重试，或超时未取消请求')
+    await runTimer(30000)
+    await runTimer(8000)
+    await until(() => findTimer(3000), '恢复后再次超时从最短间隔重试')
+    assert(calls === 4 && timedOut === 3, '正常轮询未恢复或之后超时未按初始间隔重试')
+  } finally {
+    statusRoot.unmount()
+    window.fetch = fetchBefore
+    window.setTimeout = setTimeoutBefore
+    window.clearTimeout = clearTimeoutBefore
+  }
 }
 
 const logisticsCamera: AiVisionCamera = { id: '1', camera_id: 1, name: '物流摄像头', shm_name: 'camera_1',
@@ -547,7 +608,9 @@ async function run() {
   assert(statusElement.textContent?.includes('正常检测中') && statusElement.textContent?.includes('烟雾检测')
     && !statusElement.textContent?.includes('请求超时'), '恢复后未展示烟雾模块的真实运行状态')
   successes.push('总览恢复后清除错误并展示烟雾模块与实际在线计数')
-  root.unmount(); statusRoot.unmount()
+  root.unmount()
+  await verifyOverviewPolling(auth.user, overview)
+  successes.push('总览实际请求仍在 8 秒超时，失败后按 3 秒、6 秒重试，恢复后回到 30 秒轮询')
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
   resultElement.dataset.result = 'passed'

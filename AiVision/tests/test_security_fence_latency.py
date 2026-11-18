@@ -128,6 +128,69 @@ def test_slow_face_does_not_block_another_camera_in_real_loop(make_consumer):
     assert consumer.inference_status()["targets"]
 
 
+def test_whitelist_samples_latest_frame_only_after_face_slot_frees(make_consumer, fence_modules, monkeypatch):
+    module, _, _ = fence_modules
+    monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
+    consumer = make_consumer(2, confirmation_frames=1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    consumer._before_camera_round()
+    assert set(consumer._pending_inferences) == {1}
+
+    complete(consumer, 1, "insightface", [FACE])
+    assert process(consumer, 1)[0]
+    refresh_frame(consumer, 1)
+    refresh_frame(consumer, 2)
+    consumer._before_camera_round()
+    assert set(consumer._pending_inferences) == {2}
+    job = consumer._pending_inferences[2]
+    assert job.frame is consumer.latest_frames["camera_2"]
+    assert job.captured_at == consumer.latest_frame_times["camera_2"]
+    assert job.face is not None
+
+
+@pytest.mark.parametrize("face_ready", [True, False])
+def test_expired_whitelist_work_releases_slots_to_next_camera(make_consumer, fence_modules, monkeypatch, face_ready):
+    module, _, _ = fence_modules
+    monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
+    consumer = make_consumer(2, confirmation_frames=1)
+    consumer._before_camera_round()
+    old = consumer._pending_inferences[1]
+    old.captured_at = time.time() - module.STALE_SECONDS - 1
+    complete(consumer, 1, "yolo_human", [PERSON])
+    if face_ready:
+        complete(consumer, 1, "insightface", [FACE])
+    refresh_frame(consumer, 1)
+    refresh_frame(consumer, 2)
+    consumer._before_camera_round()
+    assert set(consumer._pending_inferences) == {2}
+    assert consumer.result_router.snapshot()["pending_count"] == 2
+    complete(consumer, 2, "yolo_human", [PERSON])
+    complete(consumer, 2, "insightface", [FACE])
+    assert process(consumer, 2)[0]
+
+
+def test_mixed_schedule_keeps_forbidden_body_alarm_independent_of_face_slot(make_consumer, fence_modules, monkeypatch):
+    module, _, _ = fence_modules
+    monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
+    consumer = make_consumer(3, confirmation_frames=1)
+    consumer.config_cache[2]["forbidden_end"] = "00:00"
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    consumer._before_camera_round()
+    assert set(consumer._pending_inferences) == {1, 2}
+    complete(consumer, 2, "yolo_human", [PERSON])
+    assert process(consumer, 2)[1]["persons"][0]["reason"] == "forbidden_time"
+    assert consumer._pending_inferences[2].face is None
+
+    complete(consumer, 1, "insightface", [FACE])
+    process(consumer, 1)
+    refresh_frame(consumer, 1)
+    consumer._before_camera_round()
+    assert consumer._pending_inferences[3].face is not None
+    assert 1 not in consumer._pending_inferences
+
+
 def test_fourteen_cameras_with_slow_authorization_still_enqueue_fresh_horn_alarms(
     make_consumer, fence_modules, monkeypatch,
 ):
@@ -274,6 +337,18 @@ def test_forbidden_no_violation_keeps_sampling_new_people(make_consumer, people)
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [PERSON])
     assert process(consumer, 1)[0]
+
+
+def test_empty_forbidden_cameras_take_turns_when_the_human_slots_are_full(make_consumer, fence_modules, monkeypatch):
+    module, _, _ = fence_modules
+    monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
+    consumer = make_consumer(3, forbidden=True)
+    for camera in (1, 2, 3, 1):
+        consumer._before_camera_round()
+        assert set(consumer._pending_inferences) == {camera}
+        complete(consumer, camera, "yolo_human", [])
+        assert not process(consumer, camera)[0]
+        refresh_frame(consumer, camera)
 
 
 def test_whitelist_keeps_three_distinct_identity_observations(make_consumer):

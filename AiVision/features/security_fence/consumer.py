@@ -113,6 +113,7 @@ class FenceConsumer(BaseFunctionConsumer):
         self._refresh_camera_authorizations()
         with self._camera_state_lock:
             now = datetime.now(timezone.utc)
+            wall_now = time.time()
             for camera_id, pending in list(self._pending_inferences.items()):
                 cfg = self.config_cache.get(camera_id)
                 frame = self.latest_frames.get(pending.config["shm_name"])
@@ -123,55 +124,72 @@ class FenceConsumer(BaseFunctionConsumer):
                         }), now) != pending.mode
                         or frame is None or frame.shape != pending.frame.shape):
                     self._cancel_pending(camera_id)
-                elif pending.people_result is None and inference_ready(pending.people, time.monotonic()):
+                    continue
+                if pending.people_result is None and inference_ready(pending.people, time.monotonic()):
                     pending.people_result = self.resolve_inference(pending.people)
+                if pending.mode == "whitelist" and wall_now - pending.captured_at > STALE_SECONDS:
+                    # 无法再报警的旧画面不占用名额；已返回的结果仍记入推理诊断。
+                    if pending.face is not None and inference_ready(pending.face, time.monotonic()):
+                        self.resolve_inference(pending.face)
+                    self._cancel_pending(camera_id)
 
             current_ids = set(self.config_cache)
             self._submission_order = deque(cam for cam in self._submission_order if cam in current_ids)
             self._submission_order.extend(cam for cam in self.config_cache if cam not in self._submission_order)
+            limit = settings.runtime.fence_inflight
             people_inflight = sum(job.people_result is None for job in self._pending_inferences.values())
-            for _ in range(len(self._submission_order)):
-                if not self.running or people_inflight >= settings.runtime.fence_inflight:
+            face_inflight = sum(job.face is not None for job in self._pending_inferences.values())
+            next_sample = next_identity = 0
+            for index, camera_id in enumerate(self._submission_order):
+                if not self.running or (people_inflight >= limit and face_inflight >= limit):
                     break
-                camera_id = self._submission_order[0]
-                self._submission_order.rotate(-1)
+                pending = self._pending_inferences.get(camera_id)
+                if pending is not None:
+                    if pending.early_published and pending.face is None and face_inflight < limit:
+                        self._submit_face(camera_id, pending)
+                        face_inflight += 1
+                        next_identity = index + 1
+                    continue
                 cfg = self.config_cache[camera_id]
-                if (camera_id in self._pending_inferences or not cfg.get("enable", True)
-                        or not cfg.get("camera_enable", True)):
+                if people_inflight >= limit or not cfg.get("enable", True) or not cfg.get("camera_enable", True):
                     continue
                 if not self.is_camera_active(cfg["shm_name"]):
                     continue
                 frame = self.latest_frames.get(cfg["shm_name"])
-                sampled_at = self.latest_frame_times.get(cfg["shm_name"], time.time())
+                sampled_at = self.latest_frame_times.get(cfg["shm_name"], wall_now)
                 if (frame is None or frame is self.processed_frames.get(camera_id)
+                        or wall_now - sampled_at > STALE_SECONDS
                         or time.monotonic() - self._submitted_at.get(camera_id, float("-inf")) < cfg["cap_interval"]):
                     continue
                 value = FenceValue.model_validate({key: cfg[key] for key in FenceValue.model_fields})
+                mode = current_mode(value, now)
+                # 白名单判定需要同一帧的两个结果，等两种名额都可用再采最新画面。
+                if mode == "whitelist" and face_inflight >= limit:
+                    continue
                 observed_at = time.monotonic()
                 people = self.submit_inference(camera_id, "yolo_human", frame, {"conf": cfg["threshold"]})
-                self._pending_inferences[camera_id] = FenceInference(
-                    frame, cfg, sampled_at, observed_at, current_mode(value, now), people,
-                )
+                pending = FenceInference(frame, cfg, sampled_at, observed_at, mode, people)
+                self._pending_inferences[camera_id] = pending
                 people_inflight += 1
+                if mode == "whitelist":
+                    self._submit_face(camera_id, pending)
+                    face_inflight += 1
                 self.processed_frames[camera_id] = frame
                 self._submitted_at[camera_id] = observed_at
+                next_sample = index + 1
+            # 越过已采样的摄像头；检查不到空位的整轮不会改变下一路的顺序。
+            self._submission_order.rotate(-(next_sample or next_identity))
 
-            face_inflight = sum(job.face is not None for job in self._pending_inferences.values())
-            for camera_id, pending in list(self._pending_inferences.items()):
-                if not self.running or face_inflight >= settings.runtime.fence_inflight:
-                    break
-                if pending.face is not None or (pending.mode == "forbidden" and not pending.early_published):
-                    continue
-                cfg = pending.config
-                try:
-                    pending.face = self.submit_inference(camera_id, "insightface", pending.frame, {
-                        "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
-                        "include_face_quality": True,
-                    }, timeout=settings.runtime.fence_inference_timeout_seconds)
-                except Exception:
-                    self._cancel_pending(camera_id)
-                    raise
-                face_inflight += 1
+    def _submit_face(self, camera_id: int, pending: FenceInference):
+        cfg = pending.config
+        try:
+            pending.face = self.submit_inference(camera_id, "insightface", pending.frame, {
+                "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
+                "include_face_quality": True,
+            }, timeout=settings.runtime.fence_inference_timeout_seconds)
+        except Exception:
+            self._cancel_pending(camera_id)
+            raise
 
     def _process_static_frames(self, camera_id, cfg):
         return True

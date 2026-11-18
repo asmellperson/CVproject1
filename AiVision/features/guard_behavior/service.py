@@ -1,4 +1,5 @@
 """保安室数据事务；不启动检测，也不修改物理摄像头属性。"""
+from collections.abc import Sequence
 from contextlib import closing, contextmanager
 
 from sqlalchemy import func
@@ -185,6 +186,30 @@ class GuardBehaviorService:
                 query = query.filter_by(department=department)
             return [GuardBehaviorSiteResponse.model_validate(site).model_dump()
                     for site in query.order_by(GuardBehaviorSite.sort_order, GuardBehaviorSite.id).all()]
+
+    def list_overview_sites(self, departments: Sequence[str]) -> list[dict]:
+        """一次读取授权事业部的站点和成员，保留没有绑定摄像头的站点。"""
+        sites_by_department: dict[str, dict[int, dict]] = {
+            require_department(department): {} for department in departments
+        }
+        if not sites_by_department:
+            return []
+
+        site, member = GuardBehaviorSite, GuardBehaviorSiteCamera
+        with closing(db.get_session()) as session:
+            rows = (session.query(site.id, site.name, site.department, site.enabled,
+                                  member.camera_id, member.enabled)
+                    .outerjoin(member, member.site_id == site.id)
+                    .filter(site.department.in_(sites_by_department))
+                    .order_by(site.sort_order, site.id, member.sort_order, member.id))
+            for site_id, name, department, enabled, camera_id, member_enabled in rows:
+                item = sites_by_department[department].setdefault(site_id, {
+                    "id": site_id, "name": name, "department": department,
+                    "enabled": enabled, "members": [],
+                })
+                if camera_id is not None:
+                    item["members"].append({"camera_id": camera_id, "member_enabled": member_enabled})
+        return [item for sites in sites_by_department.values() for item in sites.values()]
 
     def get_site(self, site_id: int) -> dict:
         """读取站点基础信息并转换为响应结构。"""
