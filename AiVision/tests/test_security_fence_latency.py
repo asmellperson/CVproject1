@@ -883,7 +883,8 @@ def test_timeout_uses_submission_deadline_without_another_wait(make_consumer):
     job.people.deadline_at = time.monotonic() - 1
     assert consumer._should_process_now(1, consumer.config_cache[1])
     result = process(consumer, 1)
-    assert not result[0] and result[1]["error"]
+    assert not result[0]
+    assert result[1]["error"] == "人体检测超时（timeout）：等待推理结果超时: 0.000s"
     assert consumer.result_router.snapshot()["pending_count"] == 0
     assert all(target["last_outcome"]["status"] == "timeout" for target in consumer.inference_status()["targets"])
 

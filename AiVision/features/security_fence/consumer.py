@@ -19,6 +19,12 @@ from .service import person_library
 
 
 _AUTHORIZATION_REFRESH_LEAD_SECONDS = 0.5
+_HUMAN_INFERENCE_FAILURE_LABELS = {
+    "timeout": "人体检测超时",
+    "dropped": "人体检测任务排队已满",
+    "unavailable": "人体模型未就绪",
+    "error": "人体模型执行异常",
+}
 
 
 class FenceConsumer(BaseFunctionConsumer):
@@ -260,7 +266,11 @@ class FenceConsumer(BaseFunctionConsumer):
             # 暂时没有可靠观测时撤销身份，不把同一报警事件当成新事件。
             runtime.identities.clear()
             persons = []
-            errors.append("人体检测暂不可用")
+            status = str(people.get("status") or "error")
+            reason = people.get("error_message") or people.get("error_code") or "未返回失败原因"
+            errors.append(
+                f"{_HUMAN_INFERENCE_FAILURE_LABELS.get(status, '人体检测失败')}（{status}）：{reason}"
+            )
         else:
             persons = runtime.update(people["detections"], faces, roi.shape, now=now,
                                      monotonic=pending.observed_at, allowed_person_ids=allowed)
