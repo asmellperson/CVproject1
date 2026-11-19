@@ -160,7 +160,14 @@ class FenceConsumer(BaseFunctionConsumer):
                     break
                 pending = self._pending_inferences.get(camera_id)
                 if pending is not None:
-                    if pending.early_published and pending.face is None and face_inflight < limit:
+                    needs_face = (
+                        pending.mode == "whitelist"
+                        and pending.people_result is not None
+                        and pending.people_result.get("status") == "ok"
+                        and bool(pending.people_result.get("detections"))
+                    )
+                    if (pending.face is None and face_inflight < limit
+                            and (pending.early_published or needs_face)):
                         self._submit_face(camera_id, pending)
                         face_inflight += 1
                         next_identity = index + 1
@@ -178,17 +185,11 @@ class FenceConsumer(BaseFunctionConsumer):
                     continue
                 value = FenceValue.model_validate({key: cfg[key] for key in FenceValue.model_fields})
                 mode = current_mode(value, now)
-                # 白名单判定需要同一帧的两个结果，等两种名额都可用再采最新画面。
-                if mode == "whitelist" and face_inflight >= limit:
-                    continue
                 observed_at = time.monotonic()
                 people = self.submit_inference(camera_id, "yolo_human", frame, {"conf": cfg["threshold"]})
                 pending = FenceInference(frame, cfg, sampled_at, observed_at, mode, people)
                 self._pending_inferences[camera_id] = pending
                 people_inflight += 1
-                if mode == "whitelist":
-                    self._submit_face(camera_id, pending)
-                    face_inflight += 1
                 self.processed_frames[camera_id] = frame
                 self._submitted_at[camera_id] = observed_at
                 next_sample = index + 1
@@ -275,8 +276,10 @@ class FenceConsumer(BaseFunctionConsumer):
             "frame_width": roi.shape[1], "frame_height": roi.shape[0], "updated_at_s": pending.captured_at,
             "identity_only": identity_only,
         }
-        if mode == "forbidden" and response is None and not detail["alarm"]:
-            # 无违规时继续采样人体，避免无人的旧帧占着身份等待而漏掉随后进入的人。
+        if (response is None and not any(person.in_roi for person in persons)
+                and (mode == "forbidden" or not persons)):
+            # 无人进入区域时无需等待人脸结果。释放同帧请求后立即采样新画面，
+            # 避免慢人脸任务让当前人数长期停留在旧帧。
             self._cancel_pending(camera_id)
         return detail["alarm"], detail
 

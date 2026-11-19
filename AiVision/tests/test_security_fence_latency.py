@@ -85,8 +85,12 @@ def make_consumer(fence_modules):
 
 def complete(consumer, camera, model, detections, *, status="ok"):
     from AiVision.inference.contracts import build_inference_result
+
+    if model == "insightface" and consumer._pending_inferences[camera].face is None:
+        consumer._before_camera_round()
     pending = consumer._pending_inferences[camera]
     request = pending.people if model == "yolo_human" else pending.face
+    assert request is not None, "当前画面无需人脸识别，不能完成不存在的请求"
     consumer.result_queue.put(build_inference_result(request.pending.identity, status=status, detections=detections))
     assert request.pending.event.wait(1), "模拟结果未被路由到原请求"
 
@@ -125,7 +129,7 @@ def test_parallel_submission_is_bounded_and_round_robin(make_consumer, fence_mod
     consumer._before_camera_round()
     assert set(consumer._pending_inferences) == {1, 2}
     assert consumer.infer_dict["yolo_human"].qsize() == 2
-    assert consumer.infer_dict["insightface"].qsize() == 2
+    assert consumer.infer_dict["insightface"].empty()
     complete(consumer, 2, "yolo_human", [PERSON])
     complete(consumer, 2, "insightface", [FACE])
     process(consumer, 2)
@@ -133,7 +137,7 @@ def test_parallel_submission_is_bounded_and_round_robin(make_consumer, fence_mod
     consumer._before_camera_round()
     assert set(consumer._pending_inferences) == {1, 3}
     complete(consumer, 3, "yolo_human", [])
-    complete(consumer, 3, "insightface", [])
+    consumer._before_camera_round()
     process(consumer, 3)
     consumer._before_camera_round()
     assert set(consumer._pending_inferences) == {1, 4}
@@ -154,29 +158,23 @@ def test_slow_face_does_not_block_another_camera_in_real_loop(make_consumer):
     assert consumer.inference_status()["targets"]
 
 
-def test_whitelist_samples_latest_frame_only_after_face_slot_frees(make_consumer, fence_modules, monkeypatch):
+def test_whitelist_samples_latest_frame_while_other_camera_waits_for_face(make_consumer, fence_modules, monkeypatch):
     module, _, _ = fence_modules
     monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
     consumer = make_consumer(2, confirmation_frames=1)
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [PERSON])
-    consumer._before_camera_round()
-    assert set(consumer._pending_inferences) == {1}
-
-    complete(consumer, 1, "insightface", [FACE])
-    assert process(consumer, 1)[0]
-    refresh_frame(consumer, 1)
     refresh_frame(consumer, 2)
     consumer._before_camera_round()
-    assert set(consumer._pending_inferences) == {2}
+    assert set(consumer._pending_inferences) == {1, 2}
+    assert consumer._pending_inferences[1].face is not None
     job = consumer._pending_inferences[2]
     assert job.frame is consumer.latest_frames["camera_2"]
     assert job.captured_at == consumer.latest_frame_times["camera_2"]
-    assert job.face is not None
+    assert job.face is None
 
 
-@pytest.mark.parametrize("face_ready", [True, False])
-def test_expired_whitelist_work_releases_slots_to_next_camera(make_consumer, fence_modules, monkeypatch, face_ready):
+def test_expired_whitelist_work_releases_human_slot_to_next_camera(make_consumer, fence_modules, monkeypatch):
     module, _, _ = fence_modules
     monkeypatch.setattr(module.settings.runtime, "fence_inflight", 1)
     consumer = make_consumer(2, confirmation_frames=1)
@@ -184,13 +182,11 @@ def test_expired_whitelist_work_releases_slots_to_next_camera(make_consumer, fen
     old = consumer._pending_inferences[1]
     old.captured_at = time.time() - module.STALE_SECONDS - 1
     complete(consumer, 1, "yolo_human", [PERSON])
-    if face_ready:
-        complete(consumer, 1, "insightface", [FACE])
     refresh_frame(consumer, 1)
     refresh_frame(consumer, 2)
     consumer._before_camera_round()
     assert set(consumer._pending_inferences) == {2}
-    assert consumer.result_router.snapshot()["pending_count"] == 2
+    assert consumer.result_router.snapshot()["pending_count"] == 1
     complete(consumer, 2, "yolo_human", [PERSON])
     complete(consumer, 2, "insightface", [FACE])
     assert process(consumer, 2)[0]
@@ -213,7 +209,7 @@ def test_mixed_schedule_keeps_forbidden_body_alarm_independent_of_face_slot(make
     process(consumer, 1)
     refresh_frame(consumer, 1)
     consumer._before_camera_round()
-    assert consumer._pending_inferences[3].face is not None
+    assert consumer._pending_inferences[3].face is None
     assert 1 not in consumer._pending_inferences
 
 
@@ -382,6 +378,8 @@ def test_whitelist_keeps_three_distinct_identity_observations(make_consumer):
     for index in range(3):
         consumer._before_camera_round()
         complete(consumer, 1, "yolo_human", [PERSON])
+        consumer._before_camera_round()
+        assert consumer._pending_inferences[1].face is not None
         assert not consumer._should_process_now(1, consumer.config_cache[1])
         complete(consumer, 1, "insightface", [FACE])
         result = process(consumer, 1)
@@ -700,7 +698,7 @@ def test_empty_fence_is_reported_while_authorization_is_unavailable(make_consume
     consumer._authorization_refresh_at[1] = time.monotonic() + 1
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [])
-    complete(consumer, 1, "insightface", [])
+    consumer._before_camera_round()
     alarm, detail = process(consumer, 1)
     assert not alarm and detail["count"] == 0 and detail["error"] is None
 
@@ -712,6 +710,22 @@ def test_empty_fence_is_reported_while_authorization_is_unavailable(make_consume
     assert not alarm and detail["pending_count"] == 1
     assert detail["persons"][0]["identity"] == "pending"
     assert detail["error"] == "摄像头围栏白名单读取失败"
+
+
+def test_empty_whitelist_frame_publishes_before_slow_face(make_consumer):
+    consumer = make_consumer(confirmation_frames=1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [])
+
+    # 主循环先领取人体结果，空画面不应等待同帧的人脸任务完成。
+    consumer._before_camera_round()
+    assert consumer._should_process_now(1, consumer.config_cache[1])
+    assert consumer.infer_dict["insightface"].empty()
+    alarm, detail = process(consumer, 1)
+
+    assert not alarm
+    assert detail["count"] == 0 and detail["error"] is None
+    assert not consumer._pending_inferences
 
 
 @pytest.mark.parametrize("action", ["replace", "remove", "disable", "reenable", "stop"])
@@ -866,7 +880,7 @@ def test_timeout_uses_submission_deadline_without_another_wait(make_consumer):
     consumer = make_consumer()
     consumer._before_camera_round()
     job = consumer._pending_inferences[1]
-    job.people.deadline_at = job.face.deadline_at = time.monotonic() - 1
+    job.people.deadline_at = time.monotonic() - 1
     assert consumer._should_process_now(1, consumer.config_cache[1])
     result = process(consumer, 1)
     assert not result[0] and result[1]["error"]
@@ -971,7 +985,7 @@ def test_sampling_interval_and_same_frame_are_respected(make_consumer):
     consumer = make_consumer()
     consumer._before_camera_round()
     complete(consumer, 1, "yolo_human", [])
-    complete(consumer, 1, "insightface", [])
+    consumer._before_camera_round()
     process(consumer, 1)
     consumer._before_camera_round()
     assert not consumer._pending_inferences

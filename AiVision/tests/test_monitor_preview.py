@@ -138,6 +138,26 @@ def test_capture_process_limits_own_opencv_threads(modules, monkeypatch):
     assert calls == [("threads", 1), ("capture", ("active-index", "frame-seq"))]
 
 
+def test_suspect_capture_frame_keeps_last_valid_comparison_baseline(modules):
+    from AiVision.cameras import runtime
+
+    camera = object.__new__(runtime.CameraRuntime)
+    camera.diff_threshold = 0.7
+    normal = np.zeros((40, 40, 3), dtype=np.uint8)
+    suspect = np.full((40, 40, 3), 255, dtype=np.uint8)
+
+    baseline, streak, ratio = camera._advance_frame_integrity(normal, None, 0)
+    assert streak == 0 and ratio is None
+
+    next_baseline, streak, ratio = camera._advance_frame_integrity(suspect, baseline, streak)
+    assert next_baseline is baseline
+    assert streak == 1 and ratio > camera.diff_threshold
+
+    recovered, streak, ratio = camera._advance_frame_integrity(normal, next_baseline, streak)
+    assert streak == 0 and ratio is None
+    assert recovered is not next_baseline
+
+
 def test_dwell_details_only_include_visible_tracks(modules):
     from AiVision.features._shared.dwell_consumer import build_dwell_monitor_snapshot
     from AiVision.features._shared.tracking import Track
@@ -291,7 +311,7 @@ def test_status_elapsed_header_stops_before_sampling_validity(modules, monkeypat
         assert STATUS_ELAPSED_HEADER in response.headers["Access-Control-Expose-Headers"]
         result = response.json()
         assert result["camera_key"] == "camera_1" and result["online"] and result["count"] == 1
-        assert result["valid_for_seconds"] == pytest.approx(4.9 if feature == "security_fence" else 1.9)
+        assert result["valid_for_seconds"] == pytest.approx(1.9 if feature == "blocks" else 4.9)
         assert client.get(f"/api/{path}/cameras/missing/status").status_code == 404
         assert client.get(f"/api/{path}/cameras/outside/status").status_code == 403
         if feature == "security_fence":

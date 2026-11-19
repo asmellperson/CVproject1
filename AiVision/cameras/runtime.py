@@ -49,6 +49,8 @@ _CAPTURE_TERMINATE_SECONDS = 5.0
 _CAPTURE_KILL_SECONDS = 2.0
 _FFMPEG_STOP_SECONDS = 2.0
 _READ_POLL_SECONDS = 0.1
+# 单帧差异只能说明画面异常，连续出现才重连，避免把偶发切光当作断流。
+_SUSPECT_FRAME_RESTART_STREAK = 3
 
 
 class CameraStreamError(OSError):
@@ -261,6 +263,24 @@ class CameraRuntime:
         )
         logger.info(f"[Camera:{self.name}] ffmpeg 进程启动")
 
+    def _advance_frame_integrity(self, frame, previous_gray, suspect_streak):
+        """检查当前画面，并在疑似花屏时保留最后一张有效基准。
+
+        被拒绝的画面不能作为下次比对基准。否则正常帧和损坏帧交替出现时，
+        两者会互相触发高差异，导致采集端持续丢弃所有后续画面。
+        """
+        small = frame[::4, ::4]
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        if previous_gray is None:
+            return gray, 0, None
+        diff = cv2.absdiff(gray, previous_gray)
+        _, bin_diff = cv2.threshold(diff, 10, 255, cv2.THRESH_BINARY)
+        ratio = bin_diff.mean() / 255.0
+        if ratio > self.diff_threshold:
+            return previous_gray, suspect_streak + 1, ratio
+        return gray, 0, None
+
     def _restart_ffmpeg(self):
         """结束旧ffmpeg，等一会，启动新的ffmpeg"""
         self._stop_ffmpeg()
@@ -355,6 +375,8 @@ class CameraRuntime:
             idx = 0
             # 上一帧灰度缩略图，用于花屏检测
             prev_gray = None
+            # 连续疑似花屏不能只丢帧，否则检测端会一直拿到旧画面。
+            suspect_streak = 0
             # 最近发生多少次ffmpeg重启
             restart_times = deque()
 
@@ -372,24 +394,17 @@ class CameraRuntime:
                     # 字节转numpy（获取图像）
                     frame = np.frombuffer(raw, dtype=np.uint8).reshape(frame_shape)
 
-                    # 花屏检测
-                    # 1、每四个像素取一个
-                    small = frame[::4, ::4]
-                    # 转灰度+高斯模糊
-                    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-                    if prev_gray is not None:
-                        # 比较
-                        diff = cv2.absdiff(gray, prev_gray)
-                        _, bin_diff = cv2.threshold(diff, 10, 255, cv2.THRESH_BINARY)
-                        # 范围变成0~1     
-                        ratio = bin_diff.mean() / 255.0
-                        # 如果diff_threshold没有设成小于1的值，花屏检测不会触发
-                        if ratio > self.diff_threshold:
-                            logger.warning(f"[Camera:{self.name}] 花屏 (ratio={ratio:.2f}),跳过")
-                            prev_gray = gray
-                            continue
-                    prev_gray = gray
+                    prev_gray, suspect_streak, ratio = self._advance_frame_integrity(
+                        frame, prev_gray, suspect_streak,
+                    )
+                    if ratio is not None:
+                        logger.warning(
+                            f"[Camera:{self.name}] 疑似花屏 (ratio={ratio:.2f}, "
+                            f"streak={suspect_streak}/{_SUSPECT_FRAME_RESTART_STREAK}),跳过"
+                        )
+                        if suspect_streak >= _SUSPECT_FRAME_RESTART_STREAK:
+                            raise CameraStreamError(f"连续 {suspect_streak} 帧疑似花屏")
+                        continue
                     # 检测以后写共享内存
                     buffers[idx][:] = frame
                     # 告诉其他进程，新帧已经在Buffer idx里了
@@ -442,6 +457,7 @@ class CameraRuntime:
                     )
                     # ffmpeg重启的话，上一帧其实已经没有意义了
                     prev_gray = None
+                    suspect_streak = 0
                     # 继续拉流
                     self._restart_ffmpeg()
         except Exception as exc:

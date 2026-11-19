@@ -8,7 +8,8 @@ from AiVision.features._shared.roi import NormalizedLine, NormalizedRoi
 
 FEATURE = "tailgating"
 ALARM_TYPE = 17
-STATUS_STALE_SECONDS = 2.0
+# 最长允许采样间隔为 3 秒，额外预留发布和状态请求传输时间，避免有效帧在界面到达前被误判过期。
+STATUS_STALE_SECONDS = 5.0
 LINE_MARGIN_RATIO = 0.005
 
 

@@ -30,4 +30,13 @@ class FenceInference:
         # 禁入时段先发布人体判定，随后只补全同一帧的身份，不重复播报旧画面。
         if self.mode == "forbidden" and not self.early_published:
             return people_ready
+        # 白名单模式的空画面没有身份核验需求。人体结果已被 Consumer 领取后可立即
+        # 发布人数为零，不能被慢人脸任务拖到监控状态过期。
+        if self.mode == "whitelist" and not self.early_published:
+            # 人体请求超时或失败也必须尽快发布明确错误并释放名额，不能因为尚未
+            # 创建人脸请求而永远停在在途状态。
+            if self.people_result is None:
+                return people_ready and self.face is None
+            if self.people_result.get("status") != "ok" or not self.people_result.get("detections"):
+                return True
         return people_ready and self.face is not None and inference_ready(self.face, now)
