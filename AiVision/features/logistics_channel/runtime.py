@@ -1,7 +1,7 @@
 """物流通道共享检测策略、成员快照聚合与通道告警运行时。"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from math import isfinite
 from threading import Event, Lock, RLock, Thread
@@ -75,6 +75,13 @@ class _IncidentWork:
     tiles: tuple[CameraTile, ...]
     evaluated_at: float
 
+@dataclass(frozen=True)
+class _EvaluationWork:
+    """合并同一通道的取证采样，同时保留首次触发时的告警证据。"""
+    prepared: _PreparedView
+    evaluated_at: float
+    incident: _IncidentWork | None
+
 class LogisticsChannelRuntime:
     """聚合逐路快照、维护通道计时并统一分发通道告警。"""
     def __init__(
@@ -121,7 +128,9 @@ class LogisticsChannelRuntime:
         self._start_background = start_background
         self._stop_timeout_seconds = float(stop_timeout_seconds)
         self._stop_event = Event()
+        self._work_event = Event()
         self._thread: Thread | None = None
+        self._work_thread: Thread | None = None
         self._lifecycle_lock = Lock()
         self._lock = RLock()
         self._snapshots: dict[tuple[str, int], CameraSnapshot] = {}
@@ -135,61 +144,68 @@ class LogisticsChannelRuntime:
         self._channel_frames: dict[tuple[str, int], np.ndarray] = {}
         self._active_incidents: dict[tuple[str, int], str] = {}
         self._pending_incidents: dict[tuple[str, int], tuple[str, int, int]] = {}
+        self._pending_work: dict[tuple[str, int], _EvaluationWork] = {}
         self._next_incident_token = 0
         self._running = False
 
     def start(self) -> None:
-        """幂等启动巡检，上一线程尚未退出时拒绝重复启动。"""
-        thread = None
+        """幂等启动巡检和取证分发，上一轮尚未退出时拒绝重复启动。"""
+        workers = ()
         with self._lifecycle_lock:
             with self._lock:
-                existing = self._thread
-                if existing is not None and existing.is_alive():
-                    if self._running:
-                        return
-                    raise RuntimeError("物流通道运行时上一巡检线程仍在停止中，禁止重复启动")
-                self._thread = None
                 if self._running:
                     return
+                if any(thread is not None and thread.is_alive() for thread in (self._thread, self._work_thread)):
+                    raise RuntimeError("物流通道运行时上一轮线程仍在停止中，禁止重复启动")
+                self._thread = self._work_thread = None
+                if self._stop_event.is_set():
+                    self._clear_all_state_locked()
                 self._stop_event.clear()
+                self._work_event.clear()
                 self._running = True
                 if self._start_background:
-                    thread = Thread(
+                    self._work_thread = Thread(
+                        target=self._work_loop, daemon=True, name="logistics-channel-evidence",
+                    )
+                    self._thread = Thread(
                         target=self._evaluation_loop,
                         daemon=True,
                         name="logistics-channel-runtime",
                     )
-                    self._thread = thread
-            if thread is not None:
-                try:
+                    workers = (self._work_thread, self._thread)
+            try:
+                for thread in workers:
                     thread.start()
-                except Exception:
-                    with self._lock:
-                        self._running = False
-                        self._stop_event.set()
-                        if self._thread is thread:
-                            self._thread = None
-                    raise
+            except Exception:
+                self._request_stop()
+                self._join_workers(workers)
+                raise
         logger.info("[LogisticsChannelRuntime] 已启动")
 
     def stop(self) -> None:
-        """停止巡检并等待退出，确认线程终止后才清理全部状态。"""
+        """停止巡检及取证分发，确认线程终止后才清理全部状态。"""
         with self._lifecycle_lock:
+            self._request_stop()
+            self._join_workers((self._thread, self._work_thread))
             with self._lock:
-                self._running = False
-                self._stop_event.set()
-                thread = self._thread
-            if thread is not None:
-                thread.join(timeout=self._stop_timeout_seconds)
-                if thread.is_alive():
-                    logger.error("[LogisticsChannelRuntime] 巡检线程停止超时，保留停止状态")
-                    raise RuntimeError("物流通道巡检线程停止超时，禁止重新启动")
-            with self._lock:
-                if self._thread is not thread:
-                    raise RuntimeError("物流通道巡检线程引用在停止期间发生变化")
-                self._thread = None
+                self._thread = self._work_thread = None
                 self._clear_all_state_locked()
         logger.info("[LogisticsChannelRuntime] 已停止")
+
+    def _request_stop(self) -> None:
+        with self._lock:
+            self._running = False
+            self._stop_event.set()
+            self._pending_work.clear()
+            self._work_event.set()
+
+    def _join_workers(self, workers: tuple[Thread | None, ...]) -> None:
+        deadline = time.monotonic() + self._stop_timeout_seconds
+        for thread in workers:
+            if thread is not None and thread.ident is not None:
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+                if thread.is_alive():
+                    raise RuntimeError(f"物流通道线程 {thread.name} 停止超时，禁止重新启动")
 
     def camera_should_run(self, feature_name: str, camera_id: int) -> bool:
         """功能合法性校验，加载这个功能的通道配置，查摄像头属于哪个功能，检查通道.enabled,检查当前是否处于检测时间内，来判断这个摄像头该不该进行检测"""
@@ -231,7 +247,10 @@ class LogisticsChannelRuntime:
         frame_copy = None
         if isinstance(annotated_frame, np.ndarray) and annotated_frame.size:
             frame_copy = annotated_frame.copy()
+            frame_copy.setflags(write=False)
         with self._lock:
+            if self._stop_event.is_set():
+                return
             running = self._running
             self._snapshots[(feature_name, snapshot.camera_id)] = snapshot
             if frame_copy is not None:
@@ -252,7 +271,7 @@ class LogisticsChannelRuntime:
         self._ensure_feature_loaded(feature_name)
         with self._lock:
             channel_id = self._camera_channels.get((feature_name, camera_id))
-        return None if channel_id is None else self.evaluate(feature_name, channel_id)
+        return None if channel_id is None else self._evaluate(feature_name, channel_id, defer_work=True)
 
     def evaluate(
         self,
@@ -261,35 +280,34 @@ class LogisticsChannelRuntime:
         *,
         now: float | None = None,
     ) -> ChannelDecision:
-        """读取通道快照，准备各摄像头状态，录证据帧，判断0/1/2人，宽限计时，如果异常，构造AlarmRequest，然后AlarmDispatcher"""
+        """显式评估通道并等待本次取证和分发完成。"""
         feature_name = require_logistics_feature(feature_name)
-        evaluated_at = self._clock_provider() if now is None else float(now)
-        for _attempt in range(3):
-            view = self._snapshot_channel(feature_name, channel_id)
+        return self._evaluate(feature_name, channel_id, now=now, defer_work=False)
+
+    def _evaluate(self, feature_name: str, channel_id: int, *, defer_work: bool, now: float | None = None) -> ChannelDecision:
+        """按快照顺序推进连续判定，只把取证和通知留给后台。"""
+        self._ensure_feature_loaded(feature_name)
+        key = (feature_name, channel_id)
+        with self._lock:
+            if self._stop_event.is_set():
+                return ChannelDecision("unknown", False, 0.0, None)
+            view = self._snapshot_channel_locked(feature_name, channel_id)
             if view is None:
                 return ChannelDecision("unconfigured", False, 0.0, None)
+            evaluated_at = self._clock_provider() if now is None else float(now)
             prepared = self._prepare_view(view, evaluated_at)
-            evidence_recorder = self._evidence_recorder
-            evidence_key = self._evidence_key(prepared.channel)
-            if evidence_recorder is not None and evidence_recorder.should_sample(
-                evidence_key,
-                evaluated_at,
-            ):
-                evidence_recorder.record_frame(
-                    evidence_key,
-                    self._compose(prepared.channel, prepared.tiles),
-                    evaluated_at,
-                )
             transition = self._transition(prepared, evaluated_at)
-            if transition is None:
-                continue
-            decision, work, reset_cooldown = transition
-            if reset_cooldown:
-                self._reset_cooldown(prepared.channel)
-            if work is not None:
-                self._execute_incident(work)
-            return decision
-        return ChannelDecision("unknown", False, 0.0, None)
+            decision, incident = transition
+            if defer_work and self._work_thread is not None:
+                if self._evidence_recorder is not None or incident is not None:
+                    previous = self._pending_work.get(key)
+                    if incident is None and previous is not None:
+                        incident = previous.incident
+                    self._pending_work[key] = _EvaluationWork(prepared, evaluated_at, incident)
+                    self._work_event.set()
+                return decision
+        self._complete_evaluation(_EvaluationWork(prepared, evaluated_at, incident))
+        return decision
 
     def refresh_camera(self, feature_name: str, camera_id: int) -> None:
         """摄像头信息、ROI 或绑定变化后重新加载所属功能配置。"""
@@ -342,11 +360,13 @@ class LogisticsChannelRuntime:
     def get_channel_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
         """显式请求时才按最新不可变 tile 快照生成拼接画面。"""
         feature_name = require_logistics_feature(feature_name)
-        view = self._snapshot_channel(feature_name, channel_id, live_preview=True)
+        self._ensure_feature_loaded(feature_name)
+        with self._lock:
+            view = self._snapshot_channel_locked(feature_name, channel_id)
         if view is None:
             return None
         prepared = self._prepare_view(view, self._clock_provider())
-        frame = self._compose(prepared.channel, prepared.tiles)
+        frame = self._compose(prepared.channel, prepared.tiles, live_preview=True)
         if frame is None:
             return None
         with self._lock:
@@ -355,50 +375,16 @@ class LogisticsChannelRuntime:
             self._channel_frames[(feature_name, channel_id)] = frame
         return frame.copy()
 
-    def _snapshot_channel(self, feature_name: str, channel_id: int, *, live_preview: bool = False) -> _ChannelView | None:
-        """锁内固定配置和检测结果，锁外补充原始预览并复制图像。"""
-        self._ensure_feature_loaded(feature_name)
-        with self._lock:
-            channel = self._channels.get((feature_name, channel_id))
-            if channel is None:
-                return None
-            generation = self._generations[feature_name]
-            snapshots = tuple(
-                self._snapshots.get((feature_name, camera.camera_id))
-                for camera in channel.cameras
-            )
-            detected_frames = tuple(
-                self._frames.get((feature_name, camera.camera_id))
-                for camera in channel.cameras
-            )
-
-        channel_active = self._channel_is_active(channel)
-        frames = []
-        for camera, detected_frame in zip(channel.cameras, detected_frames, strict=True):
-            frame = detected_frame
-            # 监控使用公共实时预览；告警评估仍保留与检测事实对应的证据帧。
-            if live_preview and channel_active and self._preview_frame_provider is not None:
-                frame = self._preview_frame_provider(feature_name, camera.shm_name)
-            if not channel_active or frame is None:
-                try:
-                    raw_frame = self._frame_provider(camera.shm_name)
-                    if isinstance(raw_frame, np.ndarray) and raw_frame.size:
-                        frame = raw_frame
-                except Exception as exc:
-                    logger.warning(
-                        f"[LogisticsChannelRuntime] 摄像头预览帧读取失败 "
-                        f"camera_id={camera.camera_id}: {exc}"
-                    )
-            frames.append(
-                frame.copy()
-                if isinstance(frame, np.ndarray) and frame.size
-                else None
-            )
+    def _snapshot_channel_locked(self, feature_name: str, channel_id: int) -> _ChannelView | None:
+        """固定同一配置代次的检测事实，帧在写入时已复制并设为只读。"""
+        channel = self._channels.get((feature_name, channel_id))
+        if channel is None:
+            return None
         return _ChannelView(
             channel=channel,
-            generation=generation,
-            snapshots=snapshots,
-            frames=tuple(frames),
+            generation=self._generations[feature_name],
+            snapshots=tuple(self._snapshots.get((feature_name, camera.camera_id)) for camera in channel.cameras),
+            frames=tuple(self._frames.get((feature_name, camera.camera_id)) for camera in channel.cameras),
         )
 
     def _prepare_view(self, view: _ChannelView, now: float) -> _PreparedView:
@@ -459,8 +445,8 @@ class LogisticsChannelRuntime:
         self,
         prepared: _PreparedView,
         now: float,
-    ) -> tuple[ChannelDecision, _IncidentWork | None, bool] | None:
-        """在当前配置代次内推进连续异常计时，并预占一次待分发事件。
+    ) -> tuple[ChannelDecision, _IncidentWork | None]:
+        """在状态锁内推进连续异常计时，并预占一次待分发事件。
 
         相同异常已成功告警或正在分发时不重复创建工作；恢复正常仅结束事件，
         不会清除分发器记录的实际告警冷却时间。
@@ -473,65 +459,73 @@ class LogisticsChannelRuntime:
         )
         channel = prepared.channel
         key = (channel.feature_name, channel.channel_id)
-        with self._lock:
-            if not self._channel_is_current_locked(channel, prepared.generation):
-                return None
-            state = self._states.setdefault(key, ChannelPresenceState())
-            decision = state.evaluate(
-                base,
-                now=now,
-                empty_grace_seconds=channel.empty_grace_seconds,
-                multi_grace_seconds=channel.multi_grace_seconds,
-            )
-            self._statuses[key] = self._build_status(channel, decision, prepared.states, now)
-            if not decision.alarm or not self._channel_is_active(channel):
-                # 恢复正常只结束当前事件，不能清除分发器记录的最后告警时间。
-                # alarm_interval 表示同一通道、同一功能两次实际告警的最小间隔，
-                # 即使检测结果在正常与告警之间短暂波动，也必须继续受该间隔约束。
-                self._clear_incident_locked(key)
-                return decision, None, False
-            active_reason = self._active_incidents.get(key)
-            pending = self._pending_incidents.get(key)
-            if active_reason == decision.reason or (
-                pending is not None
-                and pending[0] == decision.reason
-                and pending[2] == prepared.generation
+        state = self._states.setdefault(key, ChannelPresenceState())
+        decision = state.evaluate(
+            base,
+            now=now,
+            empty_grace_seconds=channel.empty_grace_seconds,
+            multi_grace_seconds=channel.multi_grace_seconds,
+        )
+        self._statuses[key] = self._build_status(channel, decision, prepared.states, now)
+        if not decision.alarm or not self._channel_is_active(channel):
+            # 恢复正常结束事件，同一通道两次实际告警仍受既有冷却时间限制。
+            self._clear_incident_locked(key)
+            return decision, None
+        active_reason = self._active_incidents.get(key)
+        pending = self._pending_incidents.get(key)
+        if active_reason == decision.reason or (
+            pending is not None
+            and pending[0] == decision.reason
+            and pending[2] == prepared.generation
+        ):
+            return decision, None
+        self._next_incident_token += 1
+        token = self._next_incident_token
+        self._pending_incidents[key] = (decision.reason, token, prepared.generation)
+        return decision, _IncidentWork(
+            key=key,
+            generation=prepared.generation,
+            token=token,
+            channel=channel,
+            decision=decision,
+            states=prepared.states,
+            tiles=prepared.tiles,
+            evaluated_at=now,
+        )
+
+    def _complete_evaluation(self, work: _EvaluationWork) -> None:
+        """在状态锁外采集视频帧和分发事件。"""
+        prepared = work.prepared
+        evidence = self._evidence_recorder
+        evidence_key = self._evidence_key(prepared.channel)
+        try:
+            if evidence is not None and self._work_is_current(prepared) and evidence.should_sample(
+                evidence_key, work.evaluated_at,
             ):
-                return decision, None, False
-            self._next_incident_token += 1
-            token = self._next_incident_token
-            self._pending_incidents[key] = (decision.reason, token, prepared.generation)
-            return (
-                decision,
-                _IncidentWork(
-                    key=key,
-                    generation=prepared.generation,
-                    token=token,
-                    channel=channel,
-                    decision=decision,
-                    states=prepared.states,
-                    tiles=prepared.tiles,
-                    evaluated_at=now,
-                ),
-                False,
+                frame = self._compose(prepared.channel, prepared.tiles)
+                if self._work_is_current(prepared):
+                    evidence.record_frame(evidence_key, frame, work.evaluated_at)
+        finally:
+            if work.incident is not None:
+                self._execute_incident(work.incident)
+
+    def _work_is_current(self, prepared: _PreparedView) -> bool:
+        with self._lock:
+            return not self._stop_event.is_set() and self._channel_is_current_locked(
+                prepared.channel, prepared.generation,
             )
 
     def _execute_incident(self, work: _IncidentWork) -> None:
         """锁外生成证据并尝试分发，仅将仍有效且成功分发的事件标为活跃。"""
-        frame = self._compose(work.channel, work.tiles)
-        request = self._build_alarm_request(
-            work.channel,
-            work.decision,
-            work.states,
-            frame,
-            work.evaluated_at,
-        )
         if not self._incident_is_current(work):
             return
         try:
-            dispatched = self._dispatcher.maybe_dispatch(
-                request,
-                alarm_interval=work.channel.alarm_interval,
+            frame = self._compose(work.channel, work.tiles)
+            request = self._build_alarm_request(
+                work.channel, work.decision, work.states, frame, work.evaluated_at,
+            )
+            dispatched = self._incident_is_current(work) and self._dispatcher.maybe_dispatch(
+                request, alarm_interval=work.channel.alarm_interval,
             )
         except Exception:
             logger.exception(
@@ -555,7 +549,8 @@ class LogisticsChannelRuntime:
         """同时核对配置代次、配置对象与待分发令牌。"""
         with self._lock:
             return (
-                self._channel_is_current_locked(work.channel, work.generation)
+                not self._stop_event.is_set()
+                and self._channel_is_current_locked(work.channel, work.generation)
                 and self._channel_is_active(work.channel)
                 and self._pending_incidents.get(work.key)
                 == (work.decision.reason, work.token, work.generation)
@@ -642,9 +637,30 @@ class LogisticsChannelRuntime:
                 for feature_name, channel_id in channels:
                     if self._stop_event.is_set():
                         return
-                    self.evaluate(feature_name, channel_id)
+                    self._evaluate(feature_name, channel_id, defer_work=True)
             except Exception:
                 logger.exception("[LogisticsChannelRuntime] 周期巡检失败")
+
+    def _work_loop(self) -> None:
+        """每个通道只保留一项待处理工作，按首次入队顺序轮流执行。"""
+        while True:
+            self._work_event.wait()
+            with self._lock:
+                if self._stop_event.is_set():
+                    return
+                if not self._pending_work:
+                    self._work_event.clear()
+                    continue
+                # 已成立的告警优先，避免排在其他通道仅用于视频缓冲的拼图之后。
+                key = next(
+                    (key for key in self._pending_work if key in self._pending_incidents),
+                    next(iter(self._pending_work)),
+                )
+                work = self._pending_work.pop(key)
+            try:
+                self._complete_evaluation(work)
+            except Exception:
+                logger.exception(f"[LogisticsChannelRuntime] 通道取证或分发失败 feature={key[0]} channel_id={key[1]}")
 
     def _install_feature_locked(
         self,
@@ -670,6 +686,8 @@ class LogisticsChannelRuntime:
             self._channels.pop(key, None)
         for key in [key for key in self._camera_channels if key[0] == feature_name]:
             self._camera_channels.pop(key, None)
+        for key in [key for key in self._pending_work if key[0] == feature_name]:
+            self._pending_work.pop(key, None)
 
     def _channel_is_current_locked(self, channel: _ChannelConfig, generation: int) -> bool:
         """通过代次和对象身份确认通道快照仍属于当前配置。"""
@@ -725,12 +743,28 @@ class LogisticsChannelRuntime:
         self,
         channel: _ChannelConfig,
         tiles: tuple[CameraTile, ...],
+        *,
+        live_preview: bool = False,
     ) -> np.ndarray | None:
-        """调用拼图器，缺少成员或输入错误时记录情况并返回 None。"""
+        """仅在实际拼图时补充预览帧；告警优先保留与检测事实对应的帧。"""
         if not tiles:
             return None
+        channel_active = self._channel_is_active(channel)
+        resolved_tiles = []
+        for camera, tile in zip(channel.cameras, tiles, strict=True):
+            frame = tile.frame
+            if live_preview and channel_active and self._preview_frame_provider is not None:
+                frame = self._preview_frame_provider(channel.feature_name, camera.shm_name)
+            if not channel_active or frame is None:
+                try:
+                    raw_frame = self._frame_provider(camera.shm_name)
+                    if isinstance(raw_frame, np.ndarray) and raw_frame.size:
+                        frame = raw_frame
+                except Exception as exc:
+                    logger.warning(f"[LogisticsChannelRuntime] 摄像头预览帧读取失败 camera_id={camera.camera_id}: {exc}")
+            resolved_tiles.append(replace(tile, frame=frame if isinstance(frame, np.ndarray) and frame.size else None))
         try:
-            return self._compositor(tiles)
+            return self._compositor(tuple(resolved_tiles))
         except (ValueError, TypeError) as exc:
             logger.warning(
                 f"[LogisticsChannelRuntime] 拼接失败 feature={channel.feature_name} "
@@ -878,6 +912,7 @@ class LogisticsChannelRuntime:
         self._channel_frames.clear()
         self._active_incidents.clear()
         self._pending_incidents.clear()
+        self._pending_work.clear()
         self._frames.clear()
         self._snapshots.clear()
 

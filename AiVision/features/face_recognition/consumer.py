@@ -5,26 +5,38 @@ import time
 
 import cv2
 
-from AiVision.departments.department_registry import require_department
-from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.core.logger import logger
+from AiVision.features._shared.authorization_refresh import AuthorizationRefresh
+from AiVision.features._shared.pipelined_consumer import PipelinedConsumer
 from AiVision.features.face_recognition.library.constants import (
-    AUTHORIZATION_REFRESH_SECONDS, DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
+    AUTHORIZATION_REFRESH_SECONDS, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
 )
 from AiVision.features.face_recognition.library.service import FaceLibraryService
+from AiVision.inference.contracts import INFERENCE_STATUS_UNAVAILABLE
 from .records import RecognitionRecorder
 
 
-class FaceRecognitionConsumer(BaseFunctionConsumer):
+_AUTHORIZATION_REFRESH_LEAD_SECONDS = 0.5
+
+
+class FaceRecognitionConsumer(PipelinedConsumer):
     """将逐脸身份匹配与本地通行授权结合，输出监控、告警和识别记录。"""
+
+    inference_model = "insightface"
+    max_inflight = 2
+
     def __init__(self, *args, **kwargs):
         """初始化异步记录器、人员服务及定期刷新的授权 ID 集合。"""
         super().__init__(*args, **kwargs)
         self.monitor_status: dict[str, dict] = {}
         self.recorder = RecognitionRecorder()
         self.library = FaceLibraryService()
-        self._allowed_person_ids: dict[str, set[int]] = {}
-        self._authorization_refresh_at: dict[str, float] = {}
+        self._authorizations: dict[str, tuple[float, set[int]]] = {}
+        self._authorization_refresh = AuthorizationRefresh(
+            self.feature_name, timeout_seconds=AUTHORIZATION_REFRESH_SECONDS,
+        )
+        self._next_authorization_attempt = 0.0
 
     def start(self):
         """先启动记录器，再启动检测；检测启动失败时同步释放记录线程。"""
@@ -38,6 +50,11 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
     def stop(self):
         """停止产生检测结果后排空记录任务。"""
         super().stop()
+        with self._camera_state_lock:
+            self._authorization_refresh.invalidate()
+            self._authorizations.clear()
+            self.monitor_status.clear()
+            self._next_authorization_attempt = 0.0
         self.recorder.stop()
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
@@ -47,39 +64,60 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         if shm_name:
             self.monitor_status.pop(shm_name, None)
 
-    def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
-        """按摄像头配置的采样周期控制识别频率。"""
-        interval = float(cfg.get("cap_interval", DEFAULT_CAPTURE_INTERVAL))
-        return time.time() - self._last_process_at.get(camera_id, 0.0) >= interval
+    def _invalidate_sample(self, camera_id: int) -> None:
+        super()._invalidate_sample(camera_id)
+        config = self.config_cache.get(camera_id)
+        if config is not None:
+            self.monitor_status.pop(config["shm_name"], None)
 
-    def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
-        """允许静止画面继续识别，使授权变化和记录冷却能及时生效。"""
-        return True
+    def _inference_parameters(self, camera_id: int, config: dict) -> dict:
+        return {
+            "conf": config.get("detection_threshold", DEFAULT_DETECTION_THRESHOLD),
+            "similarity_threshold": config.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD),
+        }
+
+    def _before_camera_round(self) -> None:
+        with self._camera_state_lock:
+            now = time.monotonic()
+            result = self._authorization_refresh.poll()
+            if result is not None:
+                if result.error is not None:
+                    logger.warning(f"[{self.feature_name}] 批量读取通行授权失败 error={result.error}")
+                else:
+                    expires_at = result.completed_at + AUTHORIZATION_REFRESH_SECONDS
+                    self._authorizations.update({
+                        department: (expires_at, ids) for department, ids in result.value.items()
+                    })
+            if now >= self._next_authorization_attempt and not self._authorization_refresh.in_progress:
+                due = sorted({
+                    cfg["department"] for cfg in self.config_cache.values()
+                    if cfg.get("camera_enable", True) and cfg.get("department")
+                    and self.is_camera_active(cfg["shm_name"])
+                    and self._authorizations.get(cfg["department"], (0.0, ()))[0]
+                    <= now + _AUTHORIZATION_REFRESH_LEAD_SECONDS
+                })
+                if due and self._authorization_refresh.submit(
+                    tuple(due), lambda: self.library.get_allowed_person_ids_by_department(due),
+                ):
+                    self._next_authorization_attempt = now + _AUTHORIZATION_REFRESH_LEAD_SECONDS
+        super()._before_camera_round()
 
     def _process(self, roi, camera_id):
         """识别人脸后查询本地授权，未知或未授权人员均形成告警候选。
 
-        推理失败返回原失败响应；授权缓存刷新失败交由上层处理，避免使用
-        过期权限继续判定。身份匹配与通行授权是两个独立条件。
+        推理或授权暂不可用时撤销当前结论，避免使用过期授权或误发告警。
         """
-        value = self.config_cache[camera_id]
-        department = require_department(value.get("department"))
-        response = self.dispatch_inference_sync(
-            camera_id, "insightface", roi,
-            task_meta={
-                "conf": value.get("detection_threshold", DEFAULT_DETECTION_THRESHOLD),
-                "similarity_threshold": value.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD),
-            },
-        )
-        if response["status"] != "ok":
+        sample = self._samples.pop(camera_id)
+        response = self.resolve_inference(sample.request)
+        if response["status"] != "ok" or not response["detections"]:
             return False, response
-        if time.monotonic() >= self._authorization_refresh_at.get(department, 0.0):
-            # 同事业部共用缓存，跨事业部独立刷新；失败时不使用过期权限判定。
-            self._allowed_person_ids[department] = self.library.get_allowed_person_ids(department)
-            self._authorization_refresh_at[department] = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
+        authorization = self._authorizations.get(sample.config.get("department"))
+        if authorization is None or time.monotonic() >= authorization[0]:
+            return False, {**response, "status": INFERENCE_STATUS_UNAVAILABLE, "detections": []}
+        allowed_person_ids = authorization[1]
         for detection in response["detections"]:
             detection["is_allowed"] = bool(
-                detection["matched"] and detection["person_id"] in self._allowed_person_ids[department]
+                detection["matched"] and detection["person_id"] in allowed_person_ids
             )
         return any(not detection["is_allowed"] for detection in response["detections"]), response
 
@@ -134,7 +172,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             "detections": detections, "frame_width": frame.shape[1], "frame_height": frame.shape[0],
             "count": len(detections) if response["status"] == "ok" else None,
             "alarm": alarm, "reason": reason,
-            "updated_at_s": time.time(),
+            "updated_at_s": self._frame_sampled_at[camera_id],
         }
         value = config
         if value.get("record_enabled", True):
@@ -145,7 +183,6 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         return frame
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
-        """在摄像头锁内返回监控状态的浅拷贝，未生成状态时返回 None。"""
-        with self._camera_state_lock:
-            value = self.monitor_status.get(camera_key)
-            return dict(value) if value else None
+        """读取原子替换的状态快照，避免状态接口排在摄像头处理之后。"""
+        value = self.monitor_status.get(camera_key)
+        return dict(value) if value else None

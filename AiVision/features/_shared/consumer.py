@@ -70,6 +70,12 @@ class SubmittedInference:
     pending: PendingInference | None = None
     result: dict | None = None
 
+    def ready(self, now: float) -> bool:
+        """调用方可以领取已返回的结果，或结算已经到期的请求。"""
+        return (self.result is not None
+                or (self.pending is not None and self.pending.event.is_set())
+                or now >= self.deadline_at)
+
 class BaseFunctionConsumer(ABC):
     """
     所有功能消费者的基类，每个功能对应一个独立的 Consumer 线程。Consumer 是 Feature 级运行实例，Consumer 内部同时管理多台 Camera
@@ -353,7 +359,7 @@ class BaseFunctionConsumer(ABC):
                             continue
 
                         read_started_at = time.monotonic()
-                        frame = self.latest_frames.get(cam_name)
+                        frame, sampled_at = self._processing_frame(cam_id, cam_name)
                         frame_ready_at = time.monotonic()
                         if frame is None:
                             continue
@@ -362,7 +368,7 @@ class BaseFunctionConsumer(ABC):
                             continue
 
                         self.frame_cache[cam_id] = frame  # 缓存供告警截图使用
-                        self._frame_sampled_at[cam_id] = self.latest_frame_times.get(cam_name, time.time())
+                        self._frame_sampled_at[cam_id] = sampled_at
 
                         roi = self._get_roi(cam_id, frame)
                         frame_changed = self._frame_changed(cam_id, roi)
@@ -440,6 +446,10 @@ class BaseFunctionConsumer(ABC):
 
     def _before_camera_round(self) -> None:
         """轮询摄像头前的扩展点，允许需要连续跟踪的功能提前投递有界请求。"""
+
+    def _processing_frame(self, camera_id: int, camera_key: str) -> tuple[np.ndarray | None, float]:
+        """读取本次业务处理所用的画面及其采集时间。"""
+        return self.latest_frames.get(camera_key), self.latest_frame_times.get(camera_key, time.time())
 
     def _record_frame_timing(self, camera_id: int, stages: dict[str, float]) -> None:
         """保存最近完整处理帧的分段耗时和实际间隔，不保留图像或历史样本。"""
@@ -849,6 +859,7 @@ class BaseFunctionConsumer(ABC):
             "function_name": self.feature_name,
             "request_id": request_id,
             "model_name": model_name,
+            "deadline_at_monotonic": request.deadline_at,
         }
         if model_name not in self.infer_dict:
             request.result = build_inference_result(

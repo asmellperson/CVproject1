@@ -70,6 +70,9 @@ def make_consumer(fence_modules):
     yield make
     for consumer in instances:
         consumer.stop()
+        query = consumer._authorization_refresh._lookup
+        if query is not None:
+            query.future.result(timeout=1)
 
 
 def complete(consumer, camera, model, detections, *, status="ok"):
@@ -80,7 +83,22 @@ def complete(consumer, camera, model, detections, *, status="ok"):
     assert request.pending.event.wait(1), "模拟结果未被路由到原请求"
 
 
+def poll_authorizations(consumer):
+    from AiVision.features.security_fence.consumer import datetime as fence_datetime
+
+    with consumer._camera_state_lock:
+        consumer._refresh_camera_authorizations(fence_datetime.now(timezone.utc))
+
+
+def settle_authorizations(consumer):
+    query = consumer._authorization_refresh._lookup
+    if query is not None:
+        query.future.result(timeout=1)
+    poll_authorizations(consumer)
+
+
 def process(consumer, camera):
+    settle_authorizations(consumer)
     frame = consumer._get_roi(camera, consumer.latest_frames[f"camera_{camera}"])
     return consumer._process(frame, camera)
 
@@ -619,14 +637,16 @@ def test_authorization_cache_refresh_and_cleanup_are_per_camera(make_consumer):
     consumer.library.get_allowed_person_ids_by_camera.side_effect = lambda camera_ids: {
         camera_id: allowed[camera_id].copy() for camera_id in camera_ids
     }
-    consumer._refresh_camera_authorizations()
+    poll_authorizations(consumer)
+    settle_authorizations(consumer)
     assert consumer._camera_allowed_people(1) == {123}
     assert consumer._camera_allowed_people(2) == {456}
     allowed[1].clear()
-    consumer._refresh_camera_authorizations()
+    poll_authorizations(consumer)
     assert consumer._camera_allowed_people(1) == {123}
     consumer._authorization_refresh_at[1] = 0
-    consumer._refresh_camera_authorizations()
+    poll_authorizations(consumer)
+    settle_authorizations(consumer)
     assert consumer._camera_allowed_people(1) == set()
     assert consumer._camera_allowed_people(2) == {456}
     consumer._clear_camera_state(1, "camera_1")
@@ -653,7 +673,7 @@ def test_batch_authorization_failure_revokes_cached_grants_and_recovers(make_con
     assert result[1]["error"] == "摄像头围栏白名单读取失败"
     assert result[1]["persons"][0]["identity"] == "pending" and not result[0]
     assert not consumer._allowed_person_ids
-    consumer._refresh_camera_authorizations()
+    poll_authorizations(consumer)
     assert lookup.call_count == 2
 
     lookup.side_effect, lookup.return_value = None, {1: set()}
@@ -667,7 +687,7 @@ def test_batch_authorization_failure_revokes_cached_grants_and_recovers(make_con
     assert result[0] and result[1]["persons"][0]["identity"] == "unauthorized"
 
 
-@pytest.mark.parametrize("action", ["replace", "remove", "disable", "stop"])
+@pytest.mark.parametrize("action", ["replace", "remove", "disable", "reenable", "stop"])
 def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_results(
     make_consumer, monkeypatch, action,
 ):
@@ -677,6 +697,7 @@ def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_r
     entered, released = Event(), Event()
     consumer._allowed_person_ids[1] = {456}
     consumer._authorization_refresh_at[1] = 0
+    original = consumer.config_cache[1]
 
     def lookup(camera_ids):
         entered.set()
@@ -684,8 +705,8 @@ def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_r
         return {camera_id: {123} for camera_id in camera_ids}
 
     consumer.library.get_allowed_person_ids_by_camera.side_effect = lookup
-    refresh = Thread(target=consumer._refresh_camera_authorizations)
-    refresh.start()
+    poll_authorizations(consumer)
+    query = consumer._authorization_refresh._lookup
     try:
         assert entered.wait(1)
         assert consumer._camera_state_lock.acquire(timeout=0.2), "数据库查询不能占用摄像头状态锁"
@@ -698,17 +719,120 @@ def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_r
                 consumer.remove_camera(1)
             elif action == "disable":
                 consumer.update_status(1, False)
+            elif action == "reenable":
+                monkeypatch.setattr(config_cache, "get_function_config", lambda *args: original)
+                consumer.update_status(1, False)
+                consumer.update_status(1, True)
             else:
                 consumer.stop()
         finally:
             consumer._camera_state_lock.release()
     finally:
         released.set()
-        refresh.join(timeout=2)
-    assert not refresh.is_alive()
+        query.future.result(timeout=1)
+    poll_authorizations(consumer)
     assert 1 not in consumer._allowed_person_ids
     assert 1 not in consumer._authorization_refresh_at
     assert consumer._allowed_person_ids == ({} if action == "stop" else {2: {123}})
+
+
+def test_pending_authorization_does_not_block_ready_inference_or_use_expired_grants(make_consumer):
+    consumer = make_consumer(confirmation_frames=1)
+    consumer._allowed_person_ids[1] = {123}
+    consumer._authorization_refresh_at[1] = time.monotonic() - 1
+    entered, released, published = Event(), Event(), Event()
+    publish = consumer.preview.publish
+
+    def lookup(camera_ids):
+        entered.set()
+        assert released.wait(2), "后台查询未释放"
+        return {1: {123}}
+
+    def publish_status(*args, **kwargs):
+        publish(*args, **kwargs)
+        published.set()
+
+    consumer.library.get_allowed_person_ids_by_camera.side_effect = lookup
+    consumer.preview.publish = publish_status
+    consumer._thread = Thread(target=consumer._run)
+    consumer._thread.start()
+    query = None
+    try:
+        assert entered.wait(1), "白名单查询未发起"
+        query = consumer._authorization_refresh._lookup
+        complete(consumer, 1, "yolo_human", [PERSON])
+        complete(consumer, 1, "insightface", [FACE])
+        assert published.wait(1), "就绪推理不应等待后台白名单查询"
+        status = consumer.get_monitor_status("camera_1")
+        assert status["persons"][0]["identity"] == "pending"
+        assert status["error"] and not status["alarm"]
+        consumer.stop()
+        assert not released.is_set()
+    finally:
+        released.set()
+        if query is not None:
+            query.future.result(timeout=1)
+
+
+def test_authorization_timeout_keeps_one_lookup_and_discards_late_result(make_consumer):
+    consumer = make_consumer()
+    entered, released = Event(), Event()
+
+    def lookup(camera_ids):
+        entered.set()
+        assert released.wait(2), "后台查询未释放"
+        return {1: {123}}
+
+    fetch = consumer.library.get_allowed_person_ids_by_camera
+    fetch.side_effect = lookup
+    poll_authorizations(consumer)
+    query = consumer._authorization_refresh._lookup
+    try:
+        assert entered.wait(1)
+        query.deadline = 0
+        poll_authorizations(consumer)
+        assert consumer._camera_allowed_people(1) is None
+        consumer._authorization_refresh_at[1] = 0
+        poll_authorizations(consumer)
+        assert fetch.call_count == 1
+    finally:
+        released.set()
+        query.future.result(timeout=1)
+    fetch.side_effect = None
+    fetch.return_value = {1: {456}}
+    poll_authorizations(consumer)
+    assert 1 not in consumer._allowed_person_ids
+    settle_authorizations(consumer)
+    assert consumer._camera_allowed_people(1) == {456}
+
+
+def test_restarted_consumer_waits_for_physical_query_without_accepting_its_result(make_consumer):
+    stopped = make_consumer()
+    restarted = make_consumer()
+    entered, released = Event(), Event()
+
+    def lookup(camera_ids):
+        entered.set()
+        assert released.wait(2), "后台查询未释放"
+        return {1: {123}}
+
+    stopped.library.get_allowed_person_ids_by_camera.side_effect = lookup
+    poll_authorizations(stopped)
+    query = stopped._authorization_refresh._lookup
+    try:
+        assert entered.wait(1)
+        stopped.stop()
+        poll_authorizations(restarted)
+        restarted.library.get_allowed_person_ids_by_camera.assert_not_called()
+        assert restarted._camera_allowed_people(1) is None
+    finally:
+        released.set()
+        query.future.result(timeout=1)
+    restarted.library.get_allowed_person_ids_by_camera.return_value = {1: {456}}
+    poll_authorizations(restarted)
+    settle_authorizations(restarted)
+    assert restarted._camera_allowed_people(1) == {456}
+    assert stopped._camera_allowed_people(1) is None
 
 
 def test_timeout_uses_submission_deadline_without_another_wait(make_consumer):

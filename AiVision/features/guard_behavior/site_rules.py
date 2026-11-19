@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .schema import GuardBehaviorRuntimeMember, GuardBehaviorRuntimeSiteConfig
+from .schema import GuardBehaviorRuntimeCameraConfig, GuardBehaviorRuntimeMember, GuardBehaviorRuntimeSiteConfig
 from .state import CameraAvailability, GuardCameraSnapshot, SiteRuleDecision
 
 
@@ -18,7 +18,7 @@ def expected_members(config: GuardBehaviorRuntimeSiteConfig) -> tuple[GuardBehav
                         key=lambda member: (member.sort_order, member.camera_id)))
 
 
-def stale_seconds(config: GuardBehaviorRuntimeSiteConfig) -> float:
+def stale_seconds(config: GuardBehaviorRuntimeSiteConfig | GuardBehaviorRuntimeCameraConfig) -> float:
     """结合采样周期计算快照有效期，并保留最低容忍窗口。"""
     return max(MIN_STALE_SECONDS, config.policy.cap_interval * STALE_INTERVAL_MULTIPLIER)
 

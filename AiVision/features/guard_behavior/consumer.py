@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import math
+from collections import deque
+from collections.abc import Generator
+from dataclasses import dataclass
 from time import monotonic, time
+from weakref import ReferenceType, ref
 
 import cv2
 import numpy as np
 
 from AiVision.core.logger import logger
-from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features._shared.consumer import BaseFunctionConsumer, SubmittedInference
 from AiVision.features._shared.roi import annotate_roi, roi_to_pixels
 from AiVision.inference.contracts import INFERENCE_ERROR_INVALID_RESULT, build_inference_result
 from .behavior import LocalBehaviorState
 from .pose_features import bbox_iou, match_pose_features
 from .schema import GuardBehaviorRuntimeCameraConfig
+from .site_rules import stale_seconds
 from .state import (
     CameraPerception, GuardCameraSnapshot, GuardTrackMemory, LocalRuleDecision,
     PhoneDetection, UNIFORM_EXPAND_RATIO, VehicleDetection, VehicleObservation,
@@ -24,6 +29,7 @@ PERSON_MODEL = "yolo_guard_person_phone"
 UNIFORM_MODEL = "guard_uniform"
 POSE_MODEL = "yolo_guard_pose"
 VEHICLE_MODEL = "yolo_vehicle"
+MAX_INFLIGHT_CAMERAS = 2
 
 # 固定裁图与误检过滤参数属于内部算法，不进入 SitePolicy。
 PHONE_CROP_HORIZONTAL_RATIO = .35
@@ -35,6 +41,17 @@ PHONE_MAX_HEIGHT_RATIO = .30
 PHONE_TABLET_MIN_AREA_RATIO = .08
 PHONE_TABLET_ASPECT_RANGE = (.55, 1.8)
 PHONE_DEDUPLICATION_IOU = .5
+
+
+@dataclass
+class _GuardSample:
+    """同一摄像头的待处理原图与分阶段感知过程。"""
+
+    frame: np.ndarray
+    captured_at: float
+    pipeline: Generator[SubmittedInference, dict, CameraPerception]
+    request: SubmittedInference | None = None
+    perception: CameraPerception | None = None
 
 
 def _box(detection: dict) -> tuple[float, float, float, float]:
@@ -110,10 +127,15 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         self._guard_memories: dict[int, GuardTrackMemory] = {}
         self._behaviors: dict[int, LocalBehaviorState] = {}
         self.latest_snapshots: dict[int, GuardCameraSnapshot] = {}
+        self._sample_order: deque[int] = deque()
+        self._pending_samples: dict[int, _GuardSample] = {}
+        self._last_samples: dict[int, tuple[float, ReferenceType[np.ndarray]]] = {}
 
     def _install_config(self, camera_id: int, config) -> None:
         """先清除旧状态，再校验并安装启用的运行配置，避免配置变更继承旧证据。"""
         old = self.config_cache.pop(camera_id, {})
+        if old:
+            self._sample_order.remove(camera_id)
         self._clear_camera_state(camera_id, old.get("shm_name"))
         self._runtime_configs.pop(camera_id, None)
         if config is None:
@@ -128,6 +150,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                 "shm_name": config.shm_name, "enable": True,
                 "roi_pos": [list(point) for point in config.vehicle_roi_pos],
             }
+            self._sample_order.append(camera_id)
 
     def _load_initial_configs(self):
         """从专用配置服务取得快照，在摄像头锁内整体替换本地配置。"""
@@ -165,11 +188,20 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         """清除跟踪、制服、行为与快照缓存，使重新加入的摄像头从零开始。"""
         super()._clear_camera_state(camera_id, shm_name)
-        # 所有跨帧状态都随 Camera 解绑或禁用销毁，重新加入不能继承旧判断。
+        self._discard_sample(camera_id)
+        self._last_samples.pop(camera_id, None)
+        self.latest_snapshots.pop(camera_id, None)
+
+    def _discard_sample(self, camera_id: int) -> None:
+        sample = self._pending_samples.pop(camera_id, None)
+        if sample is not None:
+            if sample.request is not None:
+                self.cancel_inference(sample.request)
+            sample.pipeline.close()
+        # 中止时感知可能已经推进一部分，清除这些状态以免和下一帧拼成连续证据。
         self._trackers.pop(camera_id, None)
         self._guard_memories.pop(camera_id, None)
         self._behaviors.pop(camera_id, None)
-        self.latest_snapshots.pop(camera_id, None)
 
     def stop(self):
         """先停止消费，再在状态锁内清空全部运行配置与时序证据。"""
@@ -178,21 +210,88 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             for camera_id in list(self.config_cache):
                 self._install_config(camera_id, None)
 
+    def _processing_frame(self, camera_id, camera_key):
+        """预览和取证使用当前结果对应的原图，即使采集线程已写入新帧。"""
+        sample = self._pending_samples.get(camera_id)
+        return (sample.frame, sample.captured_at) if sample is not None else (None, 0.0)
+
     def _get_roi(self, camera_id, frame):
-        """保留原帧供多模型共同感知，车辆 ROI 在车辆解析阶段单独应用。"""
+        """保留原帧，车辆区域由车辆解析阶段单独应用。"""
         return frame
 
-    def _process_static_frames(self, camera_id, cfg):
-        """静止画面仍需连续检测，以支持在岗和行为持续时间判断。"""
-        return True
+    @staticmethod
+    def _is_fresh(config: GuardBehaviorRuntimeCameraConfig, captured_at: float) -> bool:
+        return 0 <= time() - captured_at <= stale_seconds(config)
+
+    def _before_camera_round(self):
+        """轮转摄像头，每路等待一项推理时可继续推进其他摄像头。"""
+        with self._camera_state_lock:
+            for camera_id, sample in list(self._pending_samples.items()):
+                config = self._runtime_configs[camera_id]
+                current_frame = self.latest_frames.get(config.shm_name)
+                if (not self.is_camera_active(config.shm_name) or current_frame is None
+                        or current_frame.shape != sample.frame.shape or not self._is_fresh(config, sample.captured_at)):
+                    self._discard_sample(camera_id)
+                elif sample.request is not None and sample.request.ready(monotonic()):
+                    self._advance_sample(camera_id, sample)
+
+            for _ in range(len(self._sample_order)):
+                if not self.running or len(self._pending_samples) >= MAX_INFLIGHT_CAMERAS:
+                    break
+                camera_id = self._sample_order[0]
+                self._sample_order.rotate(-1)
+                if camera_id in self._pending_samples:
+                    continue
+                config = self._runtime_configs[camera_id]
+                key = config.shm_name
+                frame, captured_at = super()._processing_frame(camera_id, key)
+                observed_at = monotonic()
+                if frame is None or not self.is_camera_active(key) or not self._is_fresh(config, captured_at):
+                    continue
+                previous = self._last_samples.get(camera_id)
+                if previous is not None:
+                    previous_at, previous_frame = previous
+                    if frame is previous_frame() or observed_at - previous_at < config.policy.cap_interval:
+                        continue
+                sample = _GuardSample(frame, captured_at, self._perceive(frame, camera_id, observed_at))
+                self._pending_samples[camera_id] = sample
+                self._last_samples[camera_id] = observed_at, ref(frame)
+                self._advance_sample(camera_id, sample)
+
+    def _advance_sample(self, camera_id: int, sample: _GuardSample) -> None:
+        try:
+            if sample.request is None:
+                sample.request = next(sample.pipeline)
+            else:
+                response = self.resolve_inference(sample.request)
+                sample.request = None
+                sample.request = sample.pipeline.send(response)
+        except StopIteration as finished:
+            sample.request = None
+            sample.perception = finished.value
+        except Exception:
+            self._discard_sample(camera_id)
+            raise
 
     def _processing_interval_seconds(self, camera_id, cfg):
-        """使用所属保安室策略的采样周期。"""
-        return self._runtime_configs[camera_id].policy.cap_interval
+        """采样时已限频，已完成的结果直接发布。"""
+        return 0.0
+
+    def _frame_changed(self, camera_id, roi, threshold=0.005):
+        """静止画面也用于检测在岗，已就绪的采样无需再计算帧差。"""
+        return True
 
     def _should_process_now(self, camera_id, cfg):
-        """按上次处理时间与保安室采样周期控制推理频率。"""
-        return time() - self._last_process_at.get(camera_id, 0.) >= self._processing_interval_seconds(camera_id, cfg)
+        sample = self._pending_samples.get(camera_id)
+        if sample is None or sample.perception is None:
+            return False
+        config = self._runtime_configs[camera_id]
+        current_frame = self.latest_frames.get(config.shm_name)
+        if (current_frame is None or current_frame.shape != sample.frame.shape
+                or not self._is_fresh(config, sample.captured_at)):
+            self._discard_sample(camera_id)
+            return False
+        return True
 
     def _handle_alarm(self, camera_id, result, frame):
         """单摄只发布 Snapshot，由 SiteRuntime 统一决定业务告警。"""
@@ -203,7 +302,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         if not self.model_running_provider(model):
             states[model] = "unavailable"
             return None
-        result = self.dispatch_inference_sync(camera_id, model, frame, task_meta=meta)
+        result = yield self.submit_inference(camera_id, model, frame, task_meta=meta)
         if result["status"] != "ok":
             states[model] = "unavailable" if result["status"] == "unavailable" else "error"
             return None
@@ -257,7 +356,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                     vehicles.append(VehicleDetection(bbox, _confidence(item), int(item["class_id"])))
             return tuple(vehicles)
 
-        vehicles = self._infer(camera_id, VEHICLE_MODEL, frame, {
+        vehicles = yield from self._infer(camera_id, VEHICLE_MODEL, frame, {
             "conf": policy.vehicle_confidence_threshold, "iou": policy.model_iou_threshold,
             "imgsz": policy.vehicle_imgsz,
         }, states, parse)
@@ -265,6 +364,9 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                                   None if vehicles is not None else "车辆模型不可用或推理失败")
 
     def _process(self, roi, camera_id):
+        return False, self._pending_samples.pop(camera_id).perception
+
+    def _perceive(self, roi, camera_id, now):
         """生成单帧人体身份与局部行为事实，失败环节显式保留未知状态。
 
         先检测人体并跟踪，再用制服概率确认保安；手机仅采信保安裁图结果，
@@ -272,22 +374,21 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         被当作不存在。最终告警由保安室运行层统一决定。
         """
         config = self._runtime_configs[camera_id]
-        policy, now = config.policy, monotonic()
-        self.frame_cache[camera_id] = roi
+        policy = config.policy
         states = {model: "not_applicable" for model in self.spec.model_names}
         memory = self._guard_memories.setdefault(camera_id, GuardTrackMemory())
         behavior = self._behaviors.setdefault(camera_id, LocalBehaviorState())
-        persons = self._infer(camera_id, PERSON_MODEL, roi, {
+        persons = yield from self._infer(camera_id, PERSON_MODEL, roi, {
             "conf": policy.person_confidence_threshold, "iou": policy.model_iou_threshold,
             "imgsz": policy.person_phone_imgsz,
         }, states, lambda items: self._persons(items, camera_id, roi, config))
-        vehicle = self._vehicles(camera_id, roi, config, states)
+        vehicle = yield from self._vehicles(camera_id, roi, config, states)
         if persons is None:
             # 失败结果不是空场景；清除时序证据，避免恢复后跨越未知时段累计。
             memory.observe([], now, policy.state_ttl_seconds)
             behavior.mark_unknown(now, policy.state_ttl_seconds)
             unknown = LocalRuleDecision("unknown", "核心人体推理不可用")
-            return False, CameraPerception((), (), (), None, None, None, unknown, unknown, vehicle, states)
+            return CameraPerception((), (), (), None, None, None, unknown, unknown, vehicle, states)
         memory.observe(persons, now, policy.state_ttl_seconds)
         guards, probabilities, identity_unknown = [], [], False
         for person in persons:
@@ -301,7 +402,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                     identity_unknown = True
                     states[UNIFORM_MODEL] = "error"
                     continue
-                probability = self._infer(camera_id, UNIFORM_MODEL, crop, {}, states, self._uniform_probability)
+                probability = yield from self._infer(camera_id, UNIFORM_MODEL, crop, {}, states, self._uniform_probability)
                 if probability is None:
                     identity_unknown = True
                     continue
@@ -321,7 +422,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                 failed_phone_tracks.add(person.track_id)
                 states[PERSON_MODEL] = "error"
                 continue
-            found = self._infer(camera_id, PERSON_MODEL, crop, {
+            found = yield from self._infer(camera_id, PERSON_MODEL, crop, {
                 "conf": policy.phone_confidence_threshold, "iou": policy.model_iou_threshold,
                 "imgsz": policy.phone_crop_imgsz,
             }, states, lambda items: _phone_detections(items, person, offset))
@@ -336,7 +437,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             states[POSE_MODEL] = "unavailable"
         elif guards:
             # 不传 conf，使用 Pose ModelSpec 的正式默认值。
-            features = self._infer(camera_id, POSE_MODEL, roi, {
+            features = yield from self._infer(camera_id, POSE_MODEL, roi, {
                 "iou": policy.model_iou_threshold, "imgsz": policy.pose_imgsz,
             }, states, lambda items: match_pose_features(guards, items))
             pose_available = features is not None
@@ -349,8 +450,8 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         # 部分未知时可以确认存在保安，但不能声称已知精确人数。
         count = None if identity_unknown else len(guards)
         confidence = max(probabilities) if probabilities else (None if identity_unknown else 0.)
-        return False, CameraPerception(tuple(persons), tuple(guards), tuple(phones), present, count, confidence,
-                                       phone, prone, vehicle, states)
+        return CameraPerception(tuple(persons), tuple(guards), tuple(phones), present, count, confidence,
+                                phone, prone, vehicle, states)
 
     def _preview_background(self, frame, cfg):
         """车辆 ROI 沿用保安室配置，检测较慢时不保留上一张人物画面。"""
@@ -375,7 +476,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             cv2.polylines(annotated, [polygon], True, self.ROI_COLOR, 2)
         cv2.putText(annotated, f"guard={detail.guard_present} phone={detail.phone.state} prone={detail.prone.state}",
                     (8, 22), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
-        updated_at = time()
+        updated_at = self._frame_sampled_at[camera_id]
         # 快照只有模型事实与局部状态；图像保存在预览字典并单独交给 sink。
         snapshot = GuardCameraSnapshot(
             camera_id, config.camera_name, config.site_id, config.site_name, updated_at,

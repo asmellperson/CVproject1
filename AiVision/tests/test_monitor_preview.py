@@ -232,3 +232,133 @@ def test_logistics_status_without_results_and_outside_schedule(
     assert value["channel_id"] == 5 and value["department"] == "general_electric"
     assert value["duration_seconds"] == (0.0 if phase == "evaluated" else None)
     assert value["threshold_seconds"] is None
+
+
+def test_logistics_snapshots_keep_updating_while_evidence_composition_is_slow(modules):
+    from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.features.logistics_channel.schema import LogisticsChannelDetailResponse
+    from AiVision.features.logistics_channel.state import CameraSnapshot
+
+    feature = "detect_logistics_single_person"
+    now = datetime.fromisoformat("2026-11-13T12:00:00+08:00")
+    channel = LogisticsChannelDetailResponse.model_validate({
+        "id": 5, "name": "通道5", "feature_name": feature, "department": "general_electric",
+        "enabled": True, "sort_order": 0,
+        "config": {"schedule": {"weekdays": [4]}, "multi_grace_seconds": 0},
+        "members": [
+            {"id": index, "channel_id": 5, "camera_id": index, "enabled": True, "sort_order": index}
+            for index in (1, 2)
+        ],
+    }).model_dump()
+    service = Mock()
+    service.get_channel.return_value = channel
+    service.list_channels.return_value = {"items": [channel]}
+    composing = Event()
+    release_compositor = Event()
+    evidence_counts = Queue()
+
+    def compose(tiles):
+        composing.set()
+        if not release_compositor.wait(5):
+            raise RuntimeError("等待测试解除取证阻塞超时")
+        evidence_counts.put((tuple(tile.person_count for tile in tiles), tiles[0].frame[0, 0, 0]))
+        return np.zeros((10, 10, 3), dtype=np.uint8)
+
+    evidence = Mock()
+    evidence.should_sample.return_value = True
+    dispatched = Queue()
+    dispatcher = Mock()
+
+    def dispatch(request, *, alarm_interval):
+        dispatched.put(request)
+        return True
+
+    dispatcher.maybe_dispatch.side_effect = dispatch
+    runtime = LogisticsChannelRuntime(
+        channel_service=service, dispatcher=dispatcher, camera_provider=lambda key: {"name": f"相机{key}"},
+        wall_time_provider=lambda: now, clock_provider=lambda: now.timestamp(),
+        evidence_recorder=evidence, compositor=compose,
+    )
+    frame = np.full((10, 10, 3), 8, dtype=np.uint8)
+    first_published = Event()
+
+    def publish(camera_id, count):
+        snapshot = CameraSnapshot(camera_id, count, now.timestamp(), camera_name=f"相机{camera_id}")
+        runtime.update_camera_snapshot(feature, snapshot, frame)
+        runtime.evaluate_after_camera_update(feature, camera_id)
+
+    def publish_first():
+        publish(1, 1)
+        first_published.set()
+
+    producer = Thread(target=publish_first, daemon=True)
+    runtime.start()
+    producer.start()
+    try:
+        assert composing.wait(2)
+        assert first_published.wait(0.5), "取证阻塞了同一个检测线程"
+        frame.fill(9)
+        publish(2, 1)
+        publish(2, 2)
+        assert runtime.get_channel_status(feature, 5)["camera_counts"] == {"1": 1, "2": 2}
+        dispatcher.maybe_dispatch.assert_not_called()
+        release_compositor.set()
+        assert evidence_counts.get(timeout=2) == ((1, None), 8)
+        assert evidence_counts.get(timeout=2) == ((1, 2), 8)
+        alarm = dispatched.get(timeout=2)
+        assert alarm.metadata["camera_counts"] == {"1": 1, "2": 2}
+        assert alarm.metadata["offending_camera_ids"] == [2]
+    finally:
+        release_compositor.set()
+        producer.join(2)
+        runtime.stop()
+
+    assert runtime.get_channel_status(feature, 5) is None
+
+
+def test_logistics_pipelines_participating_cameras_and_retires_changed_policy(modules):
+    from dataclasses import replace
+    from AiVision.features.logistics_channel.state import LogisticsDetectionConfig
+
+    feature = "detect_logistics_single_person"
+    spec = modules[2](feature)
+    first_policy = LogisticsDetectionConfig(0.5, 0.55, 8, 0.1, 3.0, 0.2)
+    policies = {1: first_policy, 2: first_policy, 3: first_policy}
+    runtime = Mock()
+    runtime.camera_should_run.side_effect = lambda _feature, camera_id: camera_id != 3
+    runtime.detection_config_for_camera.side_effect = lambda _feature, camera_id: policies[camera_id]
+    captured_at = time.time() - 0.1
+    frames = {f"camera_{camera_id}": np.full((16, 16, 3), camera_id, dtype=np.uint8) for camera_id in (1, 2, 3)}
+    consumer = spec.consumer_cls(
+        spec=spec, infer_dict={}, result_queue=Queue(), latest_frames=frames,
+        latest_frame_times={key: captured_at for key in frames}, is_camera_active=lambda _key: True,
+        logistics_runtime=runtime,
+    )
+    for camera_id in (1, 2, 3):
+        consumer.config_cache[camera_id] = {"shm_name": f"camera_{camera_id}", "roi_pos": []}
+    old_requests = [Mock(), Mock()]
+    replacement = Mock()
+    consumer.submit_inference = Mock(side_effect=(*old_requests, replacement))
+    consumer.cancel_inference = Mock()
+    consumer.resolve_inference = Mock(return_value={"status": "ok", "detections": []})
+    consumer.running = True
+
+    consumer._before_camera_round()
+    assert [call.args[0] for call in consumer.submit_inference.call_args_list] == [1, 2]
+    consumer.resolve_inference.assert_not_called()
+    frame, sample_time = consumer._processing_frame(1, "camera_1")
+    frames["camera_1"] = np.zeros_like(frame)
+    consumer.frame_cache[1], consumer._frame_sampled_at[1] = frame, sample_time
+    result = consumer._process(consumer._get_roi(1, frame), 1)
+    consumer.post_process(1, result)
+    snapshot = runtime.update_camera_snapshot.call_args.args[1]
+    assert snapshot.count == 0 and snapshot.updated_at == captured_at
+    assert consumer.frame_cache[1][0, 0, 0] == 1
+    assert consumer.resolve_inference.call_args.args == (old_requests[0],)
+
+    frames["camera_1"] = frame
+    policies[2] = replace(first_policy, confidence_threshold=0.7)
+    consumer._before_camera_round()
+    consumer.cancel_inference.assert_called_once_with(old_requests[1])
+    assert consumer._samples[2].request is replacement
+    assert consumer.submit_inference.call_args.args[3] == {"conf": 0.7, "iou": 0.55}

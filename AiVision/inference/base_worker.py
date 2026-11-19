@@ -15,8 +15,10 @@ from AiVision.core.logger import logger
 from AiVision.inference.input_frames import restore_detection_coordinates
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
+    INFERENCE_ERROR_TIMEOUT,
     INFERENCE_STATUS_ERROR,
     INFERENCE_STATUS_OK,
+    INFERENCE_STATUS_TIMEOUT,
     build_inference_result,
 )
 
@@ -136,11 +138,20 @@ class BaseModelWorker(ABC):
     def _execute_task(self, model: Any, task: dict) -> dict:
         """执行单个任务，并保留模型异常与正常空检测之间的语义差异。"""
         submitted_at = task.get("submitted_at_monotonic")
+        now = time.monotonic()
         # 单调时钟在本机进程间一致；这里的等待同时包含输入传输和模型队列。
         input_wait_ms = (
-            round(max(0.0, time.monotonic() - submitted_at) * 1000, 3)
+            round(max(0.0, now - submitted_at) * 1000, 3)
             if isinstance(submitted_at, (int, float)) else None
         )
+        deadline = task.get("deadline_at_monotonic")
+        if isinstance(deadline, (int, float)) and now >= deadline:
+            # 已经超时的队列任务不再占用模型，给仍有效的帧留出处理机会。
+            return build_inference_result(
+                task, status=INFERENCE_STATUS_TIMEOUT, error_code=INFERENCE_ERROR_TIMEOUT,
+                error_message="任务在推理开始前已超时", input_wait_ms=input_wait_ms,
+                completed_at_monotonic=now,
+            )
         # 开始计时
         started_at = time.perf_counter()
         try:

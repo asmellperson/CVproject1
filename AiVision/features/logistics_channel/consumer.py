@@ -26,7 +26,7 @@ from .state import (
     deduplicate_person_detections,
     translate_person_detection,
 )
-from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features._shared.pipelined_consumer import PipelinedConsumer
 
 from .constants import PERSON_DEDUP_IOU_THRESHOLD
 
@@ -64,7 +64,7 @@ def build_monitor_snapshot(result: tuple, updated_at: float | None = None) -> di
     }
 
 
-class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
+class LogisticsSinglePersonConsumer(PipelinedConsumer):
     """逐路推理、坐标还原和快照发布；人数告警统一交给通道运行时。"""
 
     BBOX_COLOR_NORMAL = (0, 180, 0)
@@ -83,6 +83,11 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         super().__init__(*args, **kwargs)
         self.logistics_runtime = logistics_runtime
         self.monitor_status: dict[str, dict] = {}
+        self._sample_policies: dict[int, LogisticsDetectionConfig] = {}
+
+    @property
+    def inference_model(self) -> str:
+        return self.spec.required_models[0]
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         """随基础状态清理当前共享帧标识的监控结果。"""
@@ -95,24 +100,35 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
         return None if detection is None else detection.cap_interval
 
+    def _can_sample(self, camera_id: int, cfg: dict) -> bool:
+        if not self.logistics_runtime.camera_should_run(self.feature_name, camera_id):
+            return False
+        previous = self._sample_policies.get(camera_id)
+        return previous is None or previous is self.logistics_runtime.detection_config_for_camera(
+            self.feature_name, camera_id,
+        )
+
+    def _inference_parameters(self, camera_id: int, cfg: dict) -> dict | None:
+        detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
+        if detection is None or not self.spec.required_models:
+            return None
+        # 过滤检测框时沿用投递该帧时的通道策略，配置替换后撤销在途请求。
+        self._sample_policies[camera_id] = detection
+        return {"conf": detection.confidence_threshold, "iou": detection.model_iou_threshold}
+
+    def _invalidate_sample(self, camera_id: int) -> None:
+        self._sample_policies.pop(camera_id, None)
+        super()._invalidate_sample(camera_id)
+
     def _process(self, roi, camera_id):
         """
         对当前摄像头唯一 ROI 做人体检测，过滤无效框，计算当前人数和状态
         """
-        detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
-        # 成员可能在调度与推理之间被移除；没有通道策略就不继续推理。
-        if detection is None:
+        sample = self._samples.pop(camera_id)
+        detection = self._sample_policies.pop(camera_id, None)
+        if sample.request is None or detection is None:
             return self._unknown_roi_result()
-        # 模型不可用不会认为通道没有人，而是unknown
-        if not self.spec.required_models:
-            return self._unknown_roi_result()
-        # 调用YOLO进行检测
-        det_result = self.dispatch_inference_sync(
-            camera_id,
-            self.spec.required_models[0],
-            roi,
-            task_meta={"conf": detection.confidence_threshold, "iou": detection.model_iou_threshold},
-        )
+        det_result = self.resolve_inference(sample.request)
         # 某条结果缺失或推理失败时，直接 unknown，不能误报为无人。
         if det_result.get("status") != "ok" or not isinstance(det_result.get("detections"), list):
             return self._unknown_roi_result()
@@ -200,7 +216,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         # 明确看到多个人，snapshot_count的值就为多个人的值
         count = len(unique_detections)
         snapshot_count = count if count >= 2 or reason != "unknown" else None
-        updated_at = time.time()
+        updated_at = self._frame_sampled_at.get(camera_id, time.time())
         camera_cfg = self.config_cache.get(camera_id, {})
         camera_key = str(camera_cfg.get("shm_name") or "").strip()
         camera_name = str(camera_cfg.get("name") or camera_key)
@@ -287,14 +303,14 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         value = self.monitor_status.get(camera_key)
         return dict(value) if value else None
 
-    def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
-        """即使画面没变化，也要周期确认当前人数状态"""
+    def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
+        if not super()._should_process_now(camera_id, cfg):
+            return False
+        if not self._can_sample(camera_id, cfg):
+            self._invalidate_sample(camera_id)
+            return False
         return True
 
-    def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
-        """摄像头当前是不是某个有效通道成员，当前通道是否需要运行"""
-        return bool(self.logistics_runtime.camera_should_run(self.feature_name, camera_id))
-
     def _handle_alarm(self, camera_id: int, result: tuple, frame: np.ndarray | None):
-        """物流Consumer不直接报警"""
+        """即时更新通道判定，取证和分发由运行时后台执行。"""
         self.logistics_runtime.evaluate_after_camera_update(self.feature_name, camera_id)

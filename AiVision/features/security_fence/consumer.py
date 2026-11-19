@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from AiVision.alarms.dispatcher import alarm_dispatcher
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
+from AiVision.features._shared.authorization_refresh import AuthorizationRefresh
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
@@ -16,6 +17,9 @@ from .inference import FenceInference, inference_ready
 from .preview import FencePreview, draw_fence_detections
 from .schema import FORBIDDEN_ALARM, UNAUTHORIZED_ALARM, STALE_SECONDS, FencePerson, FenceValue
 from .service import person_library
+
+
+_AUTHORIZATION_REFRESH_LEAD_SECONDS = 0.5
 
 
 class FenceConsumer(BaseFunctionConsumer):
@@ -30,6 +34,10 @@ class FenceConsumer(BaseFunctionConsumer):
         self.library = person_library
         self._allowed_person_ids: dict[int, set[int]] = {}
         self._authorization_refresh_at: dict[int, float] = {}
+        self._authorization_tokens: dict[int, object] = {}
+        self._authorization_refresh: AuthorizationRefresh[
+            dict[int, tuple[dict, object]], dict[int, set[int]]
+        ] = AuthorizationRefresh("security_fence", timeout_seconds=AUTHORIZATION_REFRESH_SECONDS)
         self._pending_inferences: dict[int, FenceInference] = {}
         self._submission_order: deque[int] = deque()
         self._submitted_at: dict[int, float] = {}
@@ -42,10 +50,12 @@ class FenceConsumer(BaseFunctionConsumer):
     def stop(self):
         super().stop()
         with self._camera_state_lock:
+            self._authorization_refresh.invalidate()
             for camera_id, config in self.config_cache.items():
                 self._clear_camera_state(camera_id, config.get("shm_name"))
             self._allowed_person_ids.clear()
             self._authorization_refresh_at.clear()
+            self._authorization_tokens.clear()
             self._submission_order.clear()
 
     def _cancel_pending(self, camera_id):
@@ -58,8 +68,7 @@ class FenceConsumer(BaseFunctionConsumer):
     def update_config(self, camera_id):
         with self._camera_state_lock:
             self._cancel_pending(camera_id)
-            self._allowed_person_ids.pop(camera_id, None)
-            self._authorization_refresh_at.pop(camera_id, None)
+            self._clear_camera_authorization(camera_id)
             super().update_config(camera_id)
             if camera_id not in self.config_cache:
                 return
@@ -69,14 +78,19 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _clear_camera_state(self, camera_id, shm_name):
         self._cancel_pending(camera_id)
-        self._allowed_person_ids.pop(camera_id, None)
-        self._authorization_refresh_at.pop(camera_id, None)
+        self._clear_camera_authorization(camera_id)
         self._submitted_at.pop(camera_id, None)
         super()._clear_camera_state(camera_id, shm_name)
         self.runtimes.pop(camera_id, None)
         self.processed_frames.pop(camera_id, None)
         self.preview.configure(camera_id, None)
         self._reset_alarm_cooldown(camera_id)
+
+    def _clear_camera_authorization(self, camera_id):
+        self._allowed_person_ids.pop(camera_id, None)
+        self._authorization_refresh_at.pop(camera_id, None)
+        # 关闭再启用可能重新使用同一份配置对象，旧查询仍须失效。
+        self._authorization_tokens.pop(camera_id, None)
 
     def _reset_alarm_cooldown(self, camera_id):
         super()._reset_alarm_cooldown(camera_id)
@@ -94,6 +108,7 @@ class FenceConsumer(BaseFunctionConsumer):
     def update_status(self, camera_id, enabled):
         with self._camera_state_lock:
             self._cancel_pending(camera_id)
+            self._clear_camera_authorization(camera_id)
             key = self.config_cache.get(camera_id, {}).get("shm_name")
             super().update_status(camera_id, enabled)
             if camera_id not in self.config_cache:
@@ -110,7 +125,6 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _before_camera_round(self):
         """沿用安检的提前投递方式，以轮转和有界在途请求避免慢路阻塞其他摄像头。"""
-        self._refresh_camera_authorizations()
         with self._camera_state_lock:
             now = datetime.now(timezone.utc)
             wall_now = time.time()
@@ -179,6 +193,7 @@ class FenceConsumer(BaseFunctionConsumer):
                 next_sample = index + 1
             # 越过已采样的摄像头；检查不到空位的整轮不会改变下一路的顺序。
             self._submission_order.rotate(-(next_sample or next_identity))
+            self._refresh_camera_authorizations(now)
 
     def _submit_face(self, camera_id: int, pending: FenceInference):
         cfg = pending.config
@@ -191,7 +206,8 @@ class FenceConsumer(BaseFunctionConsumer):
             self._cancel_pending(camera_id)
             raise
 
-    def _process_static_frames(self, camera_id, cfg):
+    def _frame_changed(self, camera_id, roi):
+        # 已投递的最新帧必须领取推理结果，帧差和平滑缓存不参与围栏判定。
         return True
 
     def _should_process_now(self, camera_id, cfg):
@@ -222,18 +238,17 @@ class FenceConsumer(BaseFunctionConsumer):
         pending.early_published = True
         errors = []
         faces = response["detections"] if response is not None and response["status"] == "ok" else []
-        try:
-            # 禁入规则不依赖白名单，首次人体报警不能等待数据库或身份识别。
-            allowed = (self._allowed_person_ids.get(camera_id, set()) if mode == "forbidden"
-                       else self._camera_allowed_people(camera_id))
-        except Exception as exc:
-            # 读取失败时撤销旧权限和身份；禁入时段仍按人体观测报警，不误用旧名单放行。
-            self._allowed_person_ids.pop(camera_id, None)
+        # 禁入规则不依赖白名单，首次人体报警不能等待数据库或身份识别。
+        allowed = (self._allowed_person_ids.get(camera_id, set()) if mode == "forbidden"
+                   else self._camera_allowed_people(camera_id))
+        if allowed is None:
+            # 白名单未就绪时只保留人体待核验，停用旧授权且不误报未授权人员。
             runtime.identities.clear()
             faces = []
             allowed = set()
-            errors.append("摄像头围栏白名单读取失败")
-            logger.warning(f"[security_fence] 摄像头围栏白名单读取失败 camera_id={camera_id} error={type(exc).__name__}")
+            retry_at = self._authorization_refresh_at.get(camera_id, 0.0)
+            errors.append("摄像头围栏白名单读取失败" if retry_at > time.monotonic()
+                          else "摄像头围栏白名单等待更新")
         if response is not None and response["status"] != "ok":
             # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
             runtime.identities.clear()
@@ -260,44 +275,50 @@ class FenceConsumer(BaseFunctionConsumer):
             self._cancel_pending(camera_id)
         return detail["alarm"], detail
 
-    def _refresh_camera_authorizations(self):
-        """每轮批量刷新到期白名单；数据库等待不占用逐路状态锁。"""
-        now, observed_at = datetime.now(timezone.utc), time.monotonic()
-        with self._camera_state_lock:
-            configs = {
-                camera_id: cfg for camera_id, cfg in self.config_cache.items()
-                if cfg.get("enable", True) and cfg.get("camera_enable", True)
-                and self.is_camera_active(cfg["shm_name"])
-                and observed_at >= self._authorization_refresh_at.get(camera_id, 0.0)
-                and current_mode(FenceValue.model_validate({
-                    key: cfg[key] for key in FenceValue.model_fields
-                }), now) == "whitelist"
-            }
-        if not configs:
+    def _refresh_camera_authorizations(self, now: datetime):
+        """在状态锁内只领取已完成的批量查询，按当前摄像头配置发布授权。"""
+        if not self.running:
             return
-        try:
-            allowed = self.library.get_allowed_person_ids_by_camera(sorted(configs))
-        except Exception as exc:
-            allowed = None
-            logger.warning(f"[security_fence] 批量读取摄像头围栏白名单失败 error={type(exc).__name__}")
-        refresh_at = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
-        with self._camera_state_lock:
-            if not self.running:
-                return
-            for camera_id, cfg in configs.items():
-                # 查询期间发生的配置替换或删除不能被旧结果恢复。
+        result = self._authorization_refresh.poll()
+        observed_at = time.monotonic()
+        if result is not None:
+            if result.error:
+                logger.warning(f"[security_fence] 批量读取摄像头围栏白名单失败 error={result.error}")
+            for camera_id, (cfg, token) in result.context.items():
                 if (self.config_cache.get(camera_id) is not cfg
+                        or self._authorization_tokens.get(camera_id) is not token
                         or not cfg.get("enable", True) or not cfg.get("camera_enable", True)):
                     continue
-                if allowed is None:
+                if result.value is None:
                     self._allowed_person_ids.pop(camera_id, None)
+                    self._authorization_refresh_at[camera_id] = observed_at + AUTHORIZATION_REFRESH_SECONDS
                 else:
-                    self._allowed_person_ids[camera_id] = allowed[camera_id]
-                self._authorization_refresh_at[camera_id] = refresh_at
+                    self._allowed_person_ids[camera_id] = result.value[camera_id]
+                    self._authorization_refresh_at[camera_id] = result.completed_at + AUTHORIZATION_REFRESH_SECONDS
 
-    def _camera_allowed_people(self, camera_id: int) -> set[int]:
-        """逐路判定只读取本轮授权快照，缺失时交由调用方撤销身份并报告异常。"""
-        return self._allowed_person_ids[camera_id]
+        if self._authorization_refresh.in_progress:
+            return
+        configs = {}
+        for camera_id, cfg in self.config_cache.items():
+            refresh_at = self._authorization_refresh_at.get(camera_id, 0.0)
+            if camera_id in self._allowed_person_ids:
+                # 允许正常查询提前完成，但超时或未就绪时不能顺延旧授权。
+                refresh_at -= _AUTHORIZATION_REFRESH_LEAD_SECONDS
+            if (observed_at < refresh_at or not cfg.get("enable", True) or not cfg.get("camera_enable", True)
+                    or not self.is_camera_active(cfg["shm_name"])):
+                continue
+            value = FenceValue.model_validate({key: cfg[key] for key in FenceValue.model_fields})
+            if current_mode(value, now) == "whitelist":
+                configs[camera_id] = (cfg, self._authorization_tokens.setdefault(camera_id, object()))
+        if configs:
+            camera_ids = sorted(configs)
+            self._authorization_refresh.submit(configs, lambda: self.library.get_allowed_person_ids_by_camera(camera_ids))
+
+    def _camera_allowed_people(self, camera_id: int) -> set[int] | None:
+        """单路读取授权快照；数据库故障期间撤销过期的放行结论。"""
+        if self._authorization_refresh_at.get(camera_id, 0.0) > time.monotonic():
+            return self._allowed_person_ids.get(camera_id)
+        return None
 
     def post_process(self, camera_id, result):
         frame = self._annotated_frame(camera_id)

@@ -187,6 +187,22 @@ class FaceLibraryService:
                 allowed[camera_id].add(person_id)
         return allowed
 
+    def get_allowed_person_ids_by_department(self, departments: Sequence[str]) -> dict[str, set[int]]:
+        """身份识别按事业部合并读取授权，空名单仍有独立条目。"""
+        if self.authorization_scope != "department":
+            raise ValueError("批量事业部白名单必须使用事业部授权范围")
+        allowed = {require_department(department): set() for department in departments}
+        if not allowed:
+            return allowed
+        authorization = self.authorization_model
+        with get_session() as session:
+            rows = session.execute(select(authorization.department, FacePerson.id).join(
+                FacePerson, authorization.person_id == FacePerson.id,
+            ).where(FacePerson.is_active.is_(True), authorization.department.in_(allowed)))
+            for department, person_id in rows:
+                allowed[department].add(person_id)
+        return allowed
+
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:
         """调用方必须已完整获取该来源所有页；异常时整批回滚。
 

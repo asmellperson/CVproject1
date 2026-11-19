@@ -1,20 +1,20 @@
 """摄像头独立跟踪与事件报警；预览、状态读取使用独立短锁。"""
 from copy import deepcopy
 from threading import Lock
-import time
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
-from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features._shared.pipelined_consumer import PipelinedConsumer
 from .preview import PreviewState, annotate_frame, render_preview
 from .runtime import TailgatingRuntime
 from .schema import ALARM_TYPE, TailgatingValue
 
 
-class TailgatingConsumer(BaseFunctionConsumer):
+class TailgatingConsumer(PipelinedConsumer):
+    inference_model = "yolo_human"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.runtimes: dict[int, TailgatingRuntime] = {}
-        self._processed_frames: dict[int, object] = {}
         self._preview_lock = Lock()
         self._previews: dict[int, PreviewState] = {}
         self._alarm_subjects: dict[int, set[str]] = {}
@@ -26,7 +26,6 @@ class TailgatingConsumer(BaseFunctionConsumer):
             return
         value = TailgatingValue.model_validate({key: config[key] for key in TailgatingValue.model_fields})
         self.runtimes[camera_id] = TailgatingRuntime(value)
-        self._processed_frames.pop(camera_id, None)
         with self._preview_lock:
             self._previews[camera_id] = PreviewState(config["shm_name"], value)
 
@@ -53,7 +52,6 @@ class TailgatingConsumer(BaseFunctionConsumer):
     def _clear_camera_state(self, camera_id, shm_name):
         super()._clear_camera_state(camera_id, shm_name)
         self.runtimes.pop(camera_id, None)
-        self._processed_frames.pop(camera_id, None)
         with self._preview_lock:
             self._previews.pop(camera_id, None)
         self._reset_alarm_cooldown(camera_id)
@@ -69,34 +67,29 @@ class TailgatingConsumer(BaseFunctionConsumer):
             for camera_id, config in self.config_cache.items():
                 self._clear_camera_state(camera_id, config["shm_name"])
 
-    def _get_roi(self, camera_id, frame):
+    def _inference_region(self, camera_id, frame):
         # 保留通道前后的人员轨迹；只有 ROI 内的共同出现才参与报警。
         return frame
 
-    def _process_static_frames(self, camera_id, cfg):
-        return True
-
-    def _should_process_now(self, camera_id, cfg):
-        return (camera_id in self.runtimes
-                and self.latest_frames.get(cfg["shm_name"]) is not self._processed_frames.get(camera_id)
-                and time.time() - self._last_process_at.get(camera_id, 0) >= cfg["cap_interval"])
+    def _inference_parameters(self, camera_id, config):
+        runtime = self.runtimes[camera_id]
+        return {"conf": runtime.config.threshold} if runtime.config.configured else None
 
     def _process(self, frame, camera_id):
-        self._processed_frames[camera_id] = frame
+        sample = self._samples.pop(camera_id)
         runtime = self.runtimes[camera_id]
         detail = {"persons": [], "events": [], "count": None, "alarm": False,
                   "reason": "unconfigured", "sample_interval_seconds": None, "error": None}
-        if runtime.config.configured:
-            sampled_at = time.monotonic()
-            outcome = self.dispatch_inference_sync(camera_id, "yolo_human", frame, task_meta={"conf": runtime.config.threshold})
+        if sample.request is not None:
+            outcome = self.resolve_inference(sample.request)
             if outcome["status"] == "ok":
-                detail.update(runtime.update(outcome["detections"], frame.shape, now=sampled_at))
+                detail.update(runtime.update(outcome["detections"], frame.shape, now=sample.observed_at))
                 if detail["reason"] == "sampling_gap":
                     detail["error"] = "实际检测间隔过大，已清除旧通行状态，请检查模型负载及采集帧率。"
             else:
                 runtime.clear()
                 detail.update(reason="inference_error", error=outcome.get("error_message") or f'人体检测失败：{outcome["status"]}')
-        detail.update(frame_width=frame.shape[1], frame_height=frame.shape[0], updated_at_s=time.time())
+        detail.update(frame_width=frame.shape[1], frame_height=frame.shape[0], updated_at_s=sample.captured_at)
         active_subjects = {f'{camera_id}:{event["id"]}' for event in detail["events"]}
         for subject in self._alarm_subjects.get(camera_id, set()) - active_subjects:
             alarm_dispatcher.reset_subject_cooldown("tailgating_event", subject, ALARM_TYPE)
