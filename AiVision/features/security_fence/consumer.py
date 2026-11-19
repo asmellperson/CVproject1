@@ -242,14 +242,15 @@ class FenceConsumer(BaseFunctionConsumer):
         # 禁入规则不依赖白名单，首次人体报警不能等待数据库或身份识别。
         allowed = (self._allowed_person_ids.get(camera_id, set()) if mode == "forbidden"
                    else self._camera_allowed_people(camera_id))
+        authorization_error = None
         if allowed is None:
             # 白名单未就绪时只保留人体待核验，停用旧授权且不误报未授权人员。
             runtime.identities.clear()
             faces = []
             allowed = set()
             retry_at = self._authorization_refresh_at.get(camera_id, 0.0)
-            errors.append("摄像头围栏白名单读取失败" if retry_at > time.monotonic()
-                          else "摄像头围栏白名单等待更新")
+            authorization_error = ("摄像头围栏白名单读取失败" if retry_at > time.monotonic()
+                                   else "摄像头围栏白名单等待更新")
         if response is not None and response["status"] != "ok":
             # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
             runtime.identities.clear()
@@ -262,6 +263,9 @@ class FenceConsumer(BaseFunctionConsumer):
         else:
             persons = runtime.update(people["detections"], faces, roi.shape, now=now,
                                      monotonic=pending.observed_at, allowed_person_ids=allowed)
+        if authorization_error and any(person.in_roi for person in persons):
+            # 无人在警戒区时可直接确认人数为零。有人进入时仍须等待有效授权。
+            errors.append(authorization_error)
         detail = {
             "mode": mode, "persons": [person.model_dump() for person in persons],
             "faces": [face for face in faces if runtime.usable_face(face)],

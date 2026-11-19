@@ -140,6 +140,31 @@ class CameraConfigManager:
         finally:
             session.close()
 
+    def list_overview_cameras(self, departments: list[str]) -> list[dict]:
+        """一次读取总览的物理摄像头、功能开关和排序，保留没有对应功能配置的摄像头。"""
+        departments = list(dict.fromkeys(require_department(value) for value in departments))
+        if not departments:
+            return []
+        specs = all_specs()
+        statement = select(AiCameraConfig).where(AiCameraConfig.department.in_(departments))
+        for spec in specs.values():
+            # 各功能表的 camera_id 唯一，不会把物理摄像头展开成多条结果。
+            model = spec.orm_class
+            statement = statement.outerjoin(model, model.camera_id == AiCameraConfig.id).add_columns(
+                model.enable, getattr(model, "sort_order", null()),
+            )
+        statement = statement.order_by(AiCameraConfig.sort_order, AiCameraConfig.id)
+        with get_session() as session:
+            items = []
+            for row in session.execute(statement):
+                functions, orders = {}, {}
+                for feature, enabled, order in zip(specs, row[1::2], row[2::2], strict=True):
+                    functions[feature] = bool(enabled)
+                    if order is not None:
+                        orders[feature] = order
+                items.append(self._to_dict(row[0], functions, orders))
+            return items
+
     def get_camera(self, key: str | int) -> Optional[dict]:
         """按 shm_name / name / id / 'camera_{id}' 任一格式查询"""
         session = get_session()

@@ -10,6 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from multiprocessing import Queue
+from multiprocessing.queues import Queue as ProcessQueue
 from pathlib import Path
 from typing import Callable
 
@@ -17,6 +18,7 @@ from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.core.config_revision import require_configuration_values
 from AiVision.features.registry import all_specs
+from .human_task_queue import HUMAN_MODEL_NAME, INFERENCE_INPUT_CAPACITY, HumanTaskQueue
 from .model_registry import MODEL_SPECS, get_model_spec
 from .model_paths import load_model_paths, save_model_path, validate_model_path
 
@@ -44,9 +46,9 @@ class InferenceRuntimeManager:
     def __init__(self):
         # model_name → infer_queue (Consumer 投递任务给 Worker)
         """准备逻辑队列、共享模型映射、重载状态和三类锁；构造时不启动 Worker。"""
-        self.infer_queues: dict[str, Queue] = {}
+        self.infer_queues: dict[str, ProcessQueue | HumanTaskQueue] = {}
         # function_name → result_queue (Worker 把结果推给对应 Consumer)
-        self.result_queues: dict[str, Queue] = {}
+        self.result_queues: dict[str, ProcessQueue] = {}
         # model_name → BaseModelWorker 实例
         self._workers: dict[str, object] = {}
         self._model_configs: dict[str, dict] = {}
@@ -72,7 +74,9 @@ class InferenceRuntimeManager:
         # 一个逻辑模型一个推理输入队列
         for name in MODEL_SPECS:
             if name not in self.infer_queues:
-                self.infer_queues[name] = Queue(maxsize=10)
+                self.infer_queues[name] = (
+                    HumanTaskQueue() if name == HUMAN_MODEL_NAME else Queue(maxsize=INFERENCE_INPUT_CAPACITY)
+                )
         # 一个 feature 一个结果队列
         for fname in all_specs():
             if fname not in self.result_queues:
@@ -142,6 +146,8 @@ class InferenceRuntimeManager:
                 worker.stop()
                 with self._lock:
                     self._workers.pop(name, None)
+            # 重启运行时会复用队列，停止时释放两路保留的采样任务。
+            self._discard_pending_tasks(HUMAN_MODEL_NAME)
             with self._lock:
                 self._model_configs.clear()
                 self._model_owners.clear()
@@ -472,6 +478,12 @@ class InferenceRuntimeManager:
         if infer_queue is None:
             return 0
         discarded = 0
+        if isinstance(infer_queue, HumanTaskQueue):
+            try:
+                return infer_queue.discard_pending()
+            except (OSError, ValueError) as exc:
+                logger.warning(f"[InferenceRuntimeManager] 清理模型 {name} 待处理队列失败: {exc}")
+                return 0
         while True:
             try:
                 infer_queue.get_nowait()

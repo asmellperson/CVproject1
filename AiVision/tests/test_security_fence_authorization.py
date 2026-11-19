@@ -102,19 +102,61 @@ def test_batch_camera_authorizations_use_one_select_and_preserve_empty_scopes(da
             {"camera_id": 1, "person_id": 123}, {"camera_id": 2, "person_id": 456},
             {"camera_id": 3, "person_id": 789},
         ])
-    statements, lifecycle = [], []
+    statements, lifecycle, timings = [], [], []
     event.listen(db.engine, "before_cursor_execute",
                  lambda connection, cursor, statement, parameters, context, many: statements.append(statement))
     event.listen(db.engine, "checkin", lambda *_: lifecycle.append("checkin"))
+
+    def observe(timing):
+        timings.append(timing)
+        if timing.parsed_at is not None:
+            lifecycle.append("sampled")
+
     assert person_library.get_allowed_person_ids_by_camera(
-        [2, 1, 3, 4, 1], on_sampled=lambda: lifecycle.append("sampled"),
+        [2, 1, 3, 4, 1], on_sampled=observe,
     ) == {
         1: {123}, 2: {456}, 3: set(), 4: set(),
     }
     assert len(statements) == 1 and statements[0].lstrip().upper().startswith("SELECT")
+    assert "json_group_array" in statements[0] and "GROUP BY" in statements[0]
     assert lifecycle == ["sampled", "checkin"]
+    assert len(timings) == 4
+    assert timings[0].connected_at is None and timings[1].fetched_at is None and timings[2].parsed_at is None
+    assert timings[3].connecting_at <= timings[3].connected_at <= timings[3].fetched_at <= timings[3].parsed_at
     assert person_library.get_allowed_person_ids_by_camera([]) == {}
     assert len(statements) == 1
+
+
+@pytest.mark.parametrize("rows", [
+    [(1, 2, 579, "[123]")],
+    [(1, 2, 579, "[123,")],
+    [(1, 2, 246, "[123, 123]")],
+    [(1, 2, 579, "[123, 45]")],
+    [(1, 1, 1, "[true]")],
+    [(1, 1, 0, "[0]")],
+    [(1, 1, 123, '{"id": 123}')],
+    [(2, 1, 123, "[123]")],
+    [(True, 1, 123, "[123]")],
+    [(1, 1, 123, [123]), (1, 1, 456, [456])],
+])
+def test_authorization_aggregate_rejects_incomplete_and_wrong_scope_payloads(database, rows):
+    from AiVision.features.face_recognition.library.service import AuthorizationAggregateError, _decode_authorization_groups
+
+    with pytest.raises(AuthorizationAggregateError):
+        _decode_authorization_groups({1: set()}, rows)
+
+
+def test_department_aggregation_keeps_empty_range_and_does_not_read_camera_grants(database):
+    database()
+    from AiVision.features.face_recognition.library.service import FaceLibraryService
+    from AiVision.features.security_fence.service import person_library
+
+    face = FaceLibraryService()
+    assert face.update_person_allowed(123, True, department="general_electric").is_allowed
+    assert person_library.update_person_allowed(456, True, camera_id=1).is_allowed
+    assert face.get_allowed_person_ids_by_department([
+        "general_electric", "electronics_electrician", "general_electric",
+    ]) == {"general_electric": {123}, "electronics_electrician": set()}
 
 
 @pytest.mark.parametrize("camera_ids", [[0], [True], ["1"]])

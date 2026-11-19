@@ -193,10 +193,14 @@ function renderSmokeMonitor(cameraKey: string) {
 
 function OverviewPollingHarness({ user }: { user: AuthUser | null }) {
   const { data, error } = useOverview(user)
-  return <div>{error || (data ? '总览已恢复' : '总览加载中')}</div>
+  return <div>
+    {error && <div role="alert">{error}</div>}
+    {data ? data.cameras.map((camera) => <div key={camera.key}>{camera.name}</div>) : '总览加载中'}
+  </div>
 }
 
 async function verifyOverviewPolling(user: AuthUser | null, overview: OverviewStatus) {
+  if (!user) throw new Error('总览回归需要一个登录用户')
   const fetchBefore = window.fetch
   const setTimeoutBefore = window.setTimeout
   const clearTimeoutBefore = window.clearTimeout
@@ -204,6 +208,13 @@ async function verifyOverviewPolling(user: AuthUser | null, overview: OverviewSt
   let nextTimer = -1
   let calls = 0
   let timedOut = 0
+  const camera = overview.cameras[0]
+  const renamed = (name: string): OverviewStatus => ({ ...overview, cameras: [{ ...camera, name }] })
+  const complete = renamed('第一次完整清单')
+  const partial = { ...renamed('不完整的临时清单'), inventory_complete: false,
+    inventory_errors: { guard_behavior: '保安室读取失败' } }
+  const updated = renamed('恢复后的完整清单')
+  const narrowed = renamed('权限缩小后的清单')
   window.setTimeout = (handler: TimerHandler, delay = 0, ...args: unknown[]) => {
     if (typeof handler !== 'function' || delay < 3000) return setTimeoutBefore(handler, delay, ...args)
     const id = nextTimer--
@@ -216,11 +227,16 @@ async function verifyOverviewPolling(user: AuthUser | null, overview: OverviewSt
   window.fetch = async (input, init) => {
     if (new URL(String(input), location.origin).pathname !== '/api/overview') return fetchBefore(input, init)
     calls += 1
-    if (calls === 3) return json(overview)
-    return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => {
-      if (init.signal?.reason.name === 'TimeoutError') timedOut += 1
-      reject(init.signal?.reason)
-    }, { once: true }))
+    if (calls === 4) return json(updated)
+    const reply = calls === 1 ? complete : calls === 3 ? partial : calls === 6 ? narrowed : null
+    return new Promise<Response>((resolve, reject) => {
+      const timer = reply && window.setTimeout(() => resolve(json(reply)), 9000)
+      init?.signal?.addEventListener('abort', () => {
+        if (timer) window.clearTimeout(timer)
+        if (init.signal?.reason.name === 'TimeoutError') timedOut += 1
+        reject(init.signal?.reason)
+      }, { once: true })
+    })
   }
   const findTimer = (delay: number) => [...timers].find(([, timer]) => timer.delay === delay)
   const runTimer = async (delay: number) => {
@@ -231,18 +247,35 @@ async function verifyOverviewPolling(user: AuthUser | null, overview: OverviewSt
   }
   try {
     statusRoot.render(<OverviewPollingHarness user={user} />)
-    await runTimer(8000)
-    await until(() => statusElement.textContent?.includes('TimeoutError: 请求超时'), '实际轮询超时显示')
-    await runTimer(3000)
-    await runTimer(8000)
-    await until(() => findTimer(6000), '再次超时延长重试间隔')
-    await runTimer(6000)
-    await until(() => statusElement.textContent?.includes('总览已恢复'), '实际轮询恢复')
-    assert(calls === 3 && timedOut === 2, '总览未按串行方式重试，或超时未取消请求')
+    await until(() => findTimer(12000), '首次加载允许等待十二秒')
+    assert(!findTimer(8000), '首次完整清单仍在八秒被取消')
+    await runTimer(9000)
+    await until(() => statusElement.textContent?.includes('第一次完整清单'), '九秒后能收到首次完整清单')
+
     await runTimer(30000)
     await runTimer(8000)
-    await until(() => findTimer(3000), '恢复后再次超时从最短间隔重试')
-    assert(calls === 4 && timedOut === 3, '正常轮询未恢复或之后超时未按初始间隔重试')
+    await until(() => statusElement.textContent?.includes('TimeoutError: 请求超时'), '实际轮询超时显示')
+    assert(statusElement.textContent?.includes('第一次完整清单') && statusElement.textContent.includes('显示上次成功清单'), '刷新超时清除了最近完整清单')
+    await runTimer(3000)
+    await until(() => findTimer(12000), '超时恢复允许等待十二秒')
+    await runTimer(9000)
+    await until(() => statusElement.textContent?.includes('保安室读取失败'), '展示当前不完整响应错误')
+    assert(statusElement.textContent?.includes('第一次完整清单') && !statusElement.textContent.includes('不完整的临时清单'), '不完整响应替换了最近完整清单')
+    await until(() => findTimer(6000), '连续失败延长重试间隔')
+    await runTimer(6000)
+    await until(() => statusElement.textContent?.includes('恢复后的完整清单'), '新完整结果更新清单')
+    assert(!statusElement.querySelector('[role="alert"]') && calls === 4 && timedOut === 1, '总览恢复后仍显示旧错误，或发生重复请求')
+
+    await runTimer(30000)
+    await until(() => findTimer(8000), '恢复后继续采用八秒刷新超时')
+    statusRoot.render(<OverviewPollingHarness user={{ ...user, feature_access: {} }} />)
+    await until(() => calls === 6 && statusElement.textContent?.includes('总览加载中'), '权限变化后重新加载')
+    assert(!statusElement.textContent?.includes('恢复后的完整清单') && findTimer(12000), '权限变化后仍显示旧清单或仍用稳定轮询预算')
+    await runTimer(9000)
+    await until(() => statusElement.textContent?.includes('权限缩小后的清单'), '接受新权限范围的清单')
+    statusRoot.render(<OverviewPollingHarness user={{ ...user, employee_id: '另一个账号' }} />)
+    await until(() => calls === 7 && statusElement.textContent?.includes('总览加载中'), '账号切换后重新加载')
+    assert(!statusElement.textContent?.includes('权限缩小后的清单') && findTimer(12000), '账号切换后沿用了上一个账号清单')
   } finally {
     statusRoot.unmount()
     window.fetch = fetchBefore
@@ -626,7 +659,11 @@ async function run() {
     summary: { capability_total: 1, capability_online: 1, capability_running: 1,
       camera_total: 1, camera_online: 1, camera_offline: 0 },
     capabilities: [{ id: 'smoke-detection', name: '烟雾检测', camera_count: 1, online_camera_count: 1,
-      running: true, model_ready: true }], cameras: [], guard_behavior_sites: [],
+      running: true, model_ready: true }],
+    cameras: [{ key: 'camera_1', camera_id: 1, name: '上次完成时的摄像头', department: 'general_electric',
+      identifier: 'camera_1', enabled: true, online: true, capabilities: ['smoke-detection'],
+      running_capabilities: ['smoke-detection'], logistics_memberships: [], aivision_camera: null }],
+    guard_behavior_sites: [],
     service: { online: true, running: true, error: null, camera_count: 1, online_camera_count: 1, model_ready: false },
   }
   renderHome(overview)
@@ -634,9 +671,13 @@ async function run() {
   assert(statusElement.textContent?.includes('正常检测中') && statusElement.textContent?.includes('烟雾检测')
     && !statusElement.textContent?.includes('请求超时'), '恢复后未展示烟雾模块的真实运行状态')
   successes.push('总览恢复后清除错误并展示烟雾模块与实际在线计数')
+  renderHome(overview, '摄像头清单加载失败：请求超时（显示上次成功清单）')
+  await until(() => statusElement.textContent?.includes('状态获取失败') && statusElement.textContent.includes('上次完成时的摄像头'), '状态错误与上一次完整清单同时可见')
+  assert(!statusElement.textContent?.includes('全部正常'), '旧汇总状态被标为当前全部正常')
+  successes.push('总览告警与最近完整清单同时显示，运行状态仍标明读取失败')
   root.unmount()
   await verifyOverviewPolling(auth.user, overview)
-  successes.push('总览实际请求仍在 8 秒超时，失败后按 3 秒、6 秒重试，恢复后回到 30 秒轮询')
+  successes.push('总览首次和超时恢复用十二秒，稳定后用八秒，失败保留完整清单并按权限隔离')
   window.removeEventListener('aicv:unauthorized', onUnauthorized)
   resultElement.textContent = `通过 ${successes.length} 项\n${successes.join('\n')}`
   resultElement.dataset.result = 'passed'

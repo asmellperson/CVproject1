@@ -76,15 +76,27 @@ def api(monkeypatch, tmp_path):
     engine.dispose()
 
 
-def test_overview_queries_camera_and_all_feature_tables_in_two_round_trips(api):
+def test_overview_queries_camera_and_feature_metadata_in_one_select(api):
+    from AiVision.cameras.orm import AiCameraConfig
+
+    total = 83
+    extra = total - len(api.departments)
+    first_department = api.departments[0]
+    with api.sessions.begin() as session:
+        session.add_all([
+            AiCameraConfig(id=index, name=f"总览相机{index}", shm_name=f"camera_{index}",
+                           url="rtsp://192.0.2.1/stream", department=first_department, enable=True)
+            for index in range(100, 100 + extra)
+        ])
     result = api.client.get("/api/overview")
     assert result.status_code == 200
     data = result.json()
     assert data["inventory_complete"] is True
-    assert [camera["department"] for camera in data["cameras"]] == api.departments
-    assert data["summary"]["camera_total"] == len(api.departments)
-    assert len(api.selects) == 2
-    assert all(spec.orm_class.__tablename__ in api.selects[1] for spec in api.specs.values())
+    assert [camera["department"] for camera in data["cameras"]] == [first_department] * extra + api.departments
+    assert data["summary"]["camera_total"] == total
+    assert len(api.selects) == 1
+    assert all(spec.orm_class.__tablename__ in api.selects[0] for spec in api.specs.values())
+    assert "LEFT OUTER JOIN" in api.selects[0]
     api.guards.list_overview_sites.assert_called_once_with(api.departments)
 
 
@@ -97,7 +109,7 @@ def test_scoped_users_only_receive_owned_departments_and_assigned_features(api, 
     assert list(data["cameras"][0]["aivision_camera"]["functions"]) == ["smoke_detection"]
     assert ("url" in data["cameras"][0]["aivision_camera"]) is (role == "department_admin")
     assert [item["id"] for item in data["capabilities"]] == ["smoke-detection"]
-    assert len(api.selects) == 2
+    assert len(api.selects) == 1
     api.guards.list_overview_sites.assert_called_once_with([])
 
 
@@ -107,6 +119,36 @@ def test_user_without_departments_does_not_query_camera_tables(api):
     assert data["cameras"] == []
     assert data["capabilities"] == []
     assert not api.selects
+
+
+def test_overview_reads_latest_enable_scope_and_sort_order_without_runtime_cache(api):
+    from AiVision.cameras.orm import AiCameraConfig
+
+    own, other = api.departments[:2]
+    api.user.update(role="viewer", departments=[own], feature_access={own: ["smoke_detection"]})
+    smoke = api.specs["smoke_detection"].orm_class
+    with api.sessions.begin() as session:
+        session.get(AiCameraConfig, 1).sort_order = 3
+        session.query(smoke).filter_by(camera_id=1).one().sort_order = 5
+        session.add(AiCameraConfig(id=100, name="未配置功能", shm_name="camera_100",
+                                   url="rtsp://192.0.2.1/stream", department=own, enable=False))
+
+    data = api.client.get("/api/overview").json()
+    first, configured = data["cameras"]
+    assert first["camera_id"] == 100 and not first["enabled"] and not first["online"]
+    assert first["aivision_camera"]["functions"] == {"smoke_detection": False}
+    assert configured["camera_id"] == 1 and configured["capabilities"] == ["smoke-detection"]
+    assert configured["aivision_camera"]["feature_sort_orders"] == {"smoke_detection": 5}
+
+    with api.sessions.begin() as session:
+        session.get(AiCameraConfig, 1).department = other
+        session.get(AiCameraConfig, 100).enable = True
+        session.add(smoke(camera_id=100, enable=True, sort_order=2))
+    data = api.client.get("/api/overview").json()
+    camera, = data["cameras"]
+    assert camera["camera_id"] == 100 and camera["enabled"]
+    assert camera["capabilities"] == ["smoke-detection"]
+    assert camera["aivision_camera"]["feature_sort_orders"] == {"smoke_detection": 2}
 
 
 def test_smoke_capability_uses_registered_consumer_without_model_dependency(api):
@@ -155,7 +197,7 @@ def test_overview_loads_scoped_guard_sites_and_members_in_one_query(api, monkeyp
     assert [site["id"] for site in data["guard_behavior_sites"]] == [2, 1]
     assert data["cameras"][0]["site_id"] == 1
     assert data["cameras"][1]["site_id"] is None
-    assert len(api.selects) == 3
+    assert len(api.selects) == 2
     assert "LEFT OUTER JOIN" in api.selects[-1]
 
 

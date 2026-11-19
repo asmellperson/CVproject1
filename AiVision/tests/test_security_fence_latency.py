@@ -695,6 +695,25 @@ def test_batch_authorization_failure_revokes_cached_grants_and_recovers(make_con
     assert result[0] and result[1]["persons"][0]["identity"] == "unauthorized"
 
 
+def test_empty_fence_is_reported_while_authorization_is_unavailable(make_consumer):
+    consumer = make_consumer(confirmation_frames=1)
+    consumer._authorization_refresh_at[1] = time.monotonic() + 1
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [])
+    complete(consumer, 1, "insightface", [])
+    alarm, detail = process(consumer, 1)
+    assert not alarm and detail["count"] == 0 and detail["error"] is None
+
+    refresh_frame(consumer, 1)
+    consumer._before_camera_round()
+    complete(consumer, 1, "yolo_human", [PERSON])
+    complete(consumer, 1, "insightface", [FACE])
+    alarm, detail = process(consumer, 1)
+    assert not alarm and detail["pending_count"] == 1
+    assert detail["persons"][0]["identity"] == "pending"
+    assert detail["error"] == "摄像头围栏白名单读取失败"
+
+
 @pytest.mark.parametrize("action", ["replace", "remove", "disable", "reenable", "stop"])
 def test_slow_authorization_query_releases_state_lock_and_discards_invalidated_results(
     make_consumer, monkeypatch, action,

@@ -2,20 +2,53 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass, field, replace
+from json import loads
+import time
+from typing import Literal, TypeVar
 
 from sqlalchemy import func, or_, select
 
 from AiVision.connectors.hikvision import HikvisionPerson
 from AiVision.core.db import get_session, session_scope
 from AiVision.departments.department_registry import require_department
+from AiVision.features._shared.authorization_refresh import AuthorizationReadTiming
 from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage
 
 from . import HIKVISION_SOURCES, PersonSyncError
 from .constants import EMBEDDING_DIM
 from .index import encode_embedding, photo_signature
 from .orm import FaceEmbedding, FacePerson, FacePersonAuthorization
+
+
+_AuthorizationScope = TypeVar("_AuthorizationScope", int, str)
+
+
+class AuthorizationAggregateError(ValueError):
+    """聚合数据损坏时拒绝整批授权。"""
+
+
+def _decode_authorization_groups(allowed: dict[_AuthorizationScope, set[int]], rows) -> None:
+    """验证聚合值未被截断、重复或混入其他范围。"""
+    scope_type = type(next(iter(allowed)))
+    seen = set()
+    for scope, count, person_id_sum, payload in rows:
+        if type(scope) is not scope_type or scope not in allowed or scope in seen:
+            raise AuthorizationAggregateError("授权聚合范围不完整或不匹配")
+        try:
+            ids = loads(payload) if isinstance(payload, (str, bytes, bytearray)) else payload
+        except ValueError as exc:
+            raise AuthorizationAggregateError("授权聚合不是完整 JSON") from exc
+        if (type(count) is not int or count <= 0 or type(ids) is not list or len(ids) != count
+                or any(type(person_id) is not int or person_id <= 0 for person_id in ids)):
+            raise AuthorizationAggregateError("授权聚合的数量或人员标识不匹配")
+        ids_by_scope = set(ids)
+        if len(ids_by_scope) != count:
+            raise AuthorizationAggregateError("授权聚合含重复人员")
+        if sum(ids_by_scope) != person_id_sum:
+            raise AuthorizationAggregateError("授权聚合的人员标识校验不匹配")
+        allowed[scope] = ids_by_scope
+        seen.add(scope)
 
 
 @dataclass(frozen=True)
@@ -172,43 +205,56 @@ class FaceLibraryService:
             )))
 
     def get_allowed_person_ids_by_camera(
-        self, camera_ids: Sequence[int], *, on_sampled: Callable[[], None] | None = None,
+        self, camera_ids: Sequence[int], *, on_sampled: Callable[[AuthorizationReadTiming], None] | None = None,
     ) -> dict[int, set[int]]:
         """一条查询读取本轮摄像头白名单，空名单也保留独立的摄像头条目。"""
         if self.authorization_scope != "camera_id":
             raise ValueError("批量摄像头白名单必须使用摄像头授权范围")
         allowed = {self._scope(camera_id=camera_id)["camera_id"]: set() for camera_id in camera_ids}
-        if not allowed:
-            return allowed
-        authorization = self.authorization_model
-        with get_session() as session:
-            rows = session.execute(select(authorization.camera_id, FacePerson.id).join(
-                FacePerson, authorization.person_id == FacePerson.id,
-            ).where(FacePerson.is_active.is_(True), authorization.camera_id.in_(allowed)))
-            for camera_id, person_id in rows:
-                allowed[camera_id].add(person_id)
-            if on_sampled is not None:
-                on_sampled()
-        return allowed
+        return self._read_authorization_groups(allowed, on_sampled)
 
     def get_allowed_person_ids_by_department(
-        self, departments: Sequence[str], *, on_sampled: Callable[[], None] | None = None,
+        self, departments: Sequence[str], *, on_sampled: Callable[[AuthorizationReadTiming], None] | None = None,
     ) -> dict[str, set[int]]:
         """身份识别按事业部合并读取授权，空名单仍有独立条目。"""
         if self.authorization_scope != "department":
             raise ValueError("批量事业部白名单必须使用事业部授权范围")
         allowed = {require_department(department): set() for department in departments}
+        return self._read_authorization_groups(allowed, on_sampled)
+
+    def _read_authorization_groups(
+        self, allowed: dict[_AuthorizationScope, set[int]],
+        on_sampled: Callable[[AuthorizationReadTiming], None] | None,
+    ) -> dict[_AuthorizationScope, set[int]]:
         if not allowed:
             return allowed
         authorization = self.authorization_model
+        scope = getattr(authorization, self.authorization_scope)
+        timing = AuthorizationReadTiming(connecting_at=time.monotonic())
+        if on_sampled is not None:
+            on_sampled(timing)
         with get_session() as session:
-            rows = session.execute(select(authorization.department, FacePerson.id).join(
-                FacePerson, authorization.person_id == FacePerson.id,
-            ).where(FacePerson.is_active.is_(True), authorization.department.in_(allowed)))
-            for department, person_id in rows:
-                allowed[department].add(person_id)
+            dialect = session.connection().dialect.name
+            timing = replace(timing, connected_at=time.monotonic())
             if on_sampled is not None:
-                on_sampled()
+                on_sampled(timing)
+            aggregate = func.json_group_array if dialect == "sqlite" else func.json_arrayagg
+            # 额外按字节分组，避免 MySQL 的不区分大小写排序规则把非规范范围合入有效事业部。
+            groups = (scope, func.hex(scope)) if self.authorization_scope == "department" else (scope,)
+            rows = session.execute(
+                select(scope, func.count(FacePerson.id), func.sum(FacePerson.id), aggregate(FacePerson.id))
+                .join(FacePerson, authorization.person_id == FacePerson.id)
+                .where(FacePerson.is_active.is_(True), scope.in_(allowed))
+                .group_by(*groups)
+            ).all()
+            # 快照有效期从数据库数据取出时起算，JSON 解析和连接归还不能延长它。
+            timing = replace(timing, fetched_at=time.monotonic())
+            if on_sampled is not None:
+                on_sampled(timing)
+            _decode_authorization_groups(allowed, rows)
+            timing = replace(timing, parsed_at=time.monotonic())
+            if on_sampled is not None:
+                on_sampled(timing)
         return allowed
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:

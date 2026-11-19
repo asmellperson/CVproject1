@@ -9,6 +9,7 @@ import multiprocessing as mp
 import queue
 import time
 from abc import ABC, abstractmethod    # ABC 抽象基类
+from multiprocessing.queues import Queue as ProcessQueue
 from typing import Any
 
 from AiVision.core.logger import logger
@@ -21,8 +22,10 @@ from AiVision.inference.contracts import (
     INFERENCE_STATUS_TIMEOUT,
     build_inference_result,
 )
+from AiVision.inference.human_task_queue import HUMAN_MODEL_NAME, HumanTaskQueue
 
 _QUEUE_POLL_SECONDS = 0.01
+_MAX_ORDINARY_BEFORE_TAILGATING = 2
 
 class BaseModelWorker(ABC):
     """
@@ -31,8 +34,8 @@ class BaseModelWorker(ABC):
     """
     def __init__(
         self,
-        infer_queues: dict[str, mp.Queue],     # 逻辑模型任务入口
-        result_queues: dict[str, mp.Queue],   # {function_name: Queue}（推理结果出口）
+        infer_queues: dict[str, ProcessQueue | HumanTaskQueue],  # 逻辑模型任务入口
+        result_queues: dict[str, ProcessQueue],   # {function_name: Queue}（推理结果出口）
         model_name: str,
         model_path: str,
     ):
@@ -40,6 +43,9 @@ class BaseModelWorker(ABC):
         self.infer_queues = infer_queues
         self._queue_names = tuple(infer_queues)
         self._queue_cursor = 0
+        human_queue = infer_queues.get(HUMAN_MODEL_NAME)
+        self._human_queue = human_queue if isinstance(human_queue, HumanTaskQueue) else None
+        self._ordinary_since_tailgating = _MAX_ORDINARY_BEFORE_TAILGATING
         self.result_queues = result_queues
         self.model_name = model_name
         self.model_path = model_path
@@ -124,12 +130,38 @@ class BaseModelWorker(ABC):
         return self.is_alive() and self.is_ready() and not self.is_failed()
 
     def _next_task(self) -> dict | None:
+        """闯闸就绪时最多插入两项普通任务，一侧空闲时继续服务另一侧。"""
+        human_queue = self._human_queue
+        if human_queue is None:
+            return self._next_ordinary_task()
+        if self._ordinary_since_tailgating >= _MAX_ORDINARY_BEFORE_TAILGATING:
+            tailgating = self._next_tailgating_task(human_queue)
+            if tailgating is not None:
+                return tailgating
+        task = self._next_ordinary_task()
+        if task is not None:
+            self._ordinary_since_tailgating = min(
+                _MAX_ORDINARY_BEFORE_TAILGATING, self._ordinary_since_tailgating + 1,
+            )
+            return task
+        return self._next_tailgating_task(human_queue)
+
+    def _next_tailgating_task(self, human_queue: HumanTaskQueue) -> dict | None:
+        try:
+            task = human_queue.get_tailgating_nowait()
+        except queue.Empty:
+            return None
+        self._ordinary_since_tailgating = 0
+        return {**task, "model_name": HUMAN_MODEL_NAME}
+
+    def _next_ordinary_task(self) -> dict | None:
         """轮询逻辑模型队列并推进游标，避免固定首队列饥饿；以队列名覆盖任务 model_name。"""
         for _ in self._queue_names:
             name = self._queue_names[self._queue_cursor]
             self._queue_cursor = (self._queue_cursor + 1) % len(self._queue_names)
+            source = self.infer_queues[name]
             try:
-                task = self.infer_queues[name].get_nowait()
+                task = source.get_ordinary_nowait() if source is self._human_queue else source.get_nowait()
             except queue.Empty:
                 continue
             return {**task, "model_name": name}
@@ -212,16 +244,15 @@ class BaseModelWorker(ABC):
                 continue
             # 推理，得到统一结果
             result = self._execute_task(model, task)
+            self._publish_result(result)
 
-            # 把结果分发给请求方对应的 function_name 队列
-            target_fname = result.get("function_name")
-            target_queue = self.result_queues.get(target_fname)
-            # 如果找不到目标队列直接丢掉结果
-            if target_queue is None:
-                continue
-            try:
-                target_queue.put(result, timeout=0.5)
-            except queue.Full:
-                logger.warning(
-                    f"[ModelWorker:{self.model_name}] 结果队列满 ({target_fname}),丢弃"
-                )
+    def _publish_result(self, result: dict) -> None:
+        """共享闯闸 Worker 不能被其他功能的满结果队列拖住。"""
+        target_fname = result.get("function_name")
+        target_queue = self.result_queues.get(target_fname)
+        if target_queue is None:
+            return
+        try:
+            target_queue.put(result, timeout=0.0 if self._human_queue is not None else 0.5)
+        except queue.Full:
+            logger.warning(f"[ModelWorker:{self.model_name}] 结果队列满 ({target_fname}),丢弃")

@@ -43,6 +43,7 @@ from AiVision.core.logger import logger
 from .probe import CameraProbeError, probe_video_shape
 
 _DEFAULT_DIFF_THRESHOLD_RATIO = 0.7
+_CAPTURE_OPENCV_THREADS = 1
 _CAPTURE_JOIN_SECONDS = 5.0
 _CAPTURE_TERMINATE_SECONDS = 5.0
 _CAPTURE_KILL_SECONDS = 2.0
@@ -231,6 +232,8 @@ class CameraRuntime:
             os.setsid()
             self._process_group_ready.set()
         signal.signal(signal.SIGTERM, _exit_capture_on_signal)
+        # 多路采集各在独立 spawn 进程运行，避免每路花屏检查都创建全机线程池。
+        cv2.setNumThreads(_CAPTURE_OPENCV_THREADS)
         self._capture_loop(active_index, frame_seq)
 
     # ---------- ffmpeg ----------

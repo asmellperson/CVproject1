@@ -3,7 +3,7 @@ features/door_state/consumer.py
 门禁状态检测 — 帧差法 + 双阶段告警(持续 N 秒触发首次,后续按间隔重复)。
 
 结合了与上一张处理图比较和与参考背景比较两种方式：
-    1、系统从摄像头画面中提取配置的ROI区域. 没有配置ROI时使用全帧, 公共处理层维护经过模糊处理的ROI图像, 门检测模块再将其转换成灰度图, 门检测也会再画面禁止时继续按间隔处理，以便累计持续时间
+    1、系统从摄像头画面中提取配置的ROI区域，没有配置ROI时使用全帧。门检测缓存最近一次明显变化后的模糊ROI并转换为灰度图，静止画面也按间隔处理，以便累计持续时间。
 
     2、首次处理时建立两份参考图像: 第一张有效的灰度图会分别保存为上一张处理图和参考背景图，本次不确认异常
 
@@ -50,11 +50,14 @@ import numpy as np
 
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 
+_DOOR_ROI_BLUR_KERNEL = (5, 5)
+
 class DoorConsumer(BaseFunctionConsumer):
     """门禁检测 — 上一帧/参考背景帧差、连续确认与双阶段告警"""
     def __init__(self, *args, **kwargs):
         """为每路摄像头隔离参考背景、连续确认和首次告警计时状态。"""
         super().__init__(*args, **kwargs)
+        self._blurred_roi: dict[int, np.ndarray] = {}
         # 上一次处理的灰度图
         self._pre_gray: dict[int, np.ndarray] = {}
         # 参考背景图
@@ -63,6 +66,13 @@ class DoorConsumer(BaseFunctionConsumer):
         self._candidate_state: dict[int, dict] = {}
         # 双阶段告警状态: camera_id → (continuous_start_ts, alarmed_once)
         self._alarm_state: dict[int, dict] = {}
+
+    def _frame_changed(self, camera_id, roi, threshold=0.005):
+        changed = super()._frame_changed(camera_id, roi, threshold)
+        if changed:
+            # 后续静止帧复用同一经过模糊的 ROI，避免细小噪声干扰背景确认。
+            self._blurred_roi[camera_id] = cv2.GaussianBlur(roi, _DOOR_ROI_BLUR_KERNEL, 0)
+        return changed
 
     def _process(self, roi, camera_id):
         """比较上一帧与参考背景，过滤整体扰动后确认持续的局部变化。
@@ -80,8 +90,7 @@ class DoorConsumer(BaseFunctionConsumer):
         bg_alpha = cfg["background_update_alpha"]
         global_motion_thr = cfg["global_motion_threshold"]
         min_local_ratio = cfg["min_local_change_ratio"]
-        # self.blur_roi[camera_id]是父类缓存的模糊后的ROI图像
-        gray = cv2.cvtColor(self.blur_roi[camera_id], cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(self._blurred_roi[camera_id], cv2.COLOR_BGR2GRAY)
         # 先建立参考图，如果第一次还没有历史图像，就把当前图保存为上一张处理图，再保存一份作为参考背景
         # 这个只是保存初始化画面
         if camera_id not in self._bg_gray or camera_id not in self._pre_gray:
@@ -168,13 +177,13 @@ class DoorConsumer(BaseFunctionConsumer):
     def _on_roi_changed(self, camera_id: int) -> None:
         """ROI 改变后丢弃原区域的背景和告警计时，重新建立基准。"""
         super()._on_roi_changed(camera_id)
-        for cache in (self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
+        for cache in (self._blurred_roi, self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
             cache.pop(camera_id, None)
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         """随摄像头退出清理帧差和告警状态，避免下次启动继承旧背景。"""
         super()._clear_camera_state(camera_id, shm_name)
-        for cache in (self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
+        for cache in (self._blurred_roi, self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
             cache.pop(camera_id, None)
 
     def _update_candidate(self, camera_id: int, raw_change: bool, now: float, seconds: float, hits: int) -> bool:

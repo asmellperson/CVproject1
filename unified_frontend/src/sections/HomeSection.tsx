@@ -175,7 +175,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
     cameraOffline: overviewStatus?.summary.camera_offline ?? 0,
   }
   const cameraStatusReady = overviewStatus !== null && !overviewState.error
-  const scopedStatusLevel = overviewStatus?.level ?? (overviewState.error ? 'error' : 'loading')
+  const scopedStatusLevel = overviewState.error ? 'error' : overviewStatus?.level ?? 'loading'
 
   useEffect(() => {
     if (!isAdmin) {

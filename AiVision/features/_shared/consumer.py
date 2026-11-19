@@ -161,8 +161,6 @@ class BaseFunctionConsumer(ABC):
         self._masks: dict[int, tuple[np.ndarray, int, int, int, int]] = {}               # 预计算的裁剪掩码
         self._masks_roi_input: dict[int, list] = {}     # 上次生成掩码时的 roi_pos 输入，用于检测配置变更
         self._masks_frame_shape: dict[int, tuple[int, int]] = {}  # 掩码对应的帧高宽
-        self.pre_roi: dict[int, np.ndarray] = {}              # 最近一次显著变化的原始 ROI
-        self.blur_roi: dict[int, np.ndarray] = {}  # 高斯模糊缓存，加速帧差计算
         self.frame_change_samples: dict[int, np.ndarray] = {}  # 低分辨率帧差缓存
 
         # ---- 输出帧（Orchestrator 通过此字典向 API/前端提供预览帧）----
@@ -317,8 +315,8 @@ class BaseFunctionConsumer(ABC):
         """
         for cache in (
             self.frame_cache, self._roi_polygon_cache, self._masks,
-            self._masks_roi_input, self._masks_frame_shape, self.pre_roi,
-            self.blur_roi, self.frame_change_samples, self._last_process_at,
+            self._masks_roi_input, self._masks_frame_shape,
+            self.frame_change_samples, self._last_process_at,
             self._frame_sampled_at,
         ):
             cache.pop(camera_id, None)
@@ -762,8 +760,6 @@ class BaseFunctionConsumer(ABC):
 
     def _on_roi_changed(self, camera_id: int) -> None:
         """坐标或帧尺寸变化时，清除依赖旧裁剪坐标的状态。"""
-        self.pre_roi.pop(camera_id, None)
-        self.blur_roi.pop(camera_id, None)
         self.frame_change_samples.pop(camera_id, None)
 
     def _get_roi_offset(self, camera_id: int) -> tuple[int, int]:
@@ -811,7 +807,7 @@ class BaseFunctionConsumer(ABC):
         return rendered if self.running and self.config_cache.get(camera_id) is cfg else None
 
     def _frame_changed(self, camera_id: int, roi: np.ndarray, threshold: float = 0.005) -> bool:
-        """单 ROI 下采样帧差；显著变化时更新供门检测使用的完整模糊帧。"""
+        """只比较下采样画面，完整 ROI 交由使用它的检测功能处理。"""
         sample = self._frame_change_sample(roi)
         previous = self.frame_change_samples.get(camera_id)
         if previous is None or previous.shape != sample.shape:
@@ -820,8 +816,6 @@ class BaseFunctionConsumer(ABC):
             changed = float(cv2.absdiff(sample, previous).mean()) / 255.0 > threshold
         if changed:
             self.frame_change_samples[camera_id] = sample
-            self.blur_roi[camera_id] = cv2.GaussianBlur(roi, _FRAME_CHANGE_BLUR_KERNEL, 0)
-            self.pre_roi[camera_id] = roi
         return changed
 
     @staticmethod

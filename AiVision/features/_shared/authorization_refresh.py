@@ -35,6 +35,16 @@ _workers_lock = Lock()
 
 
 @dataclass(frozen=True)
+class AuthorizationReadTiming:
+    """记录数据库读取进度，结果取出后固定快照时间。"""
+
+    connecting_at: float
+    connected_at: float | None = None
+    fetched_at: float | None = None
+    parsed_at: float | None = None
+
+
+@dataclass(frozen=True)
 class AuthorizationResult(Generic[Context, Value]):
     context: Context
     value: Value | None
@@ -52,6 +62,7 @@ class _Lookup(Generic[Context, Value]):
     timing_lock: Lock = field(default_factory=Lock)
     started_at: float | None = None
     sampled_at: float | None = None
+    read_timing: AuthorizationReadTiming | None = None
     reported: bool = False
 
 
@@ -74,7 +85,7 @@ class AuthorizationRefresh(Generic[Context, Value]):
     def in_progress(self) -> bool:
         return self._lookup is not None
 
-    def submit(self, context: Context, lookup: Callable[[Callable[[], None]], Value]) -> bool:
+    def submit(self, context: Context, lookup: Callable[[Callable[[AuthorizationReadTiming], None]], Value]) -> bool:
         """不等待数据库或已有任务，也不排队累积待查询请求。"""
         if self._lookup is not None or not self._worker.slot.acquire(blocking=False):
             return False
@@ -82,9 +93,10 @@ class AuthorizationRefresh(Generic[Context, Value]):
         submitted_at = time.monotonic()
         job = self._lookup = _Lookup(context, submitted_at, submitted_at + self._timeout_seconds, future)
 
-        def mark_sampled():
+        def mark_sampled(timing: AuthorizationReadTiming | None = None):
             with job.timing_lock:
-                job.sampled_at = time.monotonic()
+                job.read_timing = timing
+                job.sampled_at = time.monotonic() if timing is None else timing.fetched_at
 
         def run():
             with job.timing_lock:
@@ -118,7 +130,7 @@ class AuthorizationRefresh(Generic[Context, Value]):
         if lookup.reported:
             return None
         with lookup.timing_lock:
-            started_at, sampled_at = lookup.started_at, lookup.sampled_at
+            started_at, sampled_at, read_timing = lookup.started_at, lookup.sampled_at, lookup.read_timing
             now = time.monotonic()
         observed_until = now if result is None else result.completed_at
         if sampled_at is not None:
@@ -130,10 +142,12 @@ class AuthorizationRefresh(Generic[Context, Value]):
             result = AuthorizationResult(lookup.context, None, "ExpiredSnapshot", now, sampled_at)
         if result is not None:
             lookup.reported = True
-            self._log_result(lookup, result, now, started_at)
+            if result.error is not None or now - lookup.submitted_at >= _SLOW_REFRESH_SECONDS:
+                self._log_result(lookup, result, now, started_at, read_timing)
         return result
 
-    def _log_result(self, lookup, result, now: float, started_at: float | None):
+    def _log_result(self, lookup, result, now: float, started_at: float | None,
+                    read_timing: AuthorizationReadTiming | None):
         queue_elapsed = (now if started_at is None else started_at) - lookup.submitted_at
         read_end = result.sampled_at if result.sampled_at is not None else result.completed_at
         read_elapsed = 0.0 if started_at is None else read_end - started_at
@@ -143,12 +157,22 @@ class AuthorizationRefresh(Generic[Context, Value]):
             f"queue_ms={queue_elapsed * 1000:.1f} read_ms={read_elapsed * 1000:.1f} "
             f"return_ms={return_elapsed * 1000:.1f}"
         )
+        if read_timing is not None:
+            finish = result.completed_at
+            connected = read_timing.connected_at
+            fetched = read_timing.fetched_at
+            connection = (connected if connected is not None else finish) - read_timing.connecting_at
+            execute_fetch = 0.0 if connected is None else (fetched if fetched is not None else finish) - connected
+            parsed = read_timing.parsed_at
+            parse = 0.0 if fetched is None else (parsed if parsed is not None else finish) - fetched
+            message += (
+                f" connection_ms={connection * 1000:.1f} execute_fetch_ms={execute_fetch * 1000:.1f}"
+                f" parse_ms={parse * 1000:.1f}"
+            )
         if result.error is not None:
             logger.warning(message)
-        elif now - lookup.submitted_at >= _SLOW_REFRESH_SECONDS:
-            logger.info(message)
         else:
-            logger.set_debug_message(self._name, message)
+            logger.info(message)
 
     def invalidate(self):
         """停启后不接收旧查询，仍等物理查询完成才释放名额。"""

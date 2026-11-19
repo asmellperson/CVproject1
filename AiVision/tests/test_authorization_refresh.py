@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from AiVision.features._shared import authorization_refresh
-from AiVision.features._shared.authorization_refresh import AuthorizationRefresh
+from AiVision.features._shared.authorization_refresh import AuthorizationReadTiming, AuthorizationRefresh
 
 
 @pytest.fixture
@@ -77,7 +77,9 @@ def test_completed_query_cannot_renew_already_expired_authorization(refresh):
     refresh, clock = refresh
 
     def query(mark):
-        mark()
+        mark(AuthorizationReadTiming(100.0, 100.0, 100.0))
+        clock.now = 101.5
+        mark(AuthorizationReadTiming(100.0, 100.0, 100.0, 101.5))
         return {1: {123}}
 
     assert refresh.submit((1,), query)
@@ -85,6 +87,31 @@ def test_completed_query_cannot_renew_already_expired_authorization(refresh):
     clock.now = 102.0
     result = refresh.poll()
     assert result.error == "ExpiredSnapshot" and result.value is None
+
+
+def test_timeout_diagnoses_connection_wait_without_scope_ids(refresh, caplog):
+    refresh, clock = refresh
+    connecting, release = Event(), Event()
+
+    def query(mark):
+        mark(AuthorizationReadTiming(connecting_at=clock.now))
+        connecting.set()
+        assert release.wait(1)
+        return {}
+
+    assert refresh.submit((84321,), query)
+    task = refresh._lookup
+    try:
+        assert connecting.wait(1)
+        clock.now = 108.1
+        result = refresh.poll()
+        assert result.error == "TimeoutError" and result.value is None
+        assert "scopes=1" in caplog.text and "84321" not in caplog.text
+        assert "connection_ms=8100.0" in caplog.text and "execute_fetch_ms=0.0" in caplog.text
+    finally:
+        release.set()
+        task.future.result(timeout=1)
+    assert refresh.poll() is None
 
 
 @pytest.mark.parametrize("observed_before_completion", [True, False])

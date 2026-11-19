@@ -108,6 +108,36 @@ def test_phone_failure_is_unknown_instead_of_empty(modules):
     assert not snapshot["alarm"]
 
 
+@pytest.mark.parametrize("feature,full_blur", [("blocks", False), ("detect_door", True)])
+def test_full_roi_blur_is_only_used_by_door_state(modules, monkeypatch, feature, full_blur):
+    import cv2
+
+    _, _, get_spec, _ = modules
+    spec = get_spec(feature)
+    consumer = spec.consumer_cls(spec=spec, infer_dict={}, result_queue=Queue(), latest_frames={},
+                                 is_camera_active=lambda key: True)
+    image = np.zeros((60, 100, 3), dtype=np.uint8)
+    blur = Mock(wraps=cv2.GaussianBlur)
+    monkeypatch.setattr(cv2, "GaussianBlur", blur)
+    assert consumer._frame_changed(1, image)
+    assert not consumer._frame_changed(1, image)
+    assert sum(call.args[0].shape == image.shape for call in blur.call_args_list) == int(full_blur)
+
+
+def test_capture_process_limits_own_opencv_threads(modules, monkeypatch):
+    from AiVision.cameras import runtime
+
+    calls = []
+    if hasattr(runtime.os, "setsid"):
+        monkeypatch.setattr(runtime.os, "setsid", lambda: None)
+    monkeypatch.setattr(runtime.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(runtime.cv2, "setNumThreads", lambda count: calls.append(("threads", count)))
+    camera = SimpleNamespace(_process_group_ready=Event(),
+                             _capture_loop=lambda *args: calls.append(("capture", args)))
+    runtime.CameraRuntime._capture_entry(camera, "active-index", "frame-seq")
+    assert calls == [("threads", 1), ("capture", ("active-index", "frame-seq"))]
+
+
 def test_dwell_details_only_include_visible_tracks(modules):
     from AiVision.features._shared.dwell_consumer import build_dwell_monitor_snapshot
     from AiVision.features._shared.tracking import Track
