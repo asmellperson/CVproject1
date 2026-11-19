@@ -1132,6 +1132,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 账号角色结构使用 `python -m AiVision.migrations.department_admin_20261111 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，向 `auth_users.role` 枚举末尾追加 `department_admin`，保留已有枚举顺序、账号、密码与授权。脚本读取 `AiVision/.env`，可重复执行；其他结构差异会明确拒绝，空库由正常启动创建。代码发布不代表现场数据库已执行升级。
 
+人脸逗留要求 MySQL 中 `ai_camera_config_detect_face.DETECTION_IOU_THR` 的列默认值为 `0.45`。已有库若仍为 `0.3`，在启动后端前对部署数据库执行 [人脸检测默认值迁移](migrations/face_detection_iou_20261119.sql)。该 SQL 可重复执行，摄像头检测使用各自已保存的阈值。
+
 - 创建缺失表不代表自动修复所有旧表列结构；核验发现不兼容时应查看明确的迁移流程。
 - [migrations/](migrations/) 包含配置结构、物流功能和人员逗留合并等离线脚本。
 - 人员逗留合并说明见 [human_20260915.md](migrations/human_20260915.md)。
