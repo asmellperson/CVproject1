@@ -1,7 +1,7 @@
 """人员资料查询与整来源快照写入；一次写入使用一个数据库事务。"""
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -171,7 +171,9 @@ class FaceLibraryService:
                 getattr(self.authorization_model, self.authorization_scope) == scope[self.authorization_scope],
             )))
 
-    def get_allowed_person_ids_by_camera(self, camera_ids: Sequence[int]) -> dict[int, set[int]]:
+    def get_allowed_person_ids_by_camera(
+        self, camera_ids: Sequence[int], *, on_sampled: Callable[[], None] | None = None,
+    ) -> dict[int, set[int]]:
         """一条查询读取本轮摄像头白名单，空名单也保留独立的摄像头条目。"""
         if self.authorization_scope != "camera_id":
             raise ValueError("批量摄像头白名单必须使用摄像头授权范围")
@@ -185,9 +187,13 @@ class FaceLibraryService:
             ).where(FacePerson.is_active.is_(True), authorization.camera_id.in_(allowed)))
             for camera_id, person_id in rows:
                 allowed[camera_id].add(person_id)
+            if on_sampled is not None:
+                on_sampled()
         return allowed
 
-    def get_allowed_person_ids_by_department(self, departments: Sequence[str]) -> dict[str, set[int]]:
+    def get_allowed_person_ids_by_department(
+        self, departments: Sequence[str], *, on_sampled: Callable[[], None] | None = None,
+    ) -> dict[str, set[int]]:
         """身份识别按事业部合并读取授权，空名单仍有独立条目。"""
         if self.authorization_scope != "department":
             raise ValueError("批量事业部白名单必须使用事业部授权范围")
@@ -201,6 +207,8 @@ class FaceLibraryService:
             ).where(FacePerson.is_active.is_(True), authorization.department.in_(allowed)))
             for department, person_id in rows:
                 allowed[department].add(person_id)
+            if on_sampled is not None:
+                on_sampled()
         return allowed
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:

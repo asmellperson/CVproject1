@@ -18,6 +18,7 @@ from auth.api import router as auth_router
 from auth.external import EXTERNAL_API_PREFIX
 from auth.external_api import router as external_clients_router
 from auth.auth import AuthError, get_current_user_from_request     # 认证模块
+from AiVision.api.status_timing import STATUS_ELAPSED_HEADER
 
 # 拿取每个API文件里的路由，最后统一注册到FastAPI
 from AiVision.api.routes.alarms import public_router as public_alarms_router
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,                         # 表示允许跨域请求携带Cookie认证信息
         allow_methods=["*"],                            # 表示允许所有GET、POST、PUT、PATCH等等所有HTTP方法
         allow_headers=["*"],                            # 允许前端携带各种Header
+        expose_headers=[STATUS_ELAPSED_HEADER],
     )
 
     # 定义认证中间件,所有HTTP请求都会先经过它
@@ -158,6 +160,7 @@ def create_app() -> FastAPI:
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):
+            request.state.status_request_started_ns = time.monotonic_ns()
             try:
                 # 解析用户，将用户保存到这一次的Request的状态里，而各api下的各函数下的get_current_user负责从request.state.user里面把用户提供给具体函数
                 request.state.user = await run_in_threadpool(get_current_user_from_request, request)

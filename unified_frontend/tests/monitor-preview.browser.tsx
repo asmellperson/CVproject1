@@ -4,6 +4,10 @@ import { createRoot } from 'react-dom/client'
 import { CameraLivePreview } from '../src/components/monitor/CameraLivePreview'
 import { CurrentDetectionCard } from '../src/components/monitor/CurrentDetectionCard'
 import { useDetectionStatus } from '../src/components/monitor/useDetectionStatus'
+import { expireFenceStatus, receiveFenceStatus } from '../src/components/security_fence/statusState'
+import type { FenceStatus } from '../src/components/security_fence/api'
+import { expireTailgatingStatus, receiveTailgatingStatus, type TailgatingStatus } from '../src/components/tailgating/statusState'
+import { STATUS_ELAPSED_HEADER } from '../src/lib/status-freshness'
 import { useSmokeStatus } from '../src/components/smoke_detection/useSmokeStatus'
 import { SmokeMonitorView } from '../src/components/smoke_detection/SmokeMonitorView'
 import { DeviceParameters } from '../src/components/smoke_detection/DeviceParameters'
@@ -148,10 +152,14 @@ window.fetch = async (input, init) => {
   }
   if (url.pathname.endsWith('/status')) {
     if (statusRequests++) return hold(init?.signal)
-    return json({ camera_key: 'camera_1', feature: 'detect_phone', online: true, count: 1, alarm: true,
+    assert(init?.cache === 'no-store' && init.credentials === 'include', '状态请求须保留鉴权且禁止缓存')
+    await pause(650)
+    const response = json({ camera_key: 'camera_1', feature: 'detect_phone', online: true, count: 1, alarm: true,
       reason: 'phone_confirmed', updated_at: new Date().toISOString(), valid_for_seconds: 0.5,
       duration_seconds: 2, threshold_seconds: 1.2,
       details: [{ label: '手机轨迹 1', confidence: 0.92, duration_seconds: 2, hits: 4, state: 'phone_confirmed' }] })
+    response.headers.set(STATUS_ELAPSED_HEADER, '600')
+    return response
   }
   throw new Error(`意外请求：${url.pathname}`)
 }
@@ -422,7 +430,25 @@ async function run() {
   assert(statusElement.textContent?.includes('手机轨迹 1') && statusElement.textContent.includes('连续命中 4 次'), '卡片缺少采样明细')
   await until(() => statusElement.textContent?.includes('检测结果已过期'), '检测结果到期')
   assert(!statusElement.textContent?.includes('手机轨迹 1'), '网络挂起时仍显示过期检测明细')
-  successes.push('卡片显示真实结果明细，网络挂起时独立过期')
+  successes.push('通用状态扣除已知后端耗时，网络挂起时仍独立过期')
+  const commonStatus = { camera_key: 'camera_1', state: 'ready', count: 1, alarm: false,
+    persons: [], updated_at: '2026-11-19T01:52:00+00:00', valid_for_seconds: 0.2, error: null } as const
+  const fenceStatus: FenceStatus = { ...commonStatus, persons: [], mode: 'whitelist', timezone: 'Asia/Shanghai', online: true, pending_count: 0 }
+  const tailgatingStatus: TailgatingStatus = { ...commonStatus, persons: [], reason: 'clear', events: [], sample_interval_seconds: 0.1 }
+  const arrived = { startedAt: 0, receivedAt: 700, serverElapsed: '600' }
+  const fence = receiveFenceStatus(null, fenceStatus, arrived)
+  const tailgating = receiveTailgatingStatus(null, tailgatingStatus, arrived)
+  assert(fence.value?.count === 1 && fence.freshness?.expiresAt === 800, '围栏快照被重复扣除后端耗时')
+  assert(tailgating.value?.count === 1 && tailgating.freshness?.expiresAt === 800, '非法闯闸快照被重复扣除后端耗时')
+  for (const serverElapsed of [null, '-1', '600.1', '701', 'Infinity', '600, 600', '400']) {
+    const late = { ...arrived, serverElapsed }
+    assert(!receiveFenceStatus(null, fenceStatus, late).value, '围栏显示了实际过期或者耗时无效的快照')
+    assert(!receiveTailgatingStatus(null, tailgatingStatus, late).value, '非法闯闸显示了实际过期或者耗时无效的快照')
+  }
+  const repeated = { startedAt: 750, receivedAt: 810, serverElapsed: '60' }
+  assert(!receiveFenceStatus(expireFenceStatus(fence), fenceStatus, repeated).value, '围栏相同采样不应再次显示')
+  assert(!receiveTailgatingStatus(expireTailgatingStatus(tailgating), tailgatingStatus, repeated).value, '非法闯闸相同采样不应再次显示')
+  successes.push('围栏和非法闯闸只补偿可信时长，同一检测结果到期后不续期')
   const regions = previewRegions('tailgating', { roi_pos: roi, line_points: [[0.5, 0], [0.5, 1]], direction: 0 })
   assert(regions[1].directions?.length === 2, '双向过闸判定线缺少方向')
   const left = regionDirection([[0.5, 0], [0.5, 1]], 640, 360, 1)!

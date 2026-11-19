@@ -153,6 +153,37 @@ class CameraConfigManager:
         finally:
             session.close()
 
+    def get_camera_for_status(self, key: str | int, feature: str, *, include_feature_config: bool = False) -> dict | None:
+        """监控状态只读取当前摄像头与目标功能，避免每次轮询访问其他功能表。"""
+        spec = all_specs().get(feature)
+        if spec is None:
+            raise ValueError(f"unknown feature: {feature}")
+        model = spec.orm_class
+        session = get_session()
+        try:
+            cam = self._get_orm_by_key(session, key)
+            if cam is None:
+                return None
+            # 围栏还需要目标功能的生效时段；一般状态轮询只读取功能开关。
+            if include_feature_config:
+                config = session.query(model).filter_by(camera_id=cam.id).one_or_none()
+                feature_enabled = bool(config is not None and config.enable)
+            else:
+                feature_enabled = bool(session.query(model.enable).filter_by(camera_id=cam.id).scalar())
+            camera = {
+                "camera_id": cam.id,
+                "shm_name": cam.shm_name or f"camera_{cam.id}",
+                "name": cam.name,
+                "department": cam.department,
+                "enabled": bool(cam.enable),
+                "functions": {feature: feature_enabled},
+            }
+            if include_feature_config:
+                camera["feature_config"] = config.to_config_dict() if config is not None else None
+            return camera
+        finally:
+            session.close()
+
     def get_camera_identity(self, key: str | int) -> dict | None:
         """取图授权只读取摄像头身份与当前归属，避免逐帧加载所有功能配置。"""
         session = get_session()

@@ -1,24 +1,27 @@
 """平台登录会话下的围栏状态及摄像头通行白名单接口。"""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from auth.auth import get_current_user, require_config_manager
 from auth.feature_permissions import require_feature_access
 from AiVision.api.deps import get_camera_config_manager, get_optional_orchestrator
-from AiVision.api.routes.cameras import get_camera_for_user
+from AiVision.api.routes.cameras import get_camera_for_status, get_camera_for_user
+from AiVision.api.status_timing import status_sample_marker
 from AiVision.features.security_fence import service
-from AiVision.features.security_fence.schema import FEATURE, FenceStatus
+from AiVision.features.security_fence.schema import FEATURE, FenceConfig, FenceStatus
 from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage, FacePersonUpdate
 
 router = APIRouter(prefix="/api/security-fence", tags=["security-fence"])
 
 
 @router.get("/cameras/{key}/status", response_model=FenceStatus)
-def status(key: str, user=Depends(get_current_user), manager=Depends(get_camera_config_manager), orchestrator=Depends(get_optional_orchestrator)):
-    camera = get_camera_for_user(manager, key, user)
-    require_feature_access(user, FEATURE, camera["department"])
-    return service.camera_status(camera, orchestrator)
+def status(key: str, request: Request, response: Response, user=Depends(get_current_user),
+           manager=Depends(get_camera_config_manager), orchestrator=Depends(get_optional_orchestrator)):
+    camera = get_camera_for_status(manager, key, user, FEATURE, include_feature_config=True)
+    payload = camera["feature_config"]
+    config = FenceConfig.model_validate(payload) if payload is not None else FenceConfig()
+    return service.camera_status(camera, orchestrator, config=config, mark_sample=status_sample_marker(request, response))
 
 
 @router.get("/cameras/{key}/persons", response_model=FacePersonPage)

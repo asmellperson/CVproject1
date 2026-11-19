@@ -1,3 +1,5 @@
+import { hasTimedStatus, statusFreshness, type StatusFreshness, type StatusRequestTiming } from '@/lib/status-freshness'
+
 export type TailgatingStatus = {
   camera_key: string
   state: 'disabled' | 'offline' | 'waiting' | 'stale' | 'error' | 'ready'
@@ -16,29 +18,24 @@ export type TailgatingStatusResult = {
   key: string
   value: TailgatingStatus | null
   error: string
-  expiresAt: number | null
+  freshness: StatusFreshness | null
 }
 
 export function expireTailgatingStatus(result: TailgatingStatusResult): TailgatingStatusResult {
-  return { key: result.key, value: null, error: '检测结果已过期，等待更新。', expiresAt: null }
+  return { ...result, value: null, error: '检测结果已过期，等待更新。' }
 }
 
 export function receiveTailgatingStatus(
   current: TailgatingStatusResult | null,
   value: TailgatingStatus,
-  requestStartedAt: number,
-  receivedAt: number,
+  timing: StatusRequestTiming,
 ): TailgatingStatusResult {
-  const result = { key: value.camera_key, value, error: '', expiresAt: null }
-  if (value.state !== 'ready' && value.state !== 'error') return result
+  const previous = current?.key === value.camera_key ? current.freshness : null
+  const result = { key: value.camera_key, value, error: '', freshness: previous }
+  if (!hasTimedStatus(value.state)) return result
 
-  // 使用单调时钟并扣除整个请求耗时，避免延长后端给出的剩余有效期。
-  let expiresAt = requestStartedAt + (Number.isFinite(value.valid_for_seconds) ? value.valid_for_seconds * 1000 : 0)
-  if (current?.key === value.camera_key && current.value?.updated_at === value.updated_at && current.expiresAt !== null) {
-    expiresAt = Math.min(expiresAt, current.expiresAt)
-  }
-  // 已在传输途中失效的结果不能先展示再清空，否则统计卡片会闪烁。
-  return expiresAt > receivedAt ? { ...result, expiresAt } : expireTailgatingStatus(result)
+  result.freshness = statusFreshness(value.updated_at, value.valid_for_seconds, timing, previous)
+  return result.freshness.expiresAt > timing.receivedAt ? result : expireTailgatingStatus(result)
 }
 
 export function failTailgatingStatus(
@@ -48,8 +45,9 @@ export function failTailgatingStatus(
   now: number,
 ): TailgatingStatusResult {
   // 短暂请求失败保留仍然有效的快照，截止时间不顺延，也不复用其他摄像头的数据。
-  if (current?.key === cameraKey && current.expiresAt !== null && current.expiresAt > now) {
-    return { ...current, error }
+  if (current?.key === cameraKey) {
+    if (hasTimedStatus(current.value?.state) && current.freshness && current.freshness.expiresAt > now) return { ...current, error }
+    return { ...current, value: null, error }
   }
-  return { key: cameraKey, value: null, error, expiresAt: null }
+  return { key: cameraKey, value: null, error, freshness: null }
 }

@@ -170,6 +170,122 @@ def test_status_expiration_and_lifecycle(modules, age, online, enabled):
         assert snapshot["count"] is None and not snapshot["alarm"] and snapshot["details"] == []
 
 
+@pytest.mark.parametrize("feature", ["blocks", "security_fence", "tailgating"])
+def test_status_elapsed_header_stops_before_sampling_validity(modules, monkeypatch, feature):
+    from datetime import timezone
+
+    from fastapi.testclient import TestClient
+    from AiVision.api import app as app_module, deps
+    from AiVision.api.status_timing import STATUS_ELAPSED_HEADER
+    from AiVision.features.security_fence import service as fence_service
+    from AiVision.features.security_fence.schema import FenceConfig
+    from AiVision.features.tailgating import service as tailgating_service
+    from AiVision.runtime import orchestrator as orchestrator_module
+
+    elapsed_ns = 0
+    origin = "https://monitor.example.test"
+    now = time.time()
+    camera = {"camera_id": 1, "shm_name": "camera_1", "name": "摄像头1", "enabled": True,
+              "department": "general_electric", "functions": {feature: True}}
+
+    def authenticate(_request):
+        nonlocal elapsed_ns
+        elapsed_ns += 230_500_000
+        return user([feature])
+
+    def read_camera(key, requested_feature, *, include_feature_config=False):
+        nonlocal elapsed_ns
+        assert requested_feature == feature
+        assert include_feature_config is (feature == "security_fence")
+        elapsed_ns += 90_400_000
+        if key == "missing":
+            return None
+        result = dict(camera)
+        if key == "outside":
+            result["department"] = "electronics_electrician"
+        if include_feature_config:
+            result["feature_config"] = None if key == "unconfigured" else fence_config.model_dump()
+        return result
+
+    fence_config = FenceConfig(enable=True)
+
+    def read_fence_config(_spec, _camera_id):
+        nonlocal elapsed_ns
+        elapsed_ns += 110_800_000
+        return {"config": fence_config.model_dump()}
+
+    def read_snapshot(key):
+        nonlocal elapsed_ns
+        assert key == "camera_1"
+        elapsed_ns += 25_900_000
+        return {"updated_at_s": now - 0.1, "count": 1, "pending_count": 0, "alarm": False,
+                "persons": [], "events": [], "reason": "clear", "sample_interval_seconds": 0.1,
+                "frame_width": 1920, "frame_height": 1080, "error": None,
+                "mode": fence_service.current_mode(fence_config.value, datetime.now(timezone.utc))}
+
+    def sample_validity():
+        nonlocal elapsed_ns
+        elapsed_ns += 200_000_000
+        return now
+
+    consumer = SimpleNamespace(running=True, config_cache={1: {"shm_name": "camera_1"}}, get_monitor_status=read_snapshot)
+    orchestrator = object.__new__(modules[3])
+    orchestrator.camera_runtime_manager = SimpleNamespace(is_running=lambda _key: True, list_running=lambda: ["camera_1"])
+    orchestrator.consumers = {feature: consumer}
+    service_module = {"blocks": orchestrator_module, "security_fence": fence_service, "tailgating": tailgating_service}[feature]
+    monkeypatch.setattr(service_module, "time", SimpleNamespace(time=sample_validity))
+    old_fence_lookup = Mock(side_effect=read_fence_config)
+    monkeypatch.setattr(fence_service.feature_config_manager, "get_config", old_fence_lookup)
+    monkeypatch.setattr(app_module, "get_current_user_from_request", authenticate)
+    monkeypatch.setattr(app_module.time, "monotonic_ns", lambda: elapsed_ns)
+    monkeypatch.setattr(app_module.settings.api, "cors_origins", [origin])
+    app = app_module.create_app()
+    lookup = Mock(side_effect=read_camera)
+    old_camera_lookup = Mock(return_value=camera)
+    app.dependency_overrides[deps.get_camera_config_manager] = lambda: SimpleNamespace(
+        get_camera_for_status=lookup, get_camera=old_camera_lookup,
+    )
+    app.dependency_overrides[deps.get_current_orchestrator] = lambda: orchestrator
+    app.dependency_overrides[deps.get_optional_orchestrator] = lambda: orchestrator
+    app.dependency_overrides[deps.get_department_service] = lambda: SimpleNamespace(
+        feature_access=lambda: {"general_electric": [feature]},
+    )
+    path = {"blocks": "features/blocks", "security_fence": "security-fence", "tailgating": "tailgating"}[feature]
+    client = TestClient(app)
+    try:
+        response = client.get(f"/api/{path}/cameras/安检点位/status", headers={"Origin": origin})
+        assert response.status_code == 200, response.text
+        lookup.assert_called_once_with("安检点位", feature, include_feature_config=feature == "security_fence")
+        assert response.headers[STATUS_ELAPSED_HEADER] == "346"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert STATUS_ELAPSED_HEADER in response.headers["Access-Control-Expose-Headers"]
+        result = response.json()
+        assert result["camera_key"] == "camera_1" and result["online"] and result["count"] == 1
+        assert result["valid_for_seconds"] == pytest.approx(4.9 if feature == "security_fence" else 1.9)
+        assert client.get(f"/api/{path}/cameras/missing/status").status_code == 404
+        assert client.get(f"/api/{path}/cameras/outside/status").status_code == 403
+        if feature == "security_fence":
+            disabled = client.get(f"/api/{path}/cameras/unconfigured/status")
+            assert disabled.status_code == 200 and disabled.json()["state"] == "disabled"
+            assert disabled.json()["valid_for_seconds"] == 0
+        old_camera_lookup.assert_not_called()
+        old_fence_lookup.assert_not_called()
+        if feature == "security_fence":
+            external = client.get("/api/external/security-fence/cameras/camera_1/status?department=general_electric")
+            assert external.status_code == 200, external.text
+            assert external.json() == result
+            assert STATUS_ELAPSED_HEADER not in external.headers
+            old_camera_lookup.assert_called_once_with("camera_1")
+            assert old_fence_lookup.call_args.args[1] == 1
+
+        monkeypatch.setattr(app_module, "get_current_user_from_request", lambda _request: user([]))
+        denied = client.get(f"/api/{path}/cameras/camera_1/status")
+        assert denied.status_code == 403
+        assert STATUS_ELAPSED_HEADER not in denied.headers
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize("phase,enabled,hour,weekdays,suppressed", [
     ("initial", True, 12, [4], False),
     ("initial", False, 12, [4], True),

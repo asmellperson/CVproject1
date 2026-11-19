@@ -1,4 +1,5 @@
 """非法闯闸状态和报警查询，调用方校验事业部功能与资源归属。"""
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 import time
@@ -8,7 +9,7 @@ from AiVision.core.db import get_session
 from .schema import ALARM_TYPE, FEATURE, STATUS_STALE_SECONDS, TailgatingAlarm, TailgatingHistory, TailgatingStatus
 
 
-def camera_status(camera: dict, orchestrator) -> TailgatingStatus:
+def camera_status(camera: dict, orchestrator, *, mark_sample: Callable[[], None] | None = None) -> TailgatingStatus:
     key = camera["shm_name"]
     online = bool(orchestrator and orchestrator.camera_runtime_manager.is_running(key))
     status = TailgatingStatus(camera_key=key, camera_name=camera["name"], department=camera["department"],
@@ -21,6 +22,8 @@ def camera_status(camera: dict, orchestrator) -> TailgatingStatus:
     detail = consumer.get_monitor_status(key) if consumer else None
     if detail is None:
         return status
+    if mark_sample is not None:
+        mark_sample()
     age = time.time() - detail["updated_at_s"]
     if not 0 <= age <= STATUS_STALE_SECONDS:
         return status.model_copy(update={"state": "stale", "reason": "stale"})

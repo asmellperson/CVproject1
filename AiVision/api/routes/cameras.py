@@ -133,6 +133,17 @@ def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str
     camera = _require_camera_read_access(camera_config_manager.get_camera(key), user)
     return camera_response_for_user(camera, user)
 
+
+def get_camera_for_status(
+    camera_config_manager, key: str, user: dict, feature: str, *, include_feature_config: bool = False,
+) -> dict[str, Any]:
+    """按实时归属核验当前功能权限，只返回状态服务所需的摄像头信息。"""
+    camera = _require_camera_read_access(camera_config_manager.get_camera_for_status(
+        key, feature, include_feature_config=include_feature_config,
+    ), user)
+    require_feature_access(user, feature, camera["department"])
+    return camera
+
 # ------------------ 摄像头CRUD -------------------------
 
 @router.get("")

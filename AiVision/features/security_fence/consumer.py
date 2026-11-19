@@ -5,9 +5,8 @@ from concurrent.futures import Future
 from datetime import datetime, timezone
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
-from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-from AiVision.features._shared.authorization_refresh import AuthorizationRefresh
+from AiVision.features._shared.authorization_refresh import AUTHORIZATION_FAILURE_RETRY_SECONDS, AuthorizationRefresh
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
@@ -23,6 +22,8 @@ _AUTHORIZATION_REFRESH_LEAD_SECONDS = 0.5
 
 
 class FenceConsumer(BaseFunctionConsumer):
+    wake_on_inference = True
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.runtimes: dict[int, FenceRuntime] = {}
@@ -37,7 +38,7 @@ class FenceConsumer(BaseFunctionConsumer):
         self._authorization_tokens: dict[int, object] = {}
         self._authorization_refresh: AuthorizationRefresh[
             dict[int, tuple[dict, object]], dict[int, set[int]]
-        ] = AuthorizationRefresh("security_fence", timeout_seconds=AUTHORIZATION_REFRESH_SECONDS)
+        ] = AuthorizationRefresh("security_fence", snapshot_seconds=AUTHORIZATION_REFRESH_SECONDS)
         self._pending_inferences: dict[int, FenceInference] = {}
         self._submission_order: deque[int] = deque()
         self._submitted_at: dict[int, float] = {}
@@ -282,19 +283,17 @@ class FenceConsumer(BaseFunctionConsumer):
         result = self._authorization_refresh.poll()
         observed_at = time.monotonic()
         if result is not None:
-            if result.error:
-                logger.warning(f"[security_fence] 批量读取摄像头围栏白名单失败 error={result.error}")
             for camera_id, (cfg, token) in result.context.items():
                 if (self.config_cache.get(camera_id) is not cfg
                         or self._authorization_tokens.get(camera_id) is not token
                         or not cfg.get("enable", True) or not cfg.get("camera_enable", True)):
                     continue
-                if result.value is None:
+                if result.value is None or result.sampled_at is None:
                     self._allowed_person_ids.pop(camera_id, None)
-                    self._authorization_refresh_at[camera_id] = observed_at + AUTHORIZATION_REFRESH_SECONDS
+                    self._authorization_refresh_at[camera_id] = observed_at + AUTHORIZATION_FAILURE_RETRY_SECONDS
                 else:
                     self._allowed_person_ids[camera_id] = result.value[camera_id]
-                    self._authorization_refresh_at[camera_id] = result.completed_at + AUTHORIZATION_REFRESH_SECONDS
+                    self._authorization_refresh_at[camera_id] = result.sampled_at + AUTHORIZATION_REFRESH_SECONDS
 
         if self._authorization_refresh.in_progress:
             return
@@ -312,7 +311,9 @@ class FenceConsumer(BaseFunctionConsumer):
                 configs[camera_id] = (cfg, self._authorization_tokens.setdefault(camera_id, object()))
         if configs:
             camera_ids = sorted(configs)
-            self._authorization_refresh.submit(configs, lambda: self.library.get_allowed_person_ids_by_camera(camera_ids))
+            self._authorization_refresh.submit(
+                configs, lambda mark: self.library.get_allowed_person_ids_by_camera(camera_ids, on_sampled=mark),
+            )
 
     def _camera_allowed_people(self, camera_id: int) -> set[int] | None:
         """单路读取授权快照；数据库故障期间撤销过期的放行结论。"""

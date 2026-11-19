@@ -102,13 +102,17 @@ def test_batch_camera_authorizations_use_one_select_and_preserve_empty_scopes(da
             {"camera_id": 1, "person_id": 123}, {"camera_id": 2, "person_id": 456},
             {"camera_id": 3, "person_id": 789},
         ])
-    statements = []
+    statements, lifecycle = [], []
     event.listen(db.engine, "before_cursor_execute",
                  lambda connection, cursor, statement, parameters, context, many: statements.append(statement))
-    assert person_library.get_allowed_person_ids_by_camera([2, 1, 3, 4, 1]) == {
+    event.listen(db.engine, "checkin", lambda *_: lifecycle.append("checkin"))
+    assert person_library.get_allowed_person_ids_by_camera(
+        [2, 1, 3, 4, 1], on_sampled=lambda: lifecycle.append("sampled"),
+    ) == {
         1: {123}, 2: {456}, 3: set(), 4: set(),
     }
     assert len(statements) == 1 and statements[0].lstrip().upper().startswith("SELECT")
+    assert lifecycle == ["sampled", "checkin"]
     assert person_library.get_allowed_person_ids_by_camera([]) == {}
     assert len(statements) == 1
 

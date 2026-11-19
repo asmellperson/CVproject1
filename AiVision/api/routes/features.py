@@ -5,13 +5,14 @@
 """
 from __future__ import annotations
 from typing import Annotated                                # 给一个普通Python类型额外附加FastAPI参数说明
-from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL路径参数
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from auth.auth import get_current_user, require_config_manager
 from auth.feature_permissions import feature_departments, require_feature_access
-from AiVision.api.routes.cameras import get_camera_for_user
+from AiVision.api.routes.cameras import get_camera_for_status, get_camera_for_user
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
+from AiVision.api.status_timing import status_sample_marker
 from AiVision.alarms.types import VIOLATION_TYPE_META
 
 from AiVision.features.registry import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
@@ -74,15 +75,18 @@ def _require_spec(feature: str) -> FeatureSpec:
 def get_feature_status(
     feature: str,
     key: str,
+    request: Request,
+    response: Response,
     user: dict = Depends(get_current_user),
     camera_config_manager=Depends(get_camera_config_manager),
     orchestrator=Depends(get_current_orchestrator),
 ):
     """读取指定摄像头的功能运行状态。"""
     _require_spec(feature)
-    camera = get_camera_for_user(camera_config_manager, key, user)
-    require_feature_access(user, feature, camera["department"])
-    return orchestrator.get_feature_monitor_status(key, feature)          # 去调度器查询功能的运行状态
+    camera = get_camera_for_status(camera_config_manager, key, user, feature)
+    return orchestrator.get_feature_monitor_status(
+        camera["shm_name"], feature, mark_sample=status_sample_marker(request, response),
+    )
 
 def create_features_router(
     feature_config_manager,

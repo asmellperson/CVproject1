@@ -1,5 +1,5 @@
 import type { AiVisionFeatureConfig } from '@/lib/aivision'
-import { apiGet } from '@/lib/api'
+import { apiGetStatus } from '@/lib/api'
 import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { createPersonPermissionsApi } from '@/components/face_recognition/api'
 
@@ -35,6 +35,6 @@ export type FenceStatus = {
 }
 
 export const getFenceStatus = (key: string, signal: AbortSignal) =>
-  apiGet<FenceStatus>(`/security-fence/cameras/${encodeURIComponent(key)}/status`, { signal, cache: 'no-store' })
+  apiGetStatus<FenceStatus>(`/security-fence/cameras/${encodeURIComponent(key)}/status`, signal)
 
 export const fencePersonPermissionsApi = createPersonPermissionsApi<string>('security-fence')

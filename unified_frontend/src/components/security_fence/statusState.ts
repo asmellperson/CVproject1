@@ -1,32 +1,28 @@
 import type { FenceStatus } from './api'
+import { hasTimedStatus, statusFreshness, type StatusFreshness, type StatusRequestTiming } from '@/lib/status-freshness'
 
 export type FenceStatusResult = {
   key: string
   value: FenceStatus | null
   error: string
-  expiresAt: number | null
+  freshness: StatusFreshness | null
 }
 
 export function expireFenceStatus(result: FenceStatusResult): FenceStatusResult {
-  return { key: result.key, value: null, error: '检测结果已过期，等待更新。', expiresAt: null }
+  return { ...result, value: null, error: '检测结果已过期，等待更新。' }
 }
 
 export function receiveFenceStatus(
   current: FenceStatusResult | null,
   value: FenceStatus,
-  requestStartedAt: number,
-  receivedAt: number,
+  timing: StatusRequestTiming,
 ): FenceStatusResult {
-  const result = { key: value.camera_key, value, error: '', expiresAt: null }
-  if (value.state !== 'ready' && value.state !== 'error') return result
+  const previous = current?.key === value.camera_key ? current.freshness : null
+  const result = { key: value.camera_key, value, error: '', freshness: previous }
+  if (!hasTimedStatus(value.state)) return result
 
-  // 沿用非法闯闸的单调计时方式，并扣除请求耗时，避免客户端时间差造成卡片闪烁。
-  let expiresAt = requestStartedAt + (Number.isFinite(value.valid_for_seconds) ? value.valid_for_seconds * 1000 : 0)
-  if (current?.key === value.camera_key && current.value?.updated_at === value.updated_at && current.expiresAt !== null) {
-    expiresAt = Math.min(expiresAt, current.expiresAt)
-  }
-  // 传输途中失效的快照不先展示再撤销；同一快照也不能通过轮询反复续期。
-  return expiresAt > receivedAt ? { ...result, expiresAt } : expireFenceStatus(result)
+  result.freshness = statusFreshness(value.updated_at, value.valid_for_seconds, timing, previous)
+  return result.freshness.expiresAt > timing.receivedAt ? result : expireFenceStatus(result)
 }
 
 export function failFenceStatus(
@@ -36,8 +32,9 @@ export function failFenceStatus(
   now: number,
 ): FenceStatusResult {
   // 短暂通信失败保留同一摄像头尚未过期的统计值，正常放行结论不能无限保留。
-  if (current?.key === cameraKey && current.expiresAt !== null && current.expiresAt > now) {
-    return { ...current, error }
+  if (current?.key === cameraKey) {
+    if (hasTimedStatus(current.value?.state) && current.freshness && current.freshness.expiresAt > now) return { ...current, error }
+    return { ...current, value: null, error }
   }
-  return { key: cameraKey, value: null, error, expiresAt: null }
+  return { key: cameraKey, value: null, error, freshness: null }
 }

@@ -83,7 +83,8 @@ class TailgatingConsumer(PipelinedConsumer):
         if sample.request is not None:
             outcome = self.resolve_inference(sample.request)
             if outcome["status"] == "ok":
-                detail.update(runtime.update(outcome["detections"], frame.shape, now=sample.observed_at))
+                # 通行轨迹以画面采集间隔为准，投递和领取结果的时间只用于推理诊断。
+                detail.update(runtime.update(outcome["detections"], frame.shape, now=sample.captured_at))
                 if detail["reason"] == "sampling_gap":
                     detail["error"] = "实际检测间隔过大，已清除旧通行状态，请检查模型负载及采集帧率。"
             else:
@@ -102,8 +103,10 @@ class TailgatingConsumer(PipelinedConsumer):
             entry = self._previews[camera_id]
             state = PreviewState(entry.camera_key, entry.value, detail, self._preview_source(camera_id))
             self._previews[camera_id] = state
-        # 报警证据保留当次检测原图，即使推理较慢也应绘制该次真实检测结果。
-        return annotate_frame(self.frame_cache[camera_id], state.value, detail)
+        # 普通画面由预览请求按需标注。只有报警证据需要在检测线程绘制当次原图。
+        if detail["events"]:
+            return annotate_frame(self.frame_cache[camera_id], state.value, detail)
+        return None
 
     def _preview(self, camera_key):
         with self._preview_lock:

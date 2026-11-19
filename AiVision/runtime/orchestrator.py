@@ -17,6 +17,7 @@ AIVision运行资源：
     全局实例          init_orchestrator()  get_orchestrator()
 """
 from __future__ import annotations
+from collections.abc import Callable
 import datetime as dt
 import threading
 import time
@@ -782,7 +783,7 @@ class Orchestrator:
             max(raw_updated_at, annotated_updated_at),
         )      # 两个都没有就帧返回None，更新时间选最近的
 
-    def get_feature_monitor_status(self, shm_name: str, feature: str) -> dict:
+    def get_feature_monitor_status(self, shm_name: str, feature: str, *, mark_sample: Callable[[], None] | None = None) -> dict:
         """
         查看shm_name在feature检测功能下的当前监控状态
         主要供前端实时状态展示使用
@@ -805,12 +806,15 @@ class Orchestrator:
             cfg.get("shm_name") == shm_name and cfg.get("camera_enable", True)
             for cfg in list(consumer.config_cache.values())
         ))
-        # 判断状态是不是最新的(2秒内更新)
+        # 有效性与剩余时长使用同一次采样的时钟，响应时长标记先于此读数。
+        if mark_sample is not None:
+            mark_sample()
+        age = time.time() - updated_at_s
         fresh = bool(
             snapshot
             and online and enabled
             and updated_at_s > 0
-            and 0 <= time.time() - updated_at_s <= ANNOTATED_FRAME_FRESH_SECONDS
+            and 0 <= age <= ANNOTATED_FRAME_FRESH_SECONDS
         )
         # 如果状态过期，返回自定义字典
         if not fresh:
@@ -843,7 +847,7 @@ class Orchestrator:
             "duration_seconds": snapshot.get("duration_seconds"),
             "threshold_seconds": snapshot.get("threshold_seconds"),
             "updated_at": updated_at,
-            "valid_for_seconds": max(0.0, ANNOTATED_FRAME_FRESH_SECONDS - (time.time() - updated_at_s)),
+            "valid_for_seconds": ANNOTATED_FRAME_FRESH_SECONDS - age,
             "details": snapshot.get("details", []),
             **({"change_ratio": snapshot.get("change_ratio"), "hits": snapshot.get("hits")} if feature == "detect_door" else {}),
             **({

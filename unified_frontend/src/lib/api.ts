@@ -1,4 +1,5 @@
 import type { DepartmentId } from '@/auth/permissions'
+import { STATUS_ELAPSED_HEADER, type StatusRequestTiming } from './status-freshness'
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
 }
@@ -28,7 +29,7 @@ function notifyUnauthorized(response: Response) {
   }
 }
 
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+async function getResponse(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(`${API_PREFIX}${path}`, {
     ...init,
     method: 'GET',
@@ -43,7 +44,20 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`GET ${path} failed: ${response.status} ${response.statusText}`)
   }
 
+  return response
+}
+
+export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await getResponse(path, init)
   return response.json() as Promise<T>
+}
+
+export async function apiGetStatus<T>(path: string, signal: AbortSignal): Promise<{ value: T; timing: StatusRequestTiming }> {
+  const startedAt = performance.now()
+  const response = await getResponse(path, { signal, cache: 'no-store' })
+  const serverElapsed = response.headers.get(STATUS_ELAPSED_HEADER)
+  const value = await response.json() as T
+  return { value, timing: { startedAt, receivedAt: performance.now(), serverElapsed } }
 }
 
 export async function apiPost<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {

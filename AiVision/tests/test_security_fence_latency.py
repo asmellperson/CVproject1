@@ -17,6 +17,14 @@ FACE = {"bbox": [60.0, 30.0, 140.0, 110.0], "matched": True, "person_id": 123,
         "quality": {"size": 80.0, "sharpness": 100.0, "asymmetry": 0.0, "landmarks_valid": True}}
 
 
+class SampledLookup(Mock):
+    def __call__(self, camera_ids, *, on_sampled=None):
+        result = super().__call__(camera_ids)
+        if on_sampled is not None:
+            on_sampled()
+        return result
+
+
 @pytest.fixture
 def fence_modules(monkeypatch, tmp_path):
     for name, value in {
@@ -59,7 +67,7 @@ def make_consumer(fence_modules):
                    "sql_enable": True, "horn_enable": True, "horn_interval": 0.0}
             consumer.config_cache[camera] = cfg
             consumer.preview.configure(camera, cfg)
-        consumer.library = Mock(get_allowed_person_ids_by_camera=Mock(
+        consumer.library = Mock(get_allowed_person_ids_by_camera=SampledLookup(
             return_value={camera: set() for camera in range(1, count + 1)},
         ))
         consumer.running = True

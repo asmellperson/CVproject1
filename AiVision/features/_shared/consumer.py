@@ -56,6 +56,7 @@ _FRAME_CHANGE_SAMPLE_STEP = 4
 # 高斯模糊核。比较两帧之前先模糊，减少噪点导致的假变化
 _FRAME_CHANGE_BLUR_KERNEL = (5, 5)
 _CONSUMER_STOP_TIMEOUT_SECONDS = 5.0
+_CAMERA_ROUND_POLL_SECONDS = 0.05
 _INFERENCE_TIMEOUT_SECONDS = 0.8
 
 
@@ -99,6 +100,7 @@ class BaseFunctionConsumer(ABC):
         stop() 关闭推理投递、唤醒等待者，并等待结果路由与处理线程退出。
     """
     ROI_COLOR = (238, 211, 34)
+    wake_on_inference = False
 
     def __init__(
         self,
@@ -123,9 +125,11 @@ class BaseFunctionConsumer(ABC):
         self.latest_frame_times = latest_frame_times if latest_frame_times is not None else {}
         self.is_camera_active = is_camera_active
         self.runtime_alert_handler = runtime_alert_handler                # Runtime监控监控（两种告警处理：业务告警核系统运行异常）
+        self._camera_round_event = threading.Event() if self.wake_on_inference else None
         self.result_router = InferenceResultRouter(
             result_queue, self.feature_name,
             on_failure=lambda detail: self._notify_runtime_alert("推理结果路由异常", detail),
+            completion_event=self._camera_round_event,
         )
         self._lifecycle_lock = threading.Lock()
         # 只串行化注册和短时投递，等待结果不持锁；停止也通过此门控关闭投递。
@@ -206,6 +210,8 @@ class BaseFunctionConsumer(ABC):
         with self._lifecycle_lock:
             with self._inference_submission_lock:
                 self.running = False
+                if self._camera_round_event is not None:
+                    self._camera_round_event.set()
                 self.result_router.stop()
             if self._thread is not None:
                 self._thread.join(timeout=_CONSUMER_STOP_TIMEOUT_SECONDS)
@@ -345,6 +351,8 @@ class BaseFunctionConsumer(ABC):
         """
         while self.running:
             try:
+                if self._camera_round_event is not None:
+                    self._camera_round_event.clear()
                 self._before_camera_round()
                 # 遍历所有的摄像头
                 for cam_id in list(self.config_cache.keys()):
@@ -426,7 +434,10 @@ class BaseFunctionConsumer(ABC):
                         "after_process": finished_at,
                     })
 
-                time.sleep(0.05)
+                if self.running and self._camera_round_event is not None:
+                    self._camera_round_event.wait(_CAMERA_ROUND_POLL_SECONDS)
+                elif self.running:
+                    time.sleep(_CAMERA_ROUND_POLL_SECONDS)
             except Exception:
                 logger.exception(f"[{self.feature_name}] 主循环异常")
                 self._notify_runtime_alert("功能主循环异常", "Consumer 主循环捕获异常,已继续运行")

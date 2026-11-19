@@ -1,17 +1,37 @@
 """后台读取授权快照，避免数据库等待阻塞检测线程。"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from queue import Queue
 from threading import BoundedSemaphore, Lock, Thread
 import time
 from typing import Generic, TypeVar
 
+from AiVision.core.logger import logger
 
-Context = TypeVar("Context")
+
+Context = TypeVar("Context", bound=Sized)
 Value = TypeVar("Value")
-_slots: dict[str, BoundedSemaphore] = {}
-_slots_lock = Lock()
+# 查询期限包括工作线程调度、连接获取和 SQL 读取，不作为权限有效期。
+AUTHORIZATION_QUERY_TIMEOUT_SECONDS = 8.0
+AUTHORIZATION_FAILURE_RETRY_SECONDS = 1.0
+_SLOW_REFRESH_SECONDS = 2.0
+
+
+class _AuthorizationWorker:
+    def __init__(self, name: str):
+        self.slot = BoundedSemaphore()
+        self.jobs: Queue[Callable[[], None]] = Queue(maxsize=1)
+        Thread(target=self._run, name=f"{name}-authorization", daemon=True).start()
+
+    def _run(self):
+        while True:
+            self.jobs.get()()
+
+
+_workers: dict[str, _AuthorizationWorker] = {}
+_workers_lock = Lock()
 
 
 @dataclass(frozen=True)
@@ -20,53 +40,70 @@ class AuthorizationResult(Generic[Context, Value]):
     value: Value | None
     error: str | None
     completed_at: float
+    sampled_at: float | None
 
 
 @dataclass
 class _Lookup(Generic[Context, Value]):
     context: Context
+    submitted_at: float
     deadline: float
     future: Future[AuthorizationResult[Context, Value]]
+    timing_lock: Lock = field(default_factory=Lock)
+    started_at: float | None = None
+    sampled_at: float | None = None
     reported: bool = False
 
 
 class AuthorizationRefresh(Generic[Context, Value]):
     """每个功能仅保留一个物理查询；调用方用自身状态锁串行操作。"""
 
-    def __init__(self, name: str, *, timeout_seconds: float):
+    def __init__(self, name: str, *, snapshot_seconds: float,
+                 timeout_seconds: float = AUTHORIZATION_QUERY_TIMEOUT_SECONDS):
         self._name = name
+        self._snapshot_seconds = snapshot_seconds
         self._timeout_seconds = timeout_seconds
         self._lookup: _Lookup[Context, Value] | None = None
-        with _slots_lock:
-            self._slot = _slots.setdefault(name, BoundedSemaphore())
+        with _workers_lock:
+            worker = _workers.get(name)
+            if worker is None:
+                worker = _workers[name] = _AuthorizationWorker(name)
+            self._worker = worker
 
     @property
     def in_progress(self) -> bool:
         return self._lookup is not None
 
-    def submit(self, context: Context, lookup: Callable[[], Value]) -> bool:
+    def submit(self, context: Context, lookup: Callable[[Callable[[], None]], Value]) -> bool:
         """不等待数据库或已有任务，也不排队累积待查询请求。"""
-        if self._lookup is not None or not self._slot.acquire(blocking=False):
+        if self._lookup is not None or not self._worker.slot.acquire(blocking=False):
             return False
         future: Future[AuthorizationResult[Context, Value]] = Future()
-        self._lookup = _Lookup(context, time.monotonic() + self._timeout_seconds, future)
+        submitted_at = time.monotonic()
+        job = self._lookup = _Lookup(context, submitted_at, submitted_at + self._timeout_seconds, future)
+
+        def mark_sampled():
+            with job.timing_lock:
+                job.sampled_at = time.monotonic()
 
         def run():
+            with job.timing_lock:
+                job.started_at = time.monotonic()
+            value, error = None, None
             try:
-                value = lookup()
-                result = AuthorizationResult(context, value, None, time.monotonic())
+                if job.started_at >= job.deadline:
+                    error = "TimeoutError"
+                else:
+                    value = lookup(mark_sampled)
+                    if job.sampled_at is None:
+                        value, error = None, "MissingSnapshotTimestamp"
             except Exception as exc:
-                result = AuthorizationResult(context, None, type(exc).__name__, time.monotonic())
+                error = type(exc).__name__
             finally:
-                self._slot.release()
-            future.set_result(result)
+                self._worker.slot.release()
+            future.set_result(AuthorizationResult(context, value, error, time.monotonic(), job.sampled_at))
 
-        thread = Thread(target=run, name=f"{self._name}-authorization", daemon=True)
-        try:
-            thread.start()
-        except RuntimeError as exc:
-            self._slot.release()
-            future.set_result(AuthorizationResult(context, None, type(exc).__name__, time.monotonic()))
+        self._worker.jobs.put_nowait(run)
         return True
 
     def poll(self) -> AuthorizationResult[Context, Value] | None:
@@ -80,11 +117,38 @@ class AuthorizationRefresh(Generic[Context, Value]):
             self._lookup = None
         if lookup.reported:
             return None
-        now = time.monotonic() if result is None else result.completed_at
-        if now >= lookup.deadline:
+        with lookup.timing_lock:
+            started_at, sampled_at = lookup.started_at, lookup.sampled_at
+            now = time.monotonic()
+        observed_until = now if result is None else result.completed_at
+        if sampled_at is not None:
+            observed_until = sampled_at
+        if observed_until >= lookup.deadline:
+            result = AuthorizationResult(lookup.context, None, "TimeoutError", now, sampled_at)
+        elif sampled_at is not None and now >= sampled_at + self._snapshot_seconds:
+            # 成功读取后如果长期未被领取，也不能在发布时重启授权有效期。
+            result = AuthorizationResult(lookup.context, None, "ExpiredSnapshot", now, sampled_at)
+        if result is not None:
             lookup.reported = True
-            return AuthorizationResult(lookup.context, None, "TimeoutError", now)
+            self._log_result(lookup, result, now, started_at)
         return result
+
+    def _log_result(self, lookup, result, now: float, started_at: float | None):
+        queue_elapsed = (now if started_at is None else started_at) - lookup.submitted_at
+        read_end = result.sampled_at if result.sampled_at is not None else result.completed_at
+        read_elapsed = 0.0 if started_at is None else read_end - started_at
+        return_elapsed = 0.0 if result.sampled_at is None else now - result.sampled_at
+        message = (
+            f"[{self._name}] 授权刷新 status={result.error or 'ok'} scopes={len(lookup.context)} "
+            f"queue_ms={queue_elapsed * 1000:.1f} read_ms={read_elapsed * 1000:.1f} "
+            f"return_ms={return_elapsed * 1000:.1f}"
+        )
+        if result.error is not None:
+            logger.warning(message)
+        elif now - lookup.submitted_at >= _SLOW_REFRESH_SECONDS:
+            logger.info(message)
+        else:
+            logger.set_debug_message(self._name, message)
 
     def invalidate(self):
         """停启后不接收旧查询，仍等物理查询完成才释放名额。"""

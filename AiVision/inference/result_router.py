@@ -66,7 +66,8 @@ class InferenceResultRouter:
     调用方仍需在 finally 中 unregister()。
     """
 
-    def __init__(self, result_queue, feature_name: str, *, on_failure: Callable[[str], None] | None = None):
+    def __init__(self, result_queue, feature_name: str, *, on_failure: Callable[[str], None] | None = None,
+                 completion_event: threading.Event | None = None):
         """准备队列引用、锁和状态，初始状态为 stopped。
 
         Args:
@@ -75,11 +76,13 @@ class InferenceResultRouter:
             feature_name: 固定功能业务标识，例如 detect_human，必须与任务中的
                 function_name 一致。
             on_failure: 可选的读取线程故障回调，接收错误说明；默认不回调。
+            completion_event: 交付结果时唤醒使用流水线的消费线程。
                 回调在读取线程中、锁外执行，应避免阻塞或等待该线程自身退出。
         """
         self.result_queue = result_queue
         self.feature_name = feature_name
         self._on_failure = on_failure
+        self._completion_event = completion_event
         self._lock = threading.Lock()  # 保护请求表、交付结果、状态及计数。
         self._lifecycle_lock = threading.Lock()  # 串行启停，覆盖等待旧线程退出的阶段。
         self._stop_event = threading.Event()
@@ -242,13 +245,14 @@ class InferenceResultRouter:
         if self._pending.get(request_id) is pending:
             del self._pending[request_id]
 
-    @staticmethod
-    def _complete_locked(pending: PendingInference, result: dict) -> None:
+    def _complete_locked(self, pending: PendingInference, result: dict) -> None:
         """在请求锁内首次写入结果并唤醒等待者，后续完成尝试保持原结果。"""
         if pending.result is None:
             pending.result = result
             # 先写结果再发信号，使被唤醒的请求方看到完整的交付状态。
             pending.event.set()
+            if self._completion_event is not None:
+                self._completion_event.set()
 
     def _unavailable_result(self, identity: dict) -> dict:
         """在请求锁内按路由状态构造失败结果，保留原请求的身份字段。

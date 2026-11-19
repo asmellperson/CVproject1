@@ -1,4 +1,5 @@
 """平台和外部接口共用的围栏查询服务，调用方负责事业部授权。"""
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 import time
@@ -17,11 +18,14 @@ from .schema import FEATURE, STALE_SECONDS, FenceAlarm, FenceConfig, FenceHistor
 person_library = FaceLibraryService(authorization_model=FencePersonAuthorization, authorization_scope="camera_id")
 
 
-def camera_status(camera: dict, orchestrator) -> FenceStatus:
-    from AiVision.features.registry import get_spec
+def camera_status(
+    camera: dict, orchestrator, *, config: FenceConfig | None = None, mark_sample: Callable[[], None] | None = None,
+) -> FenceStatus:
+    if config is None:
+        from AiVision.features.registry import get_spec
 
-    payload = feature_config_manager.get_config(get_spec(FEATURE), camera["camera_id"])
-    config = FenceConfig.model_validate(payload["config"]) if payload else FenceConfig()
+        payload = feature_config_manager.get_config(get_spec(FEATURE), camera["camera_id"])
+        config = FenceConfig.model_validate(payload["config"]) if payload else FenceConfig()
     consumer = orchestrator.consumers.get(FEATURE) if orchestrator is not None else None
     online = bool(orchestrator is not None and camera["shm_name"] in orchestrator.camera_runtime_manager.list_running())
     snapshot = consumer.get_monitor_status(camera["shm_name"]) if consumer is not None else None
@@ -38,6 +42,8 @@ def camera_status(camera: dict, orchestrator) -> FenceStatus:
         result.state = "offline"
     elif snapshot is not None:
         result.updated_at = datetime.fromtimestamp(snapshot["updated_at_s"], timezone.utc).isoformat()
+        if mark_sample is not None:
+            mark_sample()
         age = time.time() - snapshot["updated_at_s"]
         if not 0 <= age <= STALE_SECONDS or snapshot["mode"] != mode:
             result.state = "stale"

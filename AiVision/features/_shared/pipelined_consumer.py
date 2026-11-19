@@ -16,13 +16,13 @@ class CameraSample:
     region: np.ndarray
     config: dict
     captured_at: float
-    observed_at: float
     request: SubmittedInference | None
 
 
 class PipelinedConsumer(BaseFunctionConsumer):
     inference_model: str
     max_inflight = 4
+    wake_on_inference = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,34 +60,43 @@ class PipelinedConsumer(BaseFunctionConsumer):
             self._sample_order = deque(camera_id for camera_id in self._sample_order if camera_id in camera_ids)
             queued_ids = set(self._sample_order)
             self._sample_order.extend(camera_id for camera_id in self.config_cache if camera_id not in queued_ids)
-            for _ in range(len(self._sample_order)):
-                if not self.running or len(self._samples) >= self.max_inflight:
-                    break
-                camera_id = self._sample_order[0]
-                self._sample_order.rotate(-1)
-                config = self.config_cache[camera_id]
-                camera_key = config["shm_name"]
-                if (camera_id in self._samples or not config.get("camera_enable", True)
-                        or not self.is_camera_active(camera_key) or not self._can_sample(camera_id, config)):
+            self._fill_samples()
+
+    def _after_process(self, camera_id, result):
+        # 结果完成后立即补投下一路，避免等待一轮的剩余摄像头或固定轮询休眠。
+        with self._camera_state_lock:
+            self._fill_samples()
+
+    def _fill_samples(self) -> None:
+        for _ in range(len(self._sample_order)):
+            if not self.running or len(self._samples) >= self.max_inflight:
+                break
+            camera_id = self._sample_order[0]
+            self._sample_order.rotate(-1)
+            config = self.config_cache.get(camera_id)
+            if config is None or camera_id in self._samples or not config.get("camera_enable", True):
+                continue
+            camera_key = config["shm_name"]
+            if not self.is_camera_active(camera_key) or not self._can_sample(camera_id, config):
+                continue
+            interval = self._processing_interval_seconds(camera_id, config)
+            if interval is None:
+                continue
+            frame, captured_at = super()._processing_frame(camera_id, camera_key)
+            if frame is None or not 0 <= time.time() - captured_at <= ANNOTATED_FRAME_FRESH_SECONDS:
+                continue
+            observed_at = time.monotonic()
+            previous = self._last_samples.get(camera_id)
+            if previous is not None:
+                previous_frame, submitted_at = previous
+                if frame is previous_frame() or observed_at - submitted_at < interval:
                     continue
-                interval = self._processing_interval_seconds(camera_id, config)
-                if interval is None:
-                    continue
-                frame, captured_at = super()._processing_frame(camera_id, camera_key)
-                observed_at = time.monotonic()
-                if frame is None or wall_now - captured_at > ANNOTATED_FRAME_FRESH_SECONDS:
-                    continue
-                previous = self._last_samples.get(camera_id)
-                if previous is not None:
-                    previous_frame, submitted_at = previous
-                    if frame is previous_frame() or observed_at - submitted_at < interval:
-                        continue
-                region = self._inference_region(camera_id, frame)
-                parameters = self._inference_parameters(camera_id, config)
-                request = (self.submit_inference(camera_id, self.inference_model, region, parameters)
-                           if parameters is not None else None)
-                self._samples[camera_id] = CameraSample(frame, region, config, captured_at, observed_at, request)
-                self._last_samples[camera_id] = (ref(frame), observed_at)
+            region = self._inference_region(camera_id, frame)
+            parameters = self._inference_parameters(camera_id, config)
+            request = (self.submit_inference(camera_id, self.inference_model, region, parameters)
+                       if parameters is not None else None)
+            self._samples[camera_id] = CameraSample(frame, region, config, captured_at, request)
+            self._last_samples[camera_id] = (ref(frame), observed_at)
 
     def _invalidate_sample(self, camera_id: int) -> None:
         sample = self._samples.pop(camera_id, None)

@@ -5,8 +5,7 @@ import time
 
 import cv2
 
-from AiVision.core.logger import logger
-from AiVision.features._shared.authorization_refresh import AuthorizationRefresh
+from AiVision.features._shared.authorization_refresh import AUTHORIZATION_FAILURE_RETRY_SECONDS, AuthorizationRefresh
 from AiVision.features._shared.pipelined_consumer import PipelinedConsumer
 from AiVision.features.face_recognition.library.constants import (
     AUTHORIZATION_REFRESH_SECONDS, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
@@ -34,7 +33,7 @@ class FaceRecognitionConsumer(PipelinedConsumer):
         self.library = FaceLibraryService()
         self._authorizations: dict[str, tuple[float, set[int]]] = {}
         self._authorization_refresh = AuthorizationRefresh(
-            self.feature_name, timeout_seconds=AUTHORIZATION_REFRESH_SECONDS,
+            self.feature_name, snapshot_seconds=AUTHORIZATION_REFRESH_SECONDS,
         )
         self._next_authorization_attempt = 0.0
 
@@ -81,10 +80,12 @@ class FaceRecognitionConsumer(PipelinedConsumer):
             now = time.monotonic()
             result = self._authorization_refresh.poll()
             if result is not None:
-                if result.error is not None:
-                    logger.warning(f"[{self.feature_name}] 批量读取通行授权失败 error={result.error}")
+                if result.value is None or result.sampled_at is None:
+                    for department in result.context:
+                        self._authorizations.pop(department, None)
+                    self._next_authorization_attempt = now + AUTHORIZATION_FAILURE_RETRY_SECONDS
                 else:
-                    expires_at = result.completed_at + AUTHORIZATION_REFRESH_SECONDS
+                    expires_at = result.sampled_at + AUTHORIZATION_REFRESH_SECONDS
                     self._authorizations.update({
                         department: (expires_at, ids) for department, ids in result.value.items()
                     })
@@ -96,10 +97,10 @@ class FaceRecognitionConsumer(PipelinedConsumer):
                     and self._authorizations.get(cfg["department"], (0.0, ()))[0]
                     <= now + _AUTHORIZATION_REFRESH_LEAD_SECONDS
                 })
-                if due and self._authorization_refresh.submit(
-                    tuple(due), lambda: self.library.get_allowed_person_ids_by_department(due),
-                ):
-                    self._next_authorization_attempt = now + _AUTHORIZATION_REFRESH_LEAD_SECONDS
+                if due:
+                    self._authorization_refresh.submit(
+                        tuple(due), lambda mark: self.library.get_allowed_person_ids_by_department(due, on_sampled=mark),
+                    )
         super()._before_camera_round()
 
     def _process(self, roi, camera_id):
