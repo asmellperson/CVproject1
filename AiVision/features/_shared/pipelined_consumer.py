@@ -6,6 +6,9 @@ from weakref import ReferenceType, ref
 
 import numpy as np
 
+from AiVision.core.settings import settings
+from AiVision.inference.contracts import INFERENCE_STATUS_DROPPED
+
 from .consumer import BaseFunctionConsumer, SubmittedInference
 from .defaults import ANNOTATED_FRAME_FRESH_SECONDS
 
@@ -29,6 +32,7 @@ class PipelinedConsumer(BaseFunctionConsumer):
         self._samples: dict[int, CameraSample] = {}
         self._last_samples: dict[int, tuple[ReferenceType[np.ndarray], float]] = {}
         self._sample_order: deque[int] = deque()
+        self._queue_retry_at: dict[int, float] = {}
 
     def _inference_parameters(self, camera_id: int, config: dict) -> dict | None:
         """返回输入参数，未配置的摄像头可以只发布等待配置状态。"""
@@ -76,6 +80,8 @@ class PipelinedConsumer(BaseFunctionConsumer):
             config = self.config_cache.get(camera_id)
             if config is None or camera_id in self._samples or not config.get("camera_enable", True):
                 continue
+            if time.monotonic() < self._queue_retry_at.get(camera_id, 0.0):
+                continue
             camera_key = config["shm_name"]
             if not self.is_camera_active(camera_key) or not self._can_sample(camera_id, config):
                 continue
@@ -95,11 +101,18 @@ class PipelinedConsumer(BaseFunctionConsumer):
             parameters = self._inference_parameters(camera_id, config)
             request = (self.submit_inference(camera_id, self.inference_model, region, parameters)
                        if parameters is not None else None)
+            if request is not None and request.result is not None and request.result.get("status") == INFERENCE_STATUS_DROPPED:
+                # 任务尚未进入 Worker，不把瞬时拥塞写成一次模型失败；下一轮改投最新帧。
+                self.cancel_inference(request)
+                self._queue_retry_at[camera_id] = observed_at + settings.runtime.inference_queue_submit_wait_seconds
+                continue
+            self._queue_retry_at.pop(camera_id, None)
             self._samples[camera_id] = CameraSample(frame, region, config, captured_at, request)
             self._last_samples[camera_id] = (ref(frame), observed_at)
 
     def _invalidate_sample(self, camera_id: int) -> None:
         sample = self._samples.pop(camera_id, None)
+        self._queue_retry_at.pop(camera_id, None)
         if sample is not None and sample.request is not None:
             self.cancel_inference(sample.request)
         self._last_samples.pop(camera_id, None)
@@ -121,6 +134,7 @@ class PipelinedConsumer(BaseFunctionConsumer):
                 self._invalidate_sample(camera_id)
             self._last_samples.clear()
             self._sample_order.clear()
+            self._queue_retry_at.clear()
 
     def _processing_frame(self, camera_id: int, camera_key: str) -> tuple[np.ndarray | None, float]:
         sample = self._samples.get(camera_id)

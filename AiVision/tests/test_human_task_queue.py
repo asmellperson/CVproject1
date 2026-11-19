@@ -7,7 +7,12 @@ from unittest.mock import Mock
 import pytest
 
 from AiVision.inference.base_worker import BaseModelWorker
-from AiVision.inference.human_task_queue import HUMAN_MODEL_NAME, HumanTaskQueue
+from AiVision.inference.human_task_queue import (
+    DEFAULT_ORDINARY_CAPACITY,
+    HUMAN_MODEL_NAME,
+    TAILGATING_CAPACITY,
+    HumanTaskQueue,
+)
 
 
 _ORDINARY_MODELS = (HUMAN_MODEL_NAME, "yolo_phone", "yolo_guard_person_phone", "yolo_vehicle")
@@ -36,13 +41,13 @@ def test_tailgating_uses_reserved_slots_and_reaches_fourth_camera_under_saturati
     # 开始时上一项闯闸还在执行，此时补齐两类队列，覆盖最后一路的最坏轮转位置。
     human.put(task("tailgating", 99))
     assert worker._next_task()["camera_id"] == 99
-    for camera_id in range(6):
+    for camera_id in range(DEFAULT_ORDINARY_CAPACITY):
         human.put(task("detect_logistics_single_person", camera_id))
     with pytest.raises(Full):
         human.put(task("detect_intrusion", 10), block=False)
     for name in _ORDINARY_MODELS[1:]:
         queues[name].put(task(f"regular_{name}", 0))
-    for camera_id in range(1, 5):
+    for camera_id in range(1, TAILGATING_CAPACITY + 1):
         human.put(task("tailgating", camera_id), block=False)
     with pytest.raises(Full):
         human.put(task("tailgating", 5), block=False)
@@ -62,6 +67,31 @@ def test_tailgating_uses_reserved_slots_and_reaches_fourth_camera_under_saturati
     assert [result["request_id"] for _, result in tail_results] == [f"tailgating:{i}" for i in range(1, 5)]
     assert {result["model_name"] for _, result in tail_results} == {HUMAN_MODEL_NAME}
     assert ordinary_models == list(_ORDINARY_MODELS) * 2
+
+
+def test_runtime_manager_uses_configured_human_ordinary_capacity(monkeypatch, tmp_path):
+    for key, value in {
+        "MYSQL_DB_URL": "127.0.0.1", "MYSQL_DB_USER": "queue_test",
+        "MYSQL_DB_PASSWORD": "queue_test", "MYSQL_DB_NAME": "queue_test",
+        "DATA_PATH": str(tmp_path), "AUTH_SECRET": "human-queue-capacity-test-key",
+    }.items():
+        monkeypatch.setenv(key, value)
+    from AiVision.inference import runtime_manager
+
+    monkeypatch.setattr(runtime_manager.settings.runtime, "human_ordinary_queue_capacity", 2)
+    manager = runtime_manager.InferenceRuntimeManager()
+    manager.initialize_queues()
+    human = manager.infer_queues[HUMAN_MODEL_NAME]
+    assert human._ordinary_capacity == 2
+    human.put(task("detect_logistics_single_person", 1), block=False)
+    human.put(task("detect_logistics_single_person", 2), block=False)
+    with pytest.raises(Full):
+        human.put(task("detect_logistics_single_person", 3), block=False)
+    for camera_id in range(TAILGATING_CAPACITY):
+        human.put(task("tailgating", camera_id), block=False)
+    with pytest.raises(Full):
+        human.put(task("tailgating", TAILGATING_CAPACITY), block=False)
+    manager.stop_all()
 
 
 def test_idle_lane_does_not_block_work_and_next_tailgating_is_not_starved():

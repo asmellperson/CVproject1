@@ -48,6 +48,7 @@ class FenceConsumer(BaseFunctionConsumer):
         self._pending_inferences: dict[int, FenceInference] = {}
         self._submission_order: deque[int] = deque()
         self._submitted_at: dict[int, float] = {}
+        self._queue_retry_at: dict[int, float] = {}
 
     def _load_initial_configs(self):
         super()._load_initial_configs()
@@ -64,6 +65,7 @@ class FenceConsumer(BaseFunctionConsumer):
             self._authorization_refresh_at.clear()
             self._authorization_tokens.clear()
             self._submission_order.clear()
+            self._queue_retry_at.clear()
 
     def _cancel_pending(self, camera_id):
         pending = self._pending_inferences.pop(camera_id, None)
@@ -75,6 +77,7 @@ class FenceConsumer(BaseFunctionConsumer):
     def update_config(self, camera_id):
         with self._camera_state_lock:
             self._cancel_pending(camera_id)
+            self._queue_retry_at.pop(camera_id, None)
             self._clear_camera_authorization(camera_id)
             super().update_config(camera_id)
             if camera_id not in self.config_cache:
@@ -85,6 +88,7 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _clear_camera_state(self, camera_id, shm_name):
         self._cancel_pending(camera_id)
+        self._queue_retry_at.pop(camera_id, None)
         self._clear_camera_authorization(camera_id)
         self._submitted_at.pop(camera_id, None)
         super()._clear_camera_state(camera_id, shm_name)
@@ -115,6 +119,7 @@ class FenceConsumer(BaseFunctionConsumer):
     def update_status(self, camera_id, enabled):
         with self._camera_state_lock:
             self._cancel_pending(camera_id)
+            self._queue_retry_at.pop(camera_id, None)
             self._clear_camera_authorization(camera_id)
             key = self.config_cache.get(camera_id, {}).get("shm_name")
             super().update_status(camera_id, enabled)
@@ -181,6 +186,8 @@ class FenceConsumer(BaseFunctionConsumer):
                 cfg = self.config_cache[camera_id]
                 if people_inflight >= limit or not cfg.get("enable", True) or not cfg.get("camera_enable", True):
                     continue
+                if time.monotonic() < self._queue_retry_at.get(camera_id, 0.0):
+                    continue
                 if not self.is_camera_active(cfg["shm_name"]):
                     continue
                 frame = self.latest_frames.get(cfg["shm_name"])
@@ -193,6 +200,15 @@ class FenceConsumer(BaseFunctionConsumer):
                 mode = current_mode(value, now)
                 observed_at = time.monotonic()
                 people = self.submit_inference(camera_id, "yolo_human", frame, {"conf": cfg["threshold"]})
+                if people.result is not None and people.result.get("status") == "dropped":
+                    # 队列短暂拥塞时不发布“人体检测不可用”，下一轮改投最新帧。
+                    self.cancel_inference(people)
+                    self._queue_retry_at[camera_id] = (
+                        observed_at + settings.runtime.inference_queue_submit_wait_seconds
+                    )
+                    next_sample = index + 1
+                    continue
+                self._queue_retry_at.pop(camera_id, None)
                 pending = FenceInference(frame, cfg, sampled_at, observed_at, mode, people)
                 self._pending_inferences[camera_id] = pending
                 people_inflight += 1

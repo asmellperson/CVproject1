@@ -1,5 +1,5 @@
 """多路在线检测在请求与原图之间保持绑定，慢路不会阻塞其他摄像头。"""
-from queue import Queue
+from queue import Full, Queue
 from threading import Event
 import time
 from unittest.mock import Mock
@@ -126,6 +126,38 @@ def test_pipeline_rotates_and_invalidates_requests_on_configuration_change(consu
         consumer._process(sample.region, 2)
         consumer._before_camera_round()
         assert submitted.get_nowait()["camera_id"] == 6
+    finally:
+        consumer.stop()
+
+
+def test_pipeline_retries_a_dropped_input_without_publishing_model_failure(consumer_factory):
+    from AiVision.core.settings import settings
+
+    class FullQueue:
+        timeout = None
+
+        def put(self, task, timeout):
+            self.timeout = timeout
+            raise Full
+
+    consumer, _, submitted, _, _, _ = consumer_factory("tailgating", camera_count=1)
+    consumer._load_initial_configs()
+    consumer.result_router.start()
+    consumer.running = True
+    full = FullQueue()
+    consumer.infer_dict["yolo_human"] = full
+    try:
+        consumer._before_camera_round()
+        assert not consumer._samples
+        assert consumer.result_router.snapshot()["pending_count"] == 0
+        assert full.timeout == settings.runtime.inference_queue_submit_wait_seconds
+        assert consumer._queue_retry_at[1] > time.monotonic()
+
+        consumer.infer_dict["yolo_human"] = submitted
+        consumer._queue_retry_at[1] = time.monotonic() - 1
+        consumer._before_camera_round()
+        assert submitted.get_nowait()["camera_id"] == 1
+        assert 1 in consumer._samples
     finally:
         consumer.stop()
 

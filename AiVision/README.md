@@ -442,7 +442,7 @@ yolo_human 输入队列 ─┐
 
 ### 6.3 任务和结果协议
 
-- 每个逻辑模型的输入容量和每个功能的结果容量均为 `10`。`yolo_human` 保留 4 个闯闸槽和 6 个普通槽。两侧都有任务时，共享 Worker 每处理最多两项普通任务就处理一项闯闸任务。普通逻辑模型继续轮转，空闲一侧让出处理机会。共享 Worker 对结果队列即时投递，队列满时由请求方按既有超时处理。
+- 每个非共享逻辑模型的输入容量和每个功能的结果容量均为 `10`。`yolo_human` 保留 4 个闯闸槽和默认 16 个普通槽，普通槽可由 `HUMAN_ORDINARY_QUEUE_CAPACITY` 调整。输入队列短暂满载时，投递方在 `INFERENCE_QUEUE_SUBMIT_WAIT_SECONDS`（默认 0.1 秒）内等待 Worker 取件；流水线任务仍满载时撤销本次投递，下一轮改投最新帧，不把未入队任务计为模型推理失败。两侧都有任务时，共享 Worker 每处理最多两项普通任务就处理一项闯闸任务。普通逻辑模型继续轮转，空闲一侧让出处理机会。共享 Worker 对结果队列即时投递，队列满时由请求方按既有超时处理。
 - Worker 轮询自己负责的逻辑模型队列，加载成功并设置 ready 标志后才算运行就绪。
 - Consumer 按 `request_id`、摄像头、功能和 ROI 标识匹配结果，避免迟到结果被用于下一次请求。
 - 通用请求等待预算为 `0.8` 秒，从投递准备开始计算；具体调用可以覆盖，例如入侵检测使用 `1.0` 秒。提前投递的请求只等待各自剩余时间，不逐路重新累积完整超时。
@@ -1216,6 +1216,8 @@ bash scripts/go2rtc_preview.sh status
 | `SECURITY_VLM_API_KEY` | 内部福达AI接口需要认证时配置 |
 | `QWEN_MAX_CONCURRENT_REQUESTS` | 安检与助手共享的福达AI请求上限，默认 `3` |
 | `SECURITY_INSPECTION_INFLIGHT` | 安检人体检测的在途请求上限，默认 `4`，范围 `1～4` |
+| `INFERENCE_QUEUE_SUBMIT_WAIT_SECONDS` | 模型输入队列短暂满载时的提交等待时间，默认 `0.1` 秒，范围 `0.01～1` 秒 |
+| `HUMAN_ORDINARY_QUEUE_CAPACITY` | 非闯闸 `yolo_human` 普通队列容量，默认 `16`，范围 `4～64`；非法闯闸另保留 4 个位置 |
 | `ASSISTANT_WORKERS` / `ASSISTANT_QUEUE_CAPACITY` | 助手工作线程 / 排队容量，默认 `1` / `16` |
 | `ASSISTANT_MAX_ROUNDS` / `ASSISTANT_MAX_CHANGES` | 单次任务的工具轮数 / 资源操作数量上限，默认 `24` / `100` |
 | `ASSISTANT_TASK_TIMEOUT_SEC` | 后台开始执行后规划与全部专家共用的整轮期限，默认 `300` 秒，范围 `10～1800` 秒 |

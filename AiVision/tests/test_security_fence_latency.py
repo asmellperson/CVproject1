@@ -1,7 +1,7 @@
 """围栏流水线与喇叭的时序回归，不连接数据库、模型或真实设备。"""
 from concurrent.futures import Future
 from datetime import datetime, timezone
-from queue import Queue
+from queue import Full, Queue
 from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -141,6 +141,26 @@ def test_parallel_submission_is_bounded_and_round_robin(make_consumer, fence_mod
     process(consumer, 3)
     consumer._before_camera_round()
     assert set(consumer._pending_inferences) == {1, 4}
+
+
+def test_dropped_fence_human_input_is_retried_without_publishing_unavailable(make_consumer):
+    class FullQueue:
+        def put(self, task, timeout):
+            raise Full
+
+    consumer = make_consumer()
+    consumer.infer_dict["yolo_human"] = FullQueue()
+    consumer._before_camera_round()
+    assert not consumer._pending_inferences
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+    assert consumer._queue_retry_at[1] > time.monotonic()
+
+    accepted = Queue()
+    consumer.infer_dict["yolo_human"] = accepted
+    consumer._queue_retry_at[1] = time.monotonic() - 1
+    consumer._before_camera_round()
+    assert accepted.get_nowait()["camera_id"] == 1
+    assert 1 in consumer._pending_inferences
 
 
 def test_slow_face_does_not_block_another_camera_in_real_loop(make_consumer):

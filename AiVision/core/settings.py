@@ -208,6 +208,14 @@ class RuntimeSettings(BaseSettings):
     qwen_max_concurrent_requests: int = Field(3, ge=1, le=16, alias="QWEN_MAX_CONCURRENT_REQUESTS")
     # 为其他功能保留共享模型队列空间，安检最多提前投递四路。
     security_inspection_inflight: int = Field(4, ge=1, le=4, alias="SECURITY_INSPECTION_INFLIGHT")
+    # 输入队列刚满时短暂等待 Worker 取件，避免 20ms 瞬时拥塞直接丢弃当前帧。
+    inference_queue_submit_wait_seconds: float = Field(
+        0.1, ge=0.01, le=1.0, alias="INFERENCE_QUEUE_SUBMIT_WAIT_SECONDS",
+    )
+    # 非闯闸的人体任务共享这一普通通道，闯闸仍有独立保留通道。
+    human_ordinary_queue_capacity: int = Field(
+        16, ge=4, le=64, alias="HUMAN_ORDINARY_QUEUE_CAPACITY",
+    )
     assistant_workers: int = Field(1, ge=1, le=4, alias="ASSISTANT_WORKERS")
     assistant_queue_capacity: int = Field(16, ge=1, le=64, alias="ASSISTANT_QUEUE_CAPACITY")
     assistant_max_rounds: int = Field(24, ge=1, le=48, alias="ASSISTANT_MAX_ROUNDS")

@@ -881,7 +881,13 @@ class BaseFunctionConsumer(ABC):
                         try:
                             # 必须先注册再投递，结果可能在 put 返回前到达。
                             task["submitted_at_monotonic"] = time.monotonic()
-                            self.infer_dict[model_name].put(task, timeout=0.02)
+                            # 瞬时并发会短暂填满多进程队列。只在本次请求剩余时间内
+                            # 进行有界等待，避免任务尚未进入 Worker 就直接被丢弃。
+                            queue_wait = min(
+                                settings.runtime.inference_queue_submit_wait_seconds,
+                                max(0.0, request.deadline_at - time.monotonic()),
+                            )
+                            self.infer_dict[model_name].put(task, timeout=queue_wait)
                         except _q.Full:
                             request.result = build_inference_result(
                                 task, status=INFERENCE_STATUS_DROPPED,

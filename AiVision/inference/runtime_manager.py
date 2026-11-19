@@ -75,7 +75,9 @@ class InferenceRuntimeManager:
         for name in MODEL_SPECS:
             if name not in self.infer_queues:
                 self.infer_queues[name] = (
-                    HumanTaskQueue() if name == HUMAN_MODEL_NAME else Queue(maxsize=INFERENCE_INPUT_CAPACITY)
+                    HumanTaskQueue(
+                        ordinary_capacity=settings.runtime.human_ordinary_queue_capacity,
+                    ) if name == HUMAN_MODEL_NAME else Queue(maxsize=INFERENCE_INPUT_CAPACITY)
                 )
         # 一个 feature 一个结果队列
         for fname in all_specs():
