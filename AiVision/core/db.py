@@ -30,8 +30,10 @@ def get_engine():
     连接池配置说明:
         pool_size=20      : 保持的常驻连接数，适配中等并发推理场景。
         max_overflow=10   : 超出 pool_size 后最多临时扩展的连接数。
+        pool_timeout      : 连接池用尽时等待的最长秒数。
         pool_recycle=3600 : 连接存活超 1 小时后强制回收，防止 MySQL 的 wait_timeout 断连。
         pool_pre_ping=True: 取连接前发送 ping，自动剔除已失效的连接。
+        connect_args      : 驱动的建连、读取和写入超时，防止底层 socket 无限等待。
 
     auto_create:
         settings.db.auto_create 为 True 时，在创建引擎前先确保数据库存在
@@ -44,10 +46,17 @@ def get_engine():
             _ensure_database_exists()  # 库不存在时自动 CREATE DATABASE
         _engine = create_engine(
             settings.db.sqlalchemy_url,          # mysql+pymysql://user:password@host:3306/database?charset=utf8mb4
-            pool_size=20, 
+            pool_size=20,
             max_overflow=10,
+            # 连接池耗尽、建连或服务端迟迟不回包时必须让调用方恢复，不能仅依赖上层逻辑计时。
+            pool_timeout=settings.db.pool_timeout_seconds,
             pool_recycle=3600,
             pool_pre_ping=True,
+            connect_args={
+                "connect_timeout": settings.db.connect_timeout_seconds,
+                "read_timeout": settings.db.read_timeout_seconds,
+                "write_timeout": settings.db.write_timeout_seconds,
+            },
             echo=False,  # 生产环境关闭 SQL 日志，调试时可临时改为 True
         )
         logger.info(f"[DB] 已连接到 {settings.db.name}@{settings.db.url}")
@@ -128,8 +137,18 @@ def _ensure_database_exists():
         f"mysql+pymysql://{settings.db.user}:{settings.db.password}"
         f"@{settings.db.url}:{settings.db.port}?charset={charset}"
     )
-    # 临时engine
-    temp_engine = create_engine(server_url, echo=False)
+    # 建库阶段同样可能遇到网络或数据库故障，不能绕过正式 Engine 的物理超时约束。
+    temp_engine = create_engine(
+        server_url,
+        pool_timeout=settings.db.pool_timeout_seconds,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": settings.db.connect_timeout_seconds,
+            "read_timeout": settings.db.read_timeout_seconds,
+            "write_timeout": settings.db.write_timeout_seconds,
+        },
+        echo=False,
+    )
     try:
         # 检查数据库是否存在，不存在就创建
         with temp_engine.connect() as conn:

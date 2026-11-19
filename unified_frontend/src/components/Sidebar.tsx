@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
-import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
-import { DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, hasPageAccess, type DepartmentId } from '@/auth/permissions'
+import { type NavItem } from '@/lib/nav'
+import { type DepartmentId } from '@/auth/permissions'
+import { buildSidebarNavGroups } from '@/lib/sidebar-nav-groups'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
@@ -538,19 +539,6 @@ function itemTone(itemId: string): NavTone {
   if (itemId === 'user-management') return 'teal'
   if (itemId === 'access-audit') return 'orange'
   return 'blue'
-}
-
-export function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0]): NavGroup[] {
-  const visibleGroups = filterNavGroupsByPermission(user, navGroups)
-  return visibleGroups.map((group) => group.id === 'modules' ? {
-    ...group,
-    items: [],
-    // 功能必须在当前事业部分配，不能借用账号所属其他事业部的权限。
-    children: getAccessibleDepartments(user).map((department) => ({
-      id: department, department, label: DEPARTMENT_LABELS[department],
-      items: group.items.filter((item) => hasPageAccess(user, item.id, department)),
-    })).filter((child) => child.items.length > 0),
-  } : group)
 }
 
 function SidebarNavButton({

@@ -35,6 +35,7 @@ camera的跨进程共享对象：
 """
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Empty
 import threading
 import time
 from typing import Callable
@@ -418,13 +419,22 @@ class CameraRuntimeManager:
             self._start_one(shm_name, cfg, active_index, frame_seq)
 
     def _drain_runtime_events(self):
-        """接收端 """
+        """读取采集子进程的异常事件；仅队列为空属于正常结束条件。"""
         while True:
             try:
                 event = self._runtime_event_queue.get_nowait()
-            except Exception:
+            except Empty:
+                break
+            except Exception as exc:
+                # Manager 队列断连等异常不能伪装成“暂无事件”，否则摄像头故障会没有可追溯日志。
+                logger.exception(
+                    f"[CameraRuntimeManager] 读取摄像头运行事件失败 error_type={type(exc).__name__}"
+                )
                 break
 
+            if not isinstance(event, dict):
+                logger.warning("[CameraRuntimeManager] 忽略格式无效的摄像头运行事件")
+                continue
             shm_name = str(event.get("shm_name") or "")
             if not shm_name:
                 continue

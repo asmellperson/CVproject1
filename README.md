@@ -337,7 +337,7 @@ cd unified_frontend
 npm ci
 ```
 
-随后填写真实数据库连接、可写 `DATA_PATH` 和模型路径。`cold_start.env` 仅用于覆盖运行环境探测等脚本设置；模板占位值不能直接用于部署。
+随后填写真实数据库连接、可写 `DATA_PATH` 和模型路径。数据库连接池等待、建连、读取和写入超时可在 `AiVision/.env` 通过 `MYSQL_DB_POOL_TIMEOUT_SECONDS`、`MYSQL_DB_CONNECT_TIMEOUT_SECONDS`、`MYSQL_DB_READ_TIMEOUT_SECONDS`、`MYSQL_DB_WRITE_TIMEOUT_SECONDS` 调整，默认均为 8 秒。`cold_start.env` 仅用于覆盖运行环境探测等脚本设置；模板占位值不能直接用于部署。
 
 已有数据库的喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备事业部归属、SIP 配置列和音频表，再启动服务。工具支持为明确指定地址的旧设备分配事业部，参数见 [后端数据迁移说明](AiVision/README.md#103-数据迁移边界)。空库由正常启动流程建表。
 

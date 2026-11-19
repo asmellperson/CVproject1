@@ -34,6 +34,11 @@ class DatabaseSettings(BaseSettings):
     password: str     = Field(...,        alias="MYSQL_DB_PASSWORD")  # 数据库密码
     name: str         = Field(...,        alias="MYSQL_DB_NAME")      # 数据库名
     charset: str      = Field("utf8mb4",  alias="MYSQL_DB_CHARSET")   # 字符集，默认utf8mb4，可以支持中文、Emoji、Unicode
+    # 连接池等待、建连和 socket 读写均需有限时；业务层的逻辑超时不能中断被驱动卡住的线程。
+    pool_timeout_seconds: int = Field(8, alias="MYSQL_DB_POOL_TIMEOUT_SECONDS", ge=1, le=60)
+    connect_timeout_seconds: int = Field(8, alias="MYSQL_DB_CONNECT_TIMEOUT_SECONDS", ge=1, le=60)
+    read_timeout_seconds: int = Field(8, alias="MYSQL_DB_READ_TIMEOUT_SECONDS", ge=1, le=60)
+    write_timeout_seconds: int = Field(8, alias="MYSQL_DB_WRITE_TIMEOUT_SECONDS", ge=1, le=60)
 
     
     auto_create: bool = Field(False,      alias="AUTO_CREATE_DB")     # 如果数据库不存在，不要自动创建

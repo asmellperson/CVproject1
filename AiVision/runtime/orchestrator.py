@@ -257,8 +257,9 @@ class Orchestrator:
         # 4、停止告警视频记录模块
         try:
             alarm_evidence_recorder.stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 继续关闭其余资源，但必须保留取证线程未退出的证据，避免重启后遗留任务无从排查。
+            logger.warning(f"[Orchestrator] 停止告警取证运行时失败: {exc}")
         # 5、停止告警记录写入模块
         try:
             violation_writer.stop()
@@ -267,8 +268,9 @@ class Orchestrator:
         # 6、停止帧读取
         try:
             frame_reader_registry.stop_all()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 后续仍要尝试回收采集进程；读帧线程异常不可静默，否则共享内存残留没有日志线索。
+            logger.warning(f"[Orchestrator] 停止帧读取器失败: {exc}")
         # 7、停止摄像头采集进程
         try:
             self.camera_runtime_manager.stop_all()

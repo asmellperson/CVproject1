@@ -1095,7 +1095,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 最新帧、跟踪、计时和冷却 | 共享内存或主进程内存 | 运行状态，重启后重新建立 |
 | 逻辑模型路径 | 本机 YAML | 不读写旧 `ai_model` 表 |
 
-`core/db.py` 提供 SQLAlchemy Base、连接池、Session 和事务上下文。常驻池大小 `20`，允许临时额外连接 `10`，启用连接预检查。`core/schema.py` 只读核对实际表结构；CHECK 比较保留字符串值，并识别 MySQL 反射添加的 `_utf8mb4` 字符集前缀，实际约束差异仍阻止启动。`core/cache.py` 缓存摄像头和功能配置，仍直接依赖这些业务模块。
+`core/db.py` 提供 SQLAlchemy Base、连接池、Session 和事务上下文。常驻池大小 `20`，允许临时额外连接 `10`，启用连接预检查。连接池等待、建连及 socket 读写默认均在 8 秒内返回，可通过 `MYSQL_DB_POOL_TIMEOUT_SECONDS`、`MYSQL_DB_CONNECT_TIMEOUT_SECONDS`、`MYSQL_DB_READ_TIMEOUT_SECONDS`、`MYSQL_DB_WRITE_TIMEOUT_SECONDS` 调整；超时会让本次数据库操作失败并释放调用线程，避免检测授权刷新长期阻塞。`core/schema.py` 只读核对实际表结构；CHECK 比较保留字符串值，并识别 MySQL 反射添加的 `_utf8mb4` 字符集前缀，实际约束差异仍阻止启动。`core/cache.py` 缓存摄像头和功能配置，仍直接依赖这些业务模块。
 
 人脸白名单结构检查工具为 [face_person_authorization_20261016.py](migrations/face_person_authorization_20261016.py)，默认只读。应用要求停止数据库写入，并显式提供 `--apply --offline --legacy-department <事业部代码>`；工具从 `AiVision/.env` 读取部署配置。
 
@@ -1202,6 +1202,7 @@ bash scripts/go2rtc_preview.sh status
 | 环境变量 | 用途/默认值 |
 | --- | --- |
 | `MYSQL_DB_URL/PORT/USER/PASSWORD/NAME/CHARSET` | 主业务数据库；`MYSQL_DB_URL` 是主机地址，完整连接串由 Settings 组装 |
+| `MYSQL_DB_POOL_TIMEOUT_SECONDS` / `MYSQL_DB_CONNECT_TIMEOUT_SECONDS` / `MYSQL_DB_READ_TIMEOUT_SECONDS` / `MYSQL_DB_WRITE_TIMEOUT_SECONDS` | 连接池等待、建连、读取和写入超时，默认均为 `8` 秒，范围 `1`～`60` 秒 |
 | `AUTO_CREATE_DB` | 默认 `false`；显式开启时可尝试创建缺失数据库 |
 | `DATA_PATH` | 必填，图片/视频等存储根目录 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `7862` |

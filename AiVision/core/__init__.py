@@ -28,7 +28,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     各字段的 alias 对应环境变量名；子配置通常忽略不属于自身的额外环境配置。
 
     DatabaseSettings / settings.db：数据库开关、主机、端口、账号、密码、库名、字符集，
-        sqlalchemy_url 属性拼出 SQLAlchemy 连接字符串；AUTO_CREATE_DB 控制可选建库。
+        sqlalchemy_url 属性拼出 SQLAlchemy 连接字符串；还统一约束连接池等待、建连、
+        读取和写入超时，AUTO_CREATE_DB 控制可选建库。
     StorageSettings / settings.storage：DATA_PATH、批量写入数量和间隔、媒体保留策略，
         以及告警视频的启用、前后时长、帧率、最大宽度。
     AlarmSettings / settings.alarm：企业微信凭据、卡片站点地址，喇叭 HTTP 超时、
@@ -52,8 +53,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
 三、db.py：共享 ORM 基类、数据库连接池和事务工具
 
     Base：所有本套 AiVision ORM 的声明基类，Base.metadata 汇总已导入的表定义。
-    get_engine()：首次使用时创建 SQLAlchemy Engine，使用连接池、存活检测和回收策略；
-        AUTO_CREATE_DB 开启时先尝试确保目标库存在。
+    get_engine()：首次使用时创建 SQLAlchemy Engine，使用连接池、存活检测、回收策略和
+        有界的连接池/建连/socket 超时；AUTO_CREATE_DB 开启时先尝试确保目标库存在。
     get_session_factory()：缓存 Session 工厂，关闭自动提交和自动 flush，
         expire_on_commit=False 让提交后的 ORM 已加载字段仍可使用。
     get_session()：创建一次 Session，调用方负责关闭；不要跨线程共用同一个 Session。

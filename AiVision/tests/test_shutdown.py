@@ -252,6 +252,89 @@ def test_camera_shutdown_notifies_all_then_reaps_in_parallel(modules, monkeypatc
     assert unregistered == set(runtimes)
 
 
+def test_camera_runtime_event_drain_only_ignores_empty_queue(modules, monkeypatch):
+    _, _, module = modules
+    manager = module.CameraRuntimeManager(SimpleNamespace(Queue=lambda **kwargs: Queue()))
+    reported = Mock()
+    monkeypatch.setattr(module.logger, "exception", reported)
+
+    manager._drain_runtime_events()
+    reported.assert_not_called()
+
+    class BrokenQueue:
+        def get_nowait(self):
+            raise RuntimeError("manager queue disconnected")
+
+    manager._runtime_event_queue = BrokenQueue()
+    manager._drain_runtime_events()
+    reported.assert_called_once()
+    assert "读取摄像头运行事件失败" in reported.call_args.args[0]
+
+
+def test_engine_uses_bounded_pool_and_socket_timeouts(modules, monkeypatch):
+    from AiVision.core import db
+
+    captured = {}
+    engine = object()
+    fake_db = SimpleNamespace(
+        auto_create=False,
+        sqlalchemy_url="mysql+pymysql://test:test@127.0.0.1/test",
+        name="test",
+        url="127.0.0.1",
+        pool_timeout_seconds=7,
+        connect_timeout_seconds=5,
+        read_timeout_seconds=8,
+        write_timeout_seconds=9,
+    )
+
+    def create_engine(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return engine
+
+    monkeypatch.setattr(db, "_engine", None)
+    monkeypatch.setattr(db, "_session_factory", None)
+    monkeypatch.setattr(db, "settings", SimpleNamespace(db=fake_db))
+    monkeypatch.setattr(db, "create_engine", create_engine)
+
+    assert db.get_engine() is engine
+    assert captured["url"] == fake_db.sqlalchemy_url
+    assert captured["pool_timeout"] == 7
+    assert captured["connect_args"] == {"connect_timeout": 5, "read_timeout": 8, "write_timeout": 9}
+
+
+def test_database_bootstrap_engine_uses_socket_timeouts(monkeypatch):
+    from AiVision.core import db
+
+    captured = {}
+    fake_db = SimpleNamespace(
+        name="test",
+        charset="utf8mb4",
+        user="test",
+        password="test",
+        url="127.0.0.1",
+        port=3306,
+        pool_timeout_seconds=7,
+        connect_timeout_seconds=5,
+        read_timeout_seconds=8,
+        write_timeout_seconds=9,
+    )
+
+    def create_engine(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        raise RuntimeError("skip database bootstrap")
+
+    monkeypatch.setattr(db, "settings", SimpleNamespace(db=fake_db))
+    monkeypatch.setattr(db, "create_engine", create_engine)
+
+    with pytest.raises(RuntimeError, match="skip database bootstrap"):
+        db._ensure_database_exists()
+
+    assert captured["pool_timeout"] == 7
+    assert captured["connect_args"] == {"connect_timeout": 5, "read_timeout": 8, "write_timeout": 9}
+
+
 @pytest.mark.parametrize("already_signalled", [False, True])
 @pytest.mark.parametrize("scenario", ["slow_exit", "timeout", "exited", "configured_timeout"])
 def test_stop_script_waits_once_and_preserves_session_on_timeout(already_signalled, scenario):
