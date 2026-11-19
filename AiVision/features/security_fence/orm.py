@@ -16,7 +16,12 @@ class FenceConfigORM(FeatureConfigBase):
     timezone = Column(String(64), nullable=False, default=_DEFAULT.timezone)
     cap_interval = Column(Float, nullable=False, default=_DEFAULT.cap_interval)
     threshold = Column(Float, nullable=False, default=_DEFAULT.threshold)
-    detection_threshold = Column(Float, nullable=False, default=_DEFAULT.detection_threshold)
+    detection_threshold = Column(
+        Float,
+        nullable=False,
+        default=_DEFAULT.detection_threshold,
+        server_default=text(str(_DEFAULT.detection_threshold)),
+    )
     similarity_threshold = Column(Float, nullable=False, default=_DEFAULT.similarity_threshold)
     unknown_similarity_threshold = Column(Float, nullable=False, default=_DEFAULT.unknown_similarity_threshold)
     confirmation_frames = Column(Integer, nullable=False, default=_DEFAULT.confirmation_frames)

@@ -606,7 +606,7 @@ Consumer 统计各摄像头/模型的推理结果、连续失败次数及最近�
 - 已保存的摄像头检测置信度和 NMS 阈值优先于人脸逗留默认值。
 - 检测框交给公共逗留跟踪器，当前可见轨迹达到 `MAX_TIME` 后标记为逗留。
 
-默认参数：`FACE_SCORE_THR=0.5`、`DETECTION_IOU_THR=0.45`、`TRACK_IOU_THR=0.3`、`MAX_LOST=5`、`MAX_TIME=10.0` 秒。
+默认参数：`FACE_SCORE_THR=0.8`、`DETECTION_IOU_THR=0.45`、`TRACK_IOU_THR=0.3`、`MAX_LOST=5`、`MAX_TIME=10.0` 秒。
 
 人脸逗留回答“这个位置上的人脸是否停留过久”；身份信息由 `recognize_face` 单独处理。
 
@@ -702,7 +702,7 @@ ROI → SCRFD 人脸检测及关键点 → 人脸对齐 → 512 维特征
     → 取最高分 → 达到阈值则匹配，否则显示未知人员
 ```
 
-- 检测使用 `det_10g.onnx`，复用人脸逗留的预处理与坐标还原，NMS IoU 为 `0.45`。在线识别（含警戒围栏）使用各摄像头保存的检测置信度，默认 `0.5`。身份特征模型使用 `w600k_r50.onnx`。
+- 检测使用 `det_10g.onnx`，复用人脸逗留的预处理与坐标还原，NMS IoU 为 `0.45`。在线识别（含警戒围栏）使用各摄像头保存的检测置信度，默认 `0.8`。身份特征模型使用 `w600k_r50.onnx`。
 - 本机路径校验要求完整 `buffalo_l` 目录，运行识别主要加载检测和识别模型。
 - 人员索引只加载有效人员、模型名匹配、照片签名仍一致的特征。
 - 索引保存归一化矩阵，使用 `matrix @ vector` 一次计算与所有已索引人员的相似度。
@@ -714,7 +714,7 @@ ROI → SCRFD 人脸检测及关键点 → 人脸对齐 → 512 维特征
 
 | 参数 | 默认值 |
 | --- | --- |
-| `detection_threshold` | `0.5` |
+| `detection_threshold` | `0.8` |
 | `similarity_threshold` | `0.5` |
 | `cap_interval` | `0.5` 秒 |
 | `record_enabled` | `true` |
@@ -1134,6 +1134,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 账号角色结构使用 `python -m AiVision.migrations.department_admin_20261111 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，向 `auth_users.role` 枚举末尾追加 `department_admin`，保留已有枚举顺序、账号、密码与授权。脚本读取 `AiVision/.env`，可重复执行；其他结构差异会明确拒绝，空库由正常启动创建。代码发布不代表现场数据库已执行升级。
 
 人脸逗留要求 MySQL 中 `ai_camera_config_detect_face.DETECTION_IOU_THR` 的列默认值为 `0.45`。已有库若仍为 `0.3`，在启动后端前对部署数据库执行 [人脸检测默认值迁移](migrations/face_detection_iou_20261119.sql)。该 SQL 可重复执行，摄像头检测使用各自已保存的阈值。
+
+使用 `det_10g.onnx` 的人脸逗留、身份识别和警戒围栏默认检测置信度均为 `0.8`。已有库在启动后端前执行 [人脸检测置信度迁移](migrations/face_detection_threshold_20261119.sql)，该 SQL 会统一三项功能所有已保存摄像头配置，并设置后续新记录的列默认值。
 
 - 创建缺失表不代表自动修复所有旧表列结构；核验发现不兼容时应查看明确的迁移流程。
 - [migrations/](migrations/) 包含配置结构、物流功能和人员逗留合并等离线脚本。

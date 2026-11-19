@@ -1,5 +1,5 @@
 """人脸逗留配置持久化，区分检测去重、跨帧匹配与轨迹丢失容忍。"""
-from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON
+from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON, text
 from AiVision.features._shared import defaults
 from AiVision.features._shared.orm import FeatureConfigBase
 from .schema import FaceValueSchema
@@ -16,7 +16,11 @@ class FaceConfigORM(FeatureConfigBase):
     )
 
     roi_pos = Column(JSON, nullable=False, default=list)
-    FACE_SCORE_THR = Column(Float, default=_VALUE_DEFAULTS["FACE_SCORE_THR"])
+    FACE_SCORE_THR = Column(
+        Float,
+        default=_VALUE_DEFAULTS["FACE_SCORE_THR"],
+        server_default=text(str(_VALUE_DEFAULTS["FACE_SCORE_THR"])),
+    )
     # 复用基类的 cap_interval / alarm_interval
     # 跟踪相关字段(从 detect_human 借的设计)
     MAX_TIME = Column(Float, default=defaults.MAX_TIME, comment="逗留时间阈值(秒)")

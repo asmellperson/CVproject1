@@ -191,7 +191,7 @@ CREATE UNIQUE INDEX ix_ai_camera_config_detect_door_camera_id ON ai_camera_confi
 CREATE TABLE ai_camera_config_detect_face (
 	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
-	`FACE_SCORE_THR` FLOAT,
+	`FACE_SCORE_THR` FLOAT DEFAULT 0.8,
 	`MAX_TIME` FLOAT COMMENT '逗留时间阈值(秒)',
 	`DETECTION_IOU_THR` FLOAT NOT NULL DEFAULT '0.45',
 	`TRACK_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
@@ -329,7 +329,7 @@ CREATE TABLE ai_camera_config_recognize_face (
 	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	cap_interval FLOAT NOT NULL,
-	detection_threshold FLOAT NOT NULL DEFAULT 0.5,
+	detection_threshold FLOAT NOT NULL DEFAULT 0.8,
 	similarity_threshold FLOAT NOT NULL,
 	record_cooldown_seconds FLOAT NOT NULL,
 	record_enabled BOOL NOT NULL,
