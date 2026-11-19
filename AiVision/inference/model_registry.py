@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from AiVision.features._shared import defaults
-from AiVision.features.face_recognition.library.constants import DEFAULT_DETECTION_THRESHOLD
+from AiVision.features.face_recognition.library.constants import DEFAULT_DETECTION_THRESHOLD, DEFAULT_NMS_THRESHOLD
 
 from .workers.yolo_detector import YoloDetectorWorker
 from .workers.face_recognizer import FaceRecognizerWorker
@@ -45,8 +45,9 @@ MODEL_SPECS = MappingProxyType({
         ModelSpec("yolo_guard_person_phone", YoloDetectorWorker, "guard_object", (0, 1),
                   class_labels=((0, "person"), (1, "phone"))),
         ModelSpec("insightface_detection", FaceDetectorWorker, "face", conf=defaults.FACE_SCORE_THR,
-                  iou=defaults.DETECTION_IOU_THR, type="insightface_detection"),
-        ModelSpec("insightface", FaceRecognizerWorker, "face_identity", conf=DEFAULT_DETECTION_THRESHOLD, type="insightface"),
+                  iou=defaults.FACE_DETECTION_IOU_THR, type="insightface_detection"),
+        ModelSpec("insightface", FaceRecognizerWorker, "face_identity", conf=DEFAULT_DETECTION_THRESHOLD,
+                  iou=DEFAULT_NMS_THRESHOLD, type="insightface"),
         ModelSpec("guard_uniform", UniformClassifierWorker, "uniform", type="timm_classifier"),
         ModelSpec("yolo_guard_pose", YoloPoseWorker, "pose", type="yolo_pose"),
         ModelSpec("yolo_vehicle", YoloDetectorWorker, "vehicle", (2,)),

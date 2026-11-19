@@ -20,6 +20,6 @@ class FaceConfigORM(FeatureConfigBase):
     # 复用基类的 cap_interval / alarm_interval
     # 跟踪相关字段(从 detect_human 借的设计)
     MAX_TIME = Column(Float, default=defaults.MAX_TIME, comment="逗留时间阈值(秒)")
-    DETECTION_IOU_THR = Column(Float, nullable=False, default=defaults.DETECTION_IOU_THR, server_default=str(defaults.DETECTION_IOU_THR))
+    DETECTION_IOU_THR = Column(Float, nullable=False, default=_VALUE_DEFAULTS["DETECTION_IOU_THR"], server_default=str(_VALUE_DEFAULTS["DETECTION_IOU_THR"]))
     TRACK_IOU_THR = Column(Float, nullable=False, default=defaults.TRACK_IOU_THR, server_default=str(defaults.TRACK_IOU_THR))
     MAX_LOST = Column(Integer, nullable=False, default=defaults.MAX_LOST, server_default=str(defaults.MAX_LOST), comment="允许连续丢失的跟踪更新次数")

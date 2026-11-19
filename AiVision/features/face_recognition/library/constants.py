@@ -3,6 +3,7 @@
 特征生成和在线索引必须使用一致的模型与维度，避免不同向量空间混合比对。
 """
 
+from AiVision.features._shared.defaults import FACE_DETECTION_IOU_THR, FACE_SCORE_THR
 from AiVision.inference.insightface_detector import DETECTION_MODEL_FILE
 
 MODEL_NAME = "buffalo_l"
@@ -15,8 +16,8 @@ MODEL_FILES = (
     "1k3d68.onnx", "2d106det.onnx", DETECTION_MODEL_FILE, "genderage.onnx", RECOGNITION_MODEL_FILE,
 )
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
-DEFAULT_DETECTION_THRESHOLD = 0.5
-DEFAULT_NMS_THRESHOLD = 0.4
+DEFAULT_DETECTION_THRESHOLD = FACE_SCORE_THR
+DEFAULT_NMS_THRESHOLD = FACE_DETECTION_IOU_THR
 DEFAULT_RECORD_COOLDOWN_SECONDS = 30.0
 DEFAULT_CAPTURE_INTERVAL = 0.5
 # 五点几何校验按眼距归一化，避免重合或挤在一起的伪关键点通过对称性检查。

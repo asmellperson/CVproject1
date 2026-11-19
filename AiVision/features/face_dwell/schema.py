@@ -12,7 +12,7 @@ class FaceValueSchema(BaseModel):
     roi_pos: NormalizedRoi = Field(default_factory=list)
     FACE_SCORE_THR: float = Field(defaults.FACE_SCORE_THR, ge=0, le=1)  # InsightFace 检测置信度
     MAX_TIME: float = Field(defaults.MAX_TIME, ge=0)                                    # 同一条人脸跟踪轨迹达到这个逗留时间，并且本次仍匹配到了目标时，进入报警状态
-    DETECTION_IOU_THR: float = Field(defaults.DETECTION_IOU_THR, ge=0, le=1)  # 检测框 NMS 去重 IoU
+    DETECTION_IOU_THR: float = Field(defaults.FACE_DETECTION_IOU_THR, ge=0, le=1)  # 检测框 NMS 去重 IoU
     TRACK_IOU_THR: float = Field(defaults.TRACK_IOU_THR, ge=0, le=1)  # 跨帧跟踪 IoU
     MAX_LOST: int = Field(defaults.MAX_LOST, ge=0)                                         # 默认第六次仍未匹配时删除轨迹
     cap_interval: float = Field(defaults.CAP_INTERVAL, gt=0)

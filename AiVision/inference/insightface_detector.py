@@ -1,16 +1,19 @@
 """本地 InsightFace ONNX 加载与纯人脸检测公共实现。
 
 显式使用可用的 CUDA Execution Provider 并关闭自动回退，避免 GPU 初始化失败被隐藏。
-检测 Session 在调用间复用，每次覆盖分数与 NMS 阈值；不读取人员身份或授权数据。
+检测 Session 在调用间复用，检测与身份识别使用同一套图像预处理。
 """
 from __future__ import annotations
 
 import math
 
+import cv2
 import numpy as np
 
+from AiVision.features._shared.defaults import FACE_DETECTION_IOU_THR, FACE_SCORE_THR
+
 DETECTION_MODEL_FILE = "det_10g.onnx"
-DETECTION_SIZE = 640
+DETECTION_SIZE = 960
 EXECUTION_PROVIDER = "CUDAExecutionProvider"
 
 
@@ -51,16 +54,23 @@ class InsightFaceDetector:
     """复用一个检测 Session，串行处理不同摄像头的 BGR ROI。"""
 
     def __init__(self, model_path: str):
-        """验证检测 ONNX 文件并创建固定输入尺寸的 Session，图像缩放和坐标还原交给 InsightFace。"""
+        """验证检测 ONNX 文件并创建可复用的 Session。"""
         from .model_paths import validate_model_path
 
         path = validate_model_path(model_path, model_type="insightface_detection")
         self.model = load_insightface_model(path, task="detection")
-        # 固定单一尺寸；缩放、补边和坐标还原由 InsightFace 完成。
-        self.model.prepare(ctx_id=0, input_size=(DETECTION_SIZE, DETECTION_SIZE))
+        shape = self.model.session.get_inputs()[0].shape
+        expected = (1, 3, DETECTION_SIZE, DETECTION_SIZE)
+        if len(shape) != len(expected) or any(
+            isinstance(actual, int) and actual != size for actual, size in zip(shape, expected)
+        ):
+            raise ValueError(f"人脸检测 ONNX 必须支持 1×3×{DETECTION_SIZE}×{DETECTION_SIZE} 输入")
 
-    def detect(self, frame: np.ndarray, *, confidence: float, nms_threshold: float):
-        """验证 BGR 三通道图像和有限的 0～1 阈值，逐任务设置分数/NMS 后返回检测框及关键点。
+    def detect(
+        self, frame: np.ndarray, *, confidence: float = FACE_SCORE_THR,
+        nms_threshold: float = FACE_DETECTION_IOU_THR,
+    ):
+        """返回 ROI 坐标系中的人脸框、置信度和五点关键点。
 
         此方法修改共享 Session 参数，应由同一 Worker 串行调用；参数非法时抛出 ValueError。
         """
@@ -69,8 +79,23 @@ class InsightFaceDetector:
         for name, value in (("conf", confidence), ("iou", nms_threshold)):
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(f"{name} 必须是 0～1 的有限数值")
-        # InsightFace 1.0.1 SCRFD.detect/forward/nms 实际读取这两个属性。
-        # 每个任务同时赋值，合法零值不替换，摄像头之间不继承参数。
-        self.model.det_thresh = confidence
+        height, width = frame.shape[:2]
+        longest_side = max(height, width)
+        resized_width = max(1, width * DETECTION_SIZE // longest_side)
+        resized_height = max(1, height * DETECTION_SIZE // longest_side)
+        # forward 统一转 RGB 并归一化。float32 补边保留 127.5 的小数，使归一化结果为零。
+        canvas = np.full((DETECTION_SIZE, DETECTION_SIZE, 3), 127.5, dtype=np.float32)
+        canvas[:resized_height, :resized_width] = cv2.resize(frame, (resized_width, resized_height))
+        scores_by_stride, boxes_by_stride, landmarks_by_stride = self.model.forward(canvas, confidence)
+
+        scores = np.vstack(scores_by_stride)
+        order = scores.ravel().argsort()[::-1]
+        # 整数缩放尺寸可能使横纵比例略有不同，按各自的实际比例恢复。
+        scale = np.array([resized_width / width, resized_height / height], dtype=np.float32)
+        boxes = np.vstack(boxes_by_stride) / np.tile(scale, 2)
+        detections = np.hstack((boxes, scores)).astype(np.float32, copy=False)[order]
+        # 每次设置阈值，摄像头之间不继承参数。
         self.model.nms_thresh = nms_threshold
-        return self.model.detect(frame, max_num=0, metric="default")
+        keep = self.model.nms(detections)
+        landmarks = np.vstack(landmarks_by_stride)[order][keep] / scale if landmarks_by_stride else None
+        return detections[keep], landmarks

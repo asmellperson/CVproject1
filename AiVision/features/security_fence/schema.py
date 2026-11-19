@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from AiVision.features._shared.defaults import FACE_SCORE_THR
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 from AiVision.features._shared.roi import NormalizedRoi
 
@@ -23,7 +24,7 @@ class FenceValue(BaseModel):
     cap_interval: float = Field(0.2, ge=0.1, le=1.0)
     alarm_interval: float = Field(30.0, ge=1)
     threshold: float = Field(0.5, gt=0, le=1)
-    detection_threshold: float = Field(0.7, gt=0, le=1)
+    detection_threshold: float = Field(FACE_SCORE_THR, gt=0, le=1)
     similarity_threshold: float = Field(0.5, gt=0, le=1)
     unknown_similarity_threshold: float = Field(0.3, ge=0, lt=1)
     confirmation_frames: int = Field(3, ge=1, le=10)
